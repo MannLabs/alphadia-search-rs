@@ -5,6 +5,8 @@ use numpy::ndarray::Array1;
 use numpy::PyUntypedArray;
 use numpy::PyArrayMethods;
 
+mod xic_index;
+
 // Core functions that don't depend on Python bindings
 fn add_numbers(a: usize, b: usize) -> String {
     (a + b).to_string()
@@ -54,12 +56,40 @@ impl Raw {
     }
 }
 
+#[pyclass]
+struct SumContainer {
+    data: Array1<f64>,
+}
+
+#[pymethods]
+impl SumContainer {
+    #[new]
+    fn new(arr: &Bound<'_, PyUntypedArray>) -> PyResult<Self> {
+        let array = arr.downcast::<PyArray1<f64>>()?.to_owned();
+        let data = unsafe { array.as_array().to_owned() };
+        Ok(Self { data })
+    }
+
+    fn sum_array(&self) -> f64 {
+        if let Some(slice) = self.data.as_slice() {
+            sum_numpy_array(slice)
+        } else {
+            let mut sum:f64 = 0.0;
+            for i in 0..self.data.len(){
+                sum += self.data[i];
+            }
+            sum
+        }
+    }
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sum_as_string, m)?)?;
     m.add_function(wrap_pyfunction!(sum_array, m)?)?;
     m.add_class::<Raw>()?;
+    m.add_class::<SumContainer>()?;
     Ok(())
 }
 
@@ -84,6 +114,14 @@ mod tests {
         let data = Array1::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
         let raw = Raw { data };
         let result = raw.sum();
+        assert_eq!(result, 15.0);
+    }
+    
+    #[test]
+    fn test_sum_container_impl() {
+        let data = Array1::from(vec![1.0, 2.0, 3.0, 4.0, 5.0]);
+        let container = SumContainer { data };
+        let result = container.sum_array();
         assert_eq!(result, 15.0);
     }
 }

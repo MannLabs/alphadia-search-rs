@@ -19,9 +19,28 @@ pub struct XICIndex {
     pub xic_slices: Vec<XICSlice>,
 }
 
+impl XICIndex {
+    pub fn new(mz_index: Array1<f32>, xic_slices: Vec<XICSlice>) -> Self {
+        Self { mz_index, xic_slices }
+    }
+}
+
 pub struct XICSlice {
     pub rt: Array1<f32>,
     pub intensity: Array1<f32>,
+}
+
+impl XICSlice {
+    pub fn new(rt: Array1<f32>, intensity: Array1<f32>) -> Self {
+        Self { rt, intensity }
+    }
+
+    pub fn empty() -> Self {
+        Self {
+            rt: Array1::from_vec(Vec::new()),
+            intensity: Array1::from_vec(Vec::new()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -32,5 +51,19 @@ mod tests {
     fn test_ppm_index_len() {
         let result = ppm_index(1.0, 100.0, 2000.0);
         assert_eq!(result.len(), 2995974);
+    }
+
+    #[test]
+    fn test_binary_search() {
+        let dia_data = XICIndex::new(
+            vec![100.0, 200.0, 300.0, 400.0, 500.0].into(),
+            vec![
+                XICSlice::empty(),
+                XICSlice::empty(),
+                XICSlice::empty(),
+                XICSlice::empty(),
+                XICSlice::empty(),
+            ],
+        );
     }
 } 

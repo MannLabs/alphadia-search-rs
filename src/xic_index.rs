@@ -1,4 +1,12 @@
 use numpy::ndarray::Array1;
+use rand::Rng;
+use std::collections::HashSet;
+
+const MAX_CYCLE_INDEX: usize = 1000;
+
+pub const RESOLUTION_PPM: f32 = 1.0;
+pub const MZ_START: f32 = 150.0;
+pub const MZ_END: f32 = 2000.0;
 
 pub fn ppm_index(resolution_ppm: f32, mz_start: f32, mz_end: f32) -> Array1<f32> {
     let mz_start_safe = mz_start.max(50.0);
@@ -14,31 +22,96 @@ pub fn ppm_index(resolution_ppm: f32, mz_start: f32, mz_end: f32) -> Array1<f32>
     Array1::from_vec(index)
 }
 
+pub struct MZIndex {
+    pub mz: Array1<f32>,
+}
+
+impl MZIndex {
+    pub fn new() -> Self {
+        Self {
+            mz: ppm_index(RESOLUTION_PPM, MZ_START, MZ_END),
+        }
+    }
+}
+
+
 pub struct XICIndex {
     pub mz_index: Array1<f32>,
     pub xic_slices: Vec<XICSlice>,
 }
 
 impl XICIndex {
+
+    pub fn empty() -> Self {
+        Self {
+            mz_index: Array1::zeros(0),
+            xic_slices: Vec::new(),
+        }
+    }
+
     pub fn new(mz_index: Array1<f32>, xic_slices: Vec<XICSlice>) -> Self {
         Self { mz_index, xic_slices }
     }
+
+    pub fn closest_index(&self, mz: f32) -> Option<usize> {
+        if self.mz_index.is_empty() {
+            return None;
+        }
+
+        match self.mz_index.as_slice().unwrap().binary_search_by(|&x| x.partial_cmp(&mz).unwrap()) {
+            Ok(idx) => Some(idx),
+            Err(idx) => Some(idx)
+        }
+    }
+
 }
 
 pub struct XICSlice {
-    pub rt: Array1<f32>,
-    pub intensity: Array1<f32>,
+    pub cycle_index: Vec<u16>,
+    pub intensity: Vec<f32>,
 }
 
 impl XICSlice {
-    pub fn new(rt: Array1<f32>, intensity: Array1<f32>) -> Self {
-        Self { rt, intensity }
+    pub fn new(cycle_index: Vec<u16>, intensity: Vec<f32>) -> Self {
+        Self { cycle_index, intensity }
     }
 
     pub fn empty() -> Self {
         Self {
-            rt: Array1::from_vec(Vec::new()),
-            intensity: Array1::from_vec(Vec::new()),
+            cycle_index: Vec::new(),
+            intensity: Vec::new(),
+        }
+    }
+
+    /// Creates a new XICSlice with random data for testing purposes.
+    ///
+    /// This function generates a random XICSlice with:
+    /// - Unique cycle indices between 0 and MAX_CYCLE_INDEX (up to 100 indices)
+    /// - Random intensity values between 0.0 and 1.0 for each cycle index
+    /// - Sorted cycle indices in ascending order
+    ///
+    /// # Returns
+    /// A new XICSlice instance with random cycle indices and intensities
+    pub fn random(max_elements: usize) -> Self {
+        let mut unique_cycle_indices = HashSet::new();
+        
+        // Generate unique random cycle indices
+        while unique_cycle_indices.len() < max_elements && unique_cycle_indices.len() < MAX_CYCLE_INDEX {
+            unique_cycle_indices.insert(rand::thread_rng().gen_range(0..MAX_CYCLE_INDEX) as u16);
+        }
+        
+        let mut random_cycle_index: Vec<u16> = unique_cycle_indices.into_iter().collect();
+        random_cycle_index.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let mut random_intensity = Vec::with_capacity(random_cycle_index.len());
+        for _ in 0..random_cycle_index.len() {
+            random_intensity.push(rand::thread_rng().gen_range(0.0..1.0));
+        }
+
+        
+        Self {
+            cycle_index: random_cycle_index,
+            intensity: random_intensity,
         }
     }
 }
@@ -55,15 +128,28 @@ mod tests {
 
     #[test]
     fn test_binary_search() {
+
+        let max_elements = 1000;
+
+
         let dia_data = XICIndex::new(
             vec![100.0, 200.0, 300.0, 400.0, 500.0].into(),
             vec![
-                XICSlice::empty(),
-                XICSlice::empty(),
-                XICSlice::empty(),
-                XICSlice::empty(),
-                XICSlice::empty(),
+                XICSlice::random(max_elements),
+                XICSlice::random(max_elements),
+                XICSlice::random(max_elements),
+                XICSlice::random(max_elements),
+                XICSlice::random(max_elements),
             ],
         );
+
+        // Test exact match
+        assert!(dia_data.closest_index(300.0).is_some());
+        
+        // Test closest value
+        let closest = dia_data.closest_index(350.0).unwrap();
+        assert_eq!(closest, 3);
+
+        
     }
 } 

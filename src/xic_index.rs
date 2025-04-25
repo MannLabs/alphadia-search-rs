@@ -76,7 +76,7 @@ impl MZIndex {
 }
 
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct XICSlice {
     pub cycle_index: Vec<u16>,
     pub intensity: Vec<f32>,

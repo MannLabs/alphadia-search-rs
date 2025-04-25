@@ -113,6 +113,46 @@ struct DIAData {
     quadrupole_observations: Vec<QuadrupoleObservation>,
 }
 
+#[pymethods]
+impl DIAData {
+    #[new]
+    fn new() -> Self {
+        Self {
+            mz_index: MZIndex::new(),
+            quadrupole_observations: Vec::new(),
+        }
+    }
+
+    #[getter]
+    fn num_observations(&self) -> usize {
+        self.quadrupole_observations.len()
+    }
+
+    #[getter]
+    fn num_peaks(&self) -> usize {
+        self.quadrupole_observations.iter().map(|q| q.xic_slices.iter().map(|x| x.cycle_index.len()).sum::<usize>()).sum()
+    }
+}
+
+impl DIAData {
+    fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> Self {
+        let mz_index = MZIndex::new();
+        let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
+        
+        // Parallel iteration over quadrupole observations
+        let quadrupole_observations: Vec<QuadrupoleObservation> = (0..num_quadrupole_observations)
+            .into_par_iter()
+            .map(|i| QuadrupoleObservation::from_alpha_raw(&alpha_raw_view, i, &mz_index))
+            .collect();
+        
+        Self {
+            mz_index,
+            quadrupole_observations,
+        }
+    }
+}
+
+#[derive(Debug)]
 struct QuadrupoleObservation {
     isolation_window: [f32; 2],
     xic_slices: Vec<XICSlice>,
@@ -211,7 +251,7 @@ fn test_xic_index<'py>(
     peak_mz: PyReadonlyArray1<'py, f32>,
     peak_intensity: PyReadonlyArray1<'py, f32>,
     py: Python<'py>
-) -> PyResult<Bound<'py, PyArray1<f32>>> {
+) -> PyResult<DIAData> {
 
     let alpha_raw_view = AlphaRawView::new(
         spectrum_delta_scan_idx.as_array(),
@@ -224,22 +264,8 @@ fn test_xic_index<'py>(
         peak_intensity.as_array(),
     );
 
-    let mz_index = MZIndex::new();
-
-    let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
-    
-    // Set the number of threads for Rayon
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(14)
-        .build_global()
-        .unwrap();
-
-    // Parallel iteration over quadrupole observations
-    (0..num_quadrupole_observations).into_par_iter().for_each(|i| {
-        let quadrupole_observation = QuadrupoleObservation::from_alpha_raw(&alpha_raw_view, i, &mz_index);
-    });
-
-    Ok(PyArray1::zeros(py, [1], true))
+    let dia_data = DIAData::from_alpha_raw(&alpha_raw_view);
+    Ok(dia_data)
 }
 
 /// A Python module implemented in Rust.
@@ -249,6 +275,7 @@ fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(sum_array, m)?)?;
     m.add_class::<Raw>()?;
     m.add_class::<SumContainer>()?;
+    m.add_class::<DIAData>()?;
     m.add_function(wrap_pyfunction!(test_xic_index, m)?)?;
     Ok(())
 }
@@ -283,5 +310,43 @@ mod tests {
         let container = SumContainer { data };
         let result = container.sum_array();
         assert_eq!(result, 15.0);
+    }
+
+    #[test]
+    fn test_quadrupole_observation() {
+        // Create a new MZIndex
+        let mz_index = MZIndex::new();
+        
+        // Create a new QuadrupoleObservation
+        let mut quad_obs = QuadrupoleObservation::new(&mz_index);
+        
+        // Test initial state
+        assert_eq!(quad_obs.isolation_window, [0.0, 0.0]);
+        assert_eq!(quad_obs.xic_slices.len(), mz_index.len());
+        
+        // Add some test peaks
+        let test_mz = 500.0; // Example m/z value
+        let test_intensity = 1000.0;
+        let test_cycle_idx = 1;
+        
+        quad_obs.add_peak(test_mz, test_intensity, test_cycle_idx, &mz_index);
+        
+        // Find the closest index for our test m/z
+        let closest_idx = mz_index.find_closest_index(test_mz);
+        
+        // Verify the peak was added to the correct XIC slice
+        assert_eq!(quad_obs.xic_slices[closest_idx].cycle_index.len(), 1);
+        assert_eq!(quad_obs.xic_slices[closest_idx].intensity.len(), 1);
+        assert_eq!(quad_obs.xic_slices[closest_idx].cycle_index[0], test_cycle_idx);
+        assert_eq!(quad_obs.xic_slices[closest_idx].intensity[0], test_intensity);
+        
+        // Add another peak to the same m/z bin
+        quad_obs.add_peak(test_mz, test_intensity * 2.0, test_cycle_idx + 1, &mz_index);
+        
+        // Verify both peaks are in the same XIC slice
+        assert_eq!(quad_obs.xic_slices[closest_idx].cycle_index.len(), 2);
+        assert_eq!(quad_obs.xic_slices[closest_idx].intensity.len(), 2);
+        assert_eq!(quad_obs.xic_slices[closest_idx].cycle_index[1], test_cycle_idx + 1);
+        assert_eq!(quad_obs.xic_slices[closest_idx].intensity[1], test_intensity * 2.0);
     }
 }

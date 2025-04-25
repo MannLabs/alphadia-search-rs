@@ -1,4 +1,5 @@
 use std::iter::zip;
+use rayon::prelude::*;
 
 use pyo3::prelude::*;
 use pyo3::{Python, PyErr};
@@ -118,35 +119,57 @@ struct QuadrupoleObservation {
 }
 
 impl QuadrupoleObservation {
-    fn from_alpha_raw(alpha_raw_view: &AlphaRawView, delta_scan_idx: i64, mz_index: &MZIndex) -> Self {
-        let xic_slices = vec![XICSlice::empty(); mz_index.len()];
-        let mut isolation_window: [f32; 2] = [0.0, 0.0];
+    fn new(mz_index: &MZIndex) -> Self {
+        Self {
+            isolation_window: [0.0, 0.0],
+            xic_slices: vec![XICSlice::empty(); mz_index.len()],
+        }
+    }
 
-        let num_scans = alpha_raw_view.spectrum_delta_scan_idx.len();
+    fn add_peak(&mut self, mz: f32, intensity: f32, cycle_idx: u16, mz_index: &MZIndex) {
+        let closest_idx = mz_index.find_closest_index(mz);
+        self.xic_slices[closest_idx].cycle_index.push(cycle_idx);
+        self.xic_slices[closest_idx].intensity.push(intensity);
+    }
+
+    fn from_alpha_raw(alpha_raw_view: &AlphaRawView, delta_scan_idx: i64, mz_index: &MZIndex) -> Self {
+        let mut quad_obs = Self::new(mz_index);
         let mut num_valid_scans = 0;
+        let mut num_peaks = 0;
         
         // Find the first valid scan to get isolation window
-        for i in 0..num_scans {
+        for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
             if alpha_raw_view.spectrum_delta_scan_idx[i] == delta_scan_idx {
                 if num_valid_scans == 0 {
                     // Set isolation window from the first valid scan
-                    isolation_window = [
+                    quad_obs.isolation_window = [
                         alpha_raw_view.isolation_lower_mz[i],
                         alpha_raw_view.isolation_upper_mz[i]
                     ];
+                }
+
+                // Get the peak indices for this scan
+                let peak_start_idx = alpha_raw_view.spectrum_peak_start_idx[i] as usize;
+                let peak_stop_idx = alpha_raw_view.spectrum_peak_stop_idx[i] as usize;
+                let cycle_idx = alpha_raw_view.spectrum_cycle_idx[i] as u16;
+
+                // Get the mz and intensity slices for this scan
+                let mz_slice = alpha_raw_view.peak_mz.slice(s![peak_start_idx..peak_stop_idx]);
+                let intensity_slice = alpha_raw_view.peak_intensity.slice(s![peak_start_idx..peak_stop_idx]);
+
+                // Add each peak to the appropriate XIC slice
+                for (mz_val, intensity_val) in zip(mz_slice.iter(), intensity_slice.iter()) {
+                    quad_obs.add_peak(*mz_val, *intensity_val, cycle_idx, mz_index);
+                    num_peaks += 1;
                 }
 
                 num_valid_scans += 1;
             }
         }
 
+        println!("Quadrupole observation idx: {}, Cycles: {}, Peaks: {}", delta_scan_idx, num_valid_scans, num_peaks);
 
-        println!("Quadrupole observation idx: {}, Number of valid scans: {}", delta_scan_idx, num_valid_scans);
-
-        Self {
-            isolation_window,
-            xic_slices,
-        }
+        quad_obs
     }
 }
 
@@ -204,69 +227,18 @@ fn test_xic_index<'py>(
     let mz_index = MZIndex::new();
 
     let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
-    for i in 0..num_quadrupole_observations {
+    
+    // Set the number of threads for Rayon
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(14)
+        .build_global()
+        .unwrap();
+
+    // Parallel iteration over quadrupole observations
+    (0..num_quadrupole_observations).into_par_iter().for_each(|i| {
         let quadrupole_observation = QuadrupoleObservation::from_alpha_raw(&alpha_raw_view, i, &mz_index);
-    }
+    });
 
-    // check all arrays have the same length
-    
-    /* 
-    let mz_index = ppm_index(RESOLUTION_PPM, MZ_START, MZ_END);
-
-    // Pre-allocate XIC slices with estimated capacity
-    let estimated_peaks_per_slice = peak_start_idx.len() / mz_index.len();
-    let mut xic_slices: Vec<XICSlice> = Vec::with_capacity(mz_index.len());
-    for _ in 0..mz_index.len() {
-        let mut slice = XICSlice::empty();
-        slice.cycle_index.reserve(estimated_peaks_per_slice);
-        slice.intensity.reserve(estimated_peaks_per_slice);
-        xic_slices.push(slice);
-    }
-
-    let mut dia_data = XICIndex::new(
-        mz_index,
-        xic_slices
-    );
-
-    let start_time = Instant::now();
-
-    for i in 0..peak_start_idx.len() {
-        let peak_start_idx = peak_start_idx[i] as usize;
-        let peak_stop_idx = peak_stop_idx[i] as usize;
-        let cycle_idx = cycle_idx[i] as usize;
-
-        // Use array views instead of converting to vectors
-        let mz_slice = peak_mz.slice(s![peak_start_idx..peak_stop_idx]);
-        let intensity_slice = peak_intensity.slice(s![peak_start_idx..peak_stop_idx]);
-    
-        for (mz_val, intensity_val) in zip(mz_slice.iter(), intensity_slice.iter()) {
-            let target_xic_idx = dia_data.closest_index(*mz_val).unwrap();
-            dia_data.xic_slices[target_xic_idx].cycle_index.push(cycle_val as u16);
-            dia_data.xic_slices[target_xic_idx].intensity.push(*intensity_val);
-        }
-    }
-
-    let end_time = Instant::now();
-    let duration = end_time.duration_since(start_time);
-    println!("Time taken: {:?}", duration);
-
-    // calculate total number of peaks
-    let mut total_peaks = 0;
-    for xic_slice in dia_data.xic_slices.iter() {
-        total_peaks += xic_slice.cycle_index.len();
-    }
-
-    println!("Total number of peaks: {}", total_peaks);
-
-    let mut hist = Array1::zeros(dia_data.xic_slices.len());
-    for i in 0..dia_data.xic_slices.len() {
-        hist[i] = dia_data.xic_slices[i].cycle_index.len() as f32;
-    }
-
-    let hist_array = PyArray1::from_vec(py, hist.to_vec());
-    
-    Ok(hist_array)
-    */
     Ok(PyArray1::zeros(py, [1], true))
 }
 

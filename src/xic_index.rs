@@ -36,6 +36,43 @@ impl MZIndex {
     pub fn len(&self) -> usize {
         self.mz.len()
     }
+
+    pub fn find_closest_index(&self, mz: f32) -> usize {
+        let mut left = 0;
+        let mut right = self.mz.len();
+        
+        while left < right {
+            let mid = left + (right - left) / 2;
+            
+            if self.mz[mid] == mz {
+                return mid;
+            }
+            
+            if self.mz[mid] < mz {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        
+        // After the loop, left is the insertion point
+        // We need to check which of the adjacent indices is closer
+        if left == 0 {
+            return 0;
+        }
+        if left == self.mz.len() {
+            return self.mz.len() - 1;
+        }
+        
+        let left_diff = (self.mz[left] - mz).abs();
+        let right_diff = (self.mz[left - 1] - mz).abs();
+        
+        if left_diff < right_diff {
+            left
+        } else {
+            left - 1
+        }
+    }
 }
 
 
@@ -100,30 +137,46 @@ mod tests {
         assert_eq!(result.len(), 2995974);
     }
 
-    #[test]
-    fn test_binary_search() {
+    mod find_closest_index_tests {
+        use super::*;
 
-        let max_elements = 1000;
+        #[test]
+        fn exact_match() {
+            let mz_index = MZIndex::new();
+            let mz = mz_index.mz[100];
+            assert_eq!(mz_index.find_closest_index(mz), 100);
+        }
 
+        #[test]
+        fn between_values() {
+            let mz_index = MZIndex::new();
+            let mz_between = (mz_index.mz[100] + mz_index.mz[101]) / 2.0;
+            let closest = mz_index.find_closest_index(mz_between);
+            assert!(closest == 100 || closest == 101);
+        }
 
-        let dia_data = XICIndex::new(
-            vec![100.0, 200.0, 300.0, 400.0, 500.0].into(),
-            vec![
-                XICSlice::random(max_elements),
-                XICSlice::random(max_elements),
-                XICSlice::random(max_elements),
-                XICSlice::random(max_elements),
-                XICSlice::random(max_elements),
-            ],
-        );
+        #[test]
+        fn below_range() {
+            let mz_index = MZIndex::new();
+            assert_eq!(mz_index.find_closest_index(0.0), 0);
+        }
 
-        // Test exact match
-        assert!(dia_data.closest_index(300.0).is_some());
-        
-        // Test closest value
-        let closest = dia_data.closest_index(350.0).unwrap();
-        assert_eq!(closest, 3);
+        #[test]
+        fn above_range() {
+            let mz_index = MZIndex::new();
+            assert_eq!(mz_index.find_closest_index(3000.0), mz_index.len() - 1);
+        }
 
-        
+        #[test]
+        fn first_element() {
+            let mz_index = MZIndex::new();
+            assert_eq!(mz_index.find_closest_index(mz_index.mz[0]), 0);
+        }
+
+        #[test]
+        fn last_element() {
+            let mz_index = MZIndex::new();
+            assert_eq!(mz_index.find_closest_index(mz_index.mz[mz_index.len() - 1]), mz_index.len() - 1);
+        }
     }
 } 

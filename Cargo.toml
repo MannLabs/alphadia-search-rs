@@ -12,3 +12,4 @@ crate-type = ["cdylib"]
 pyo3 = "0.23.3"
 numpy = "0.23"
 rand = "0.8.5"
+rayon = "1.8"

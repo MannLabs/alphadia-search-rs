@@ -32,40 +32,14 @@ impl MZIndex {
             mz: ppm_index(RESOLUTION_PPM, MZ_START, MZ_END),
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.mz.len()
+    }
 }
 
 
-pub struct XICIndex {
-    pub mz_index: Array1<f32>,
-    pub xic_slices: Vec<XICSlice>,
-}
-
-impl XICIndex {
-
-    pub fn empty() -> Self {
-        Self {
-            mz_index: Array1::zeros(0),
-            xic_slices: Vec::new(),
-        }
-    }
-
-    pub fn new(mz_index: Array1<f32>, xic_slices: Vec<XICSlice>) -> Self {
-        Self { mz_index, xic_slices }
-    }
-
-    pub fn closest_index(&self, mz: f32) -> Option<usize> {
-        if self.mz_index.is_empty() {
-            return None;
-        }
-
-        match self.mz_index.as_slice().unwrap().binary_search_by(|&x| x.partial_cmp(&mz).unwrap()) {
-            Ok(idx) => Some(idx),
-            Err(idx) => Some(idx)
-        }
-    }
-
-}
-
+#[derive(Clone)]
 pub struct XICSlice {
     pub cycle_index: Vec<u16>,
     pub intensity: Vec<f32>,

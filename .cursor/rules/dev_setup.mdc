@@ -1,0 +1,35 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Load Raw Data Processing Rules
+
+This document describes the rules for running the `load_raw.py` script to test processing
+
+## Prerequisites
+
+- Conda environment named 'alpha' must be available
+- Maturin must be installed for building Rust extensions
+- Required Python packages must be installed in the conda environment
+
+## Execution Steps
+
+1. Activate the conda environment:
+   ```bash
+   conda activate alpha
+   ```
+
+2. Build the Rust extension:
+   ```bash
+   maturin develop
+   ```
+
+3. Run the Python script with the HDF file:
+   ```bash
+   python scripts/load_raw.py '/Users/georgwallmann/Documents/data/alphadia_tutorials/libfree-gui/raw_data/20231024_OA3_TiHe_ADIAMA_HeLa_200ng_Evo01_21min_F-40_iO_before_03.hdf'
+   ```
+
+## Output
+
+The script will process the HDF file and generate an XIC index histogram. Progress will be logged to the console. 

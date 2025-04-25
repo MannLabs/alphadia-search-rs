@@ -10,9 +10,9 @@ use numpy::ndarray::s;
 use numpy::PyUntypedArray;
 use numpy::PyArrayMethods;
 use std::time::Instant;
+use numpy::ndarray::{ArrayView1, ArrayViewMut1, ArrayBase, ViewRepr, Dim};
 
 mod xic_index;
-use xic_index::XICIndex;
 use xic_index::XICSlice;
 use xic_index::ppm_index;
 use xic_index::RESOLUTION_PPM;
@@ -69,6 +69,87 @@ impl Raw {
     }
 }
 
+struct AlphaRawView<'py> {
+    spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+    spectrum_peak_start_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+    spectrum_peak_stop_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+    spectrum_cycle_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+    isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    isolation_upper_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+}
+
+impl<'py> AlphaRawView<'py> {
+    fn new(
+        spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+        isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        isolation_upper_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        spectrum_peak_start_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+        spectrum_peak_stop_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+        spectrum_cycle_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
+        peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    ) -> Self {
+        Self {
+            spectrum_delta_scan_idx,
+            spectrum_peak_start_idx,
+            spectrum_peak_stop_idx,
+            spectrum_cycle_idx,
+            isolation_lower_mz,
+            isolation_upper_mz,
+            peak_mz,
+            peak_intensity,
+        }
+    }
+}
+
+
+#[pyclass]
+struct DIAData {
+    mz_index: MZIndex,
+    //rt_index: RTIndex,
+    quadrupole_observations: Vec<QuadrupoleObservation>,
+}
+
+struct QuadrupoleObservation {
+    isolation_window: [f32; 2],
+    xic_slices: Vec<XICSlice>,
+}
+
+impl QuadrupoleObservation {
+    fn from_alpha_raw(alpha_raw_view: &AlphaRawView, delta_scan_idx: i64, mz_index: &MZIndex) -> Self {
+        let xic_slices = vec![XICSlice::empty(); mz_index.len()];
+        let mut isolation_window: [f32; 2] = [0.0, 0.0];
+
+        let num_scans = alpha_raw_view.spectrum_delta_scan_idx.len();
+        let mut num_valid_scans = 0;
+        
+        // Find the first valid scan to get isolation window
+        for i in 0..num_scans {
+            if alpha_raw_view.spectrum_delta_scan_idx[i] == delta_scan_idx {
+                if num_valid_scans == 0 {
+                    // Set isolation window from the first valid scan
+                    isolation_window = [
+                        alpha_raw_view.isolation_lower_mz[i],
+                        alpha_raw_view.isolation_upper_mz[i]
+                    ];
+                }
+
+                num_valid_scans += 1;
+            }
+        }
+
+
+        println!("Quadrupole observation idx: {}, Number of valid scans: {}", delta_scan_idx, num_valid_scans);
+
+        Self {
+            isolation_window,
+            xic_slices,
+        }
+    }
+}
+
 #[pyclass]
 struct SumContainer {
     data: Array1<f64>,
@@ -98,29 +179,42 @@ impl SumContainer {
 
 #[pyfunction]
 fn test_xic_index<'py>(
-    peak_start_idx: PyReadonlyArray1<'py, i64>,
-    peak_stop_idx: PyReadonlyArray1<'py, i64>,
-    cycle_idx: PyReadonlyArray1<'py, i64>,
-    mz: PyReadonlyArray1<'py, f32>,
-    intensity: PyReadonlyArray1<'py, f32>,
+    spectrum_delta_scan_idx: PyReadonlyArray1<'py, i64>,
+    isolation_lower_mz: PyReadonlyArray1<'py, f32>,
+    isolation_upper_mz: PyReadonlyArray1<'py, f32>,
+    spectrum_peak_start_idx: PyReadonlyArray1<'py, i64>,
+    spectrum_peak_stop_idx: PyReadonlyArray1<'py, i64>,
+    spectrum_cycle_idx: PyReadonlyArray1<'py, i64>,
+    peak_mz: PyReadonlyArray1<'py, f32>,
+    peak_intensity: PyReadonlyArray1<'py, f32>,
     py: Python<'py>
 ) -> PyResult<Bound<'py, PyArray1<f32>>> {
-    // Convert numpy arrays to slices for direct access
-    let peak_start = peak_start_idx.as_array();
-    let peak_stop = peak_stop_idx.as_array();
-    let cycle = cycle_idx.as_array();
-    let mz_array = mz.as_array();
-    let intensity_array = intensity.as_array();
 
-    // check all arrays have the same length
-    if peak_start.len() != peak_stop.len() || peak_start.len() != cycle.len() {
-        return Err(PyValueError::new_err("All arrays must have the same length"));
+    let alpha_raw_view = AlphaRawView::new(
+        spectrum_delta_scan_idx.as_array(),
+        isolation_lower_mz.as_array(),
+        isolation_upper_mz.as_array(),
+        spectrum_peak_start_idx.as_array(),
+        spectrum_peak_stop_idx.as_array(),
+        spectrum_cycle_idx.as_array(),
+        peak_mz.as_array(),
+        peak_intensity.as_array(),
+    );
+
+    let mz_index = MZIndex::new();
+
+    let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
+    for i in 0..num_quadrupole_observations {
+        let quadrupole_observation = QuadrupoleObservation::from_alpha_raw(&alpha_raw_view, i, &mz_index);
     }
 
+    // check all arrays have the same length
+    
+    /* 
     let mz_index = ppm_index(RESOLUTION_PPM, MZ_START, MZ_END);
 
     // Pre-allocate XIC slices with estimated capacity
-    let estimated_peaks_per_slice = peak_start.len() / mz_index.len();
+    let estimated_peaks_per_slice = peak_start_idx.len() / mz_index.len();
     let mut xic_slices: Vec<XICSlice> = Vec::with_capacity(mz_index.len());
     for _ in 0..mz_index.len() {
         let mut slice = XICSlice::empty();
@@ -136,14 +230,14 @@ fn test_xic_index<'py>(
 
     let start_time = Instant::now();
 
-    for i in 0..peak_start.len() {
-        let peak_start_idx = peak_start[i] as usize;
-        let peak_stop_idx = peak_stop[i] as usize;
-        let cycle_val = cycle[i] as usize;
+    for i in 0..peak_start_idx.len() {
+        let peak_start_idx = peak_start_idx[i] as usize;
+        let peak_stop_idx = peak_stop_idx[i] as usize;
+        let cycle_idx = cycle_idx[i] as usize;
 
         // Use array views instead of converting to vectors
-        let mz_slice = mz_array.slice(s![peak_start_idx..peak_stop_idx]);
-        let intensity_slice = intensity_array.slice(s![peak_start_idx..peak_stop_idx]);
+        let mz_slice = peak_mz.slice(s![peak_start_idx..peak_stop_idx]);
+        let intensity_slice = peak_intensity.slice(s![peak_start_idx..peak_stop_idx]);
     
         for (mz_val, intensity_val) in zip(mz_slice.iter(), intensity_slice.iter()) {
             let target_xic_idx = dia_data.closest_index(*mz_val).unwrap();
@@ -172,6 +266,8 @@ fn test_xic_index<'py>(
     let hist_array = PyArray1::from_vec(py, hist.to_vec());
     
     Ok(hist_array)
+    */
+    Ok(PyArray1::zeros(py, [1], true))
 }
 
 /// A Python module implemented in Rust.

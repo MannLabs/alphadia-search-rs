@@ -12,12 +12,22 @@ checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 name = "alpha-rs"
 version = "0.1.0"
 dependencies = [
+ "approx",
  "ndarray-npy",
  "num_cpus",
  "numpy",
  "pyo3",
  "rand",
  "rayon",
+]
+
+[[package]]
+name = "approx"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f2a05fd1bd10b2527e20a2cd32d8873d115b8b39fe219ee25f42a8aca6ba278"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]

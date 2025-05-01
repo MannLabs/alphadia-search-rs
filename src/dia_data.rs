@@ -1,122 +1,194 @@
 use pyo3::prelude::*;
-use numpy::ndarray::{ArrayBase, ViewRepr, Dim};
-use numpy::PyReadonlyArray1;
+use numpy::ndarray::{Array1, Array2};
+use std::time::Instant;
+use std::cmp::min;
 use rayon::prelude::*;
-use crate::xic_index::MZIndex;
+
+use crate::mz_index::MZIndex;
+use crate::rt_index::RTIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
-use crate::AlphaRawView;
+use crate::SpecLibFlat;
+use crate::kernel::GaussianKernel;
+use crate::benchmark::benchmark_nonpadded_symmetric_simd;
+
+use std::fs::File;
+use ndarray_npy::NpzWriter;
+
+const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
+
+#[pyclass]
+pub struct PeakGroupScoring {
+    kernel: GaussianKernel,
+}
+
+#[pymethods]
+impl PeakGroupScoring {
+    #[new]
+    pub fn new(fwhm_rt: f32, kernel_size: usize) -> Self {
+        Self {
+            kernel: GaussianKernel::new(
+                fwhm_rt,
+                1.0, // sigma_scale_rt
+                kernel_size,
+                1.0, // rt_resolution
+            ),
+        }
+    }
+
+    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat, mass_tolerance: f32) -> PyResult<()> {
+        let max_precursor_idx = min(10_000_000, lib.num_precursors());
+
+        // store kernel to tmp file as npz
+        let kernel_path = format!("{}/kernel.npz", TMP_PATH);
+        let file = File::create(kernel_path).unwrap();
+        let mut npz: NpzWriter<File> = NpzWriter::new(file);
+        npz.add_array("kernel", &self.kernel.kernel_array).unwrap();
+        npz.finish().unwrap();
+
+        let start_time = Instant::now();
+        // Parallel iteration over precursor indices
+        (0..max_precursor_idx).into_par_iter()
+            .for_each(|i| {
+                let (precursor_mz, fragment_mz, fragment_intensity) = lib.get_precursor(i);
+                self.search_precursor(
+                    dia_data,
+                    precursor_mz,
+                    fragment_mz,
+                    fragment_intensity,
+                    lib,
+                    mass_tolerance
+                );
+            });
+        let end_time = Instant::now();
+        let duration = end_time.duration_since(start_time);
+
+        let precursors_per_second = max_precursor_idx as f32 / duration.as_secs_f32();
+        println!("Precursors per second: {:?}", precursors_per_second);
+
+        Ok(())
+    }
+
+    pub fn search_precursor(
+        &self,
+        dia_data: &DIAData,
+        precursor_mz: f32,
+        fragment_mz: Vec<f32>,
+        fragment_intensity: Vec<f32>,
+        lib: &SpecLibFlat,
+        mass_tolerance: f32
+    ) {
+        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
+
+        let mut dense_xic: Array2<f32> = Array2::zeros((fragment_mz.len(), dia_data.rt_index.rt.len()));
+
+        for obs_idx in valid_obs_idxs {
+            let obs = &dia_data.quadrupole_observations[obs_idx];
+
+            for (f_idx, f_mz) in fragment_mz.iter().enumerate() {
+                obs.fill_xic_slice(
+                    &dia_data.mz_index, 
+                    &mut dense_xic.row_mut(f_idx), 
+                    mass_tolerance,
+                    *f_mz
+                );
+            }
+
+            let convolved_xic = benchmark_nonpadded_symmetric_simd(&self.kernel, &dense_xic);
+
+
+
+            // We can now use self.kernel for peak scoring here
+            // Example: apply 1D RT kernel to each row of dense_xic
+            
+            /*
+            let path = "/Users/georgwallmann/Documents/data/alpha-rs/dense_xic.npz";
+            let file = File::create(path).unwrap();
+            let mut npz: NpzWriter<File> = NpzWriter::new(file);
+            npz.add_array("dense_xic", &convolved_xic).unwrap();
+            npz.finish().unwrap();
+            */
+            
+
+            //let xic = &obs.xic_slices;
+            //let xic_slice = xic.get_xic_slice(precursor_mz);
+        }
+    }
+}
+
+// Regular Rust implementation without PyO3 exposure
+impl PeakGroupScoring {
+    /// Applies a padded convolution to the input XIC data using the Gaussian kernel
+    /// The padding handles edge effects by extending the data at boundaries
+    fn padded_convolution(&self, xic: &Array2<f32>) -> Array2<f32> {
+        let (n_fragments, n_points) = xic.dim();
+        let kernel_size = self.kernel.kernel_array.len();
+        let half_kernel = kernel_size / 2;
+        
+        // Create output array with same dimensions
+        let mut convolved = Array2::zeros((n_fragments, n_points));
+        
+        // Process each fragment
+        for f_idx in 0..n_fragments {
+            let xic_row = xic.row(f_idx);
+            let mut conv_row = convolved.row_mut(f_idx);
+            
+            // Apply convolution with padding for each point
+            for i in 0..n_points {
+                let mut sum = 0.0;
+                
+                for k in 0..kernel_size {
+                    let idx = i as isize + (k as isize - half_kernel as isize);
+                    let value = if idx < 0 {
+                        // Left padding: mirror or use first value
+                        xic_row[0]
+                    } else if idx >= n_points as isize {
+                        // Right padding: mirror or use last value
+                        xic_row[n_points - 1]
+                    } else {
+                        xic_row[idx as usize]
+                    };
+                    
+                    sum += value * self.kernel.kernel_array[k];
+                }
+                
+                conv_row[i] = sum;
+            }
+        }
+        
+        convolved
+    }
+}
 
 #[pyclass]
 pub struct DIAData {
-    mz_index: MZIndex,
-    //rt_index: RTIndex,
-    quadrupole_observations: Vec<QuadrupoleObservation>,
+    pub mz_index: MZIndex,
+    pub rt_index: RTIndex,
+    pub quadrupole_observations: Vec<QuadrupoleObservation>,
 }
 
 #[pymethods]
 impl DIAData {
     #[new]
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             mz_index: MZIndex::new(),
+            rt_index: RTIndex::new(),
             quadrupole_observations: Vec::new(),
         }
     }
 
     #[getter]
-    fn num_observations(&self) -> usize {
+    pub fn num_observations(&self) -> usize {
         self.quadrupole_observations.len()
     }
 
-    #[getter]
-    fn num_peaks(&self) -> usize {
-        self.quadrupole_observations.iter().map(|q| q.xic_slices.iter().map(|x| x.cycle_index.len()).sum::<usize>()).sum()
-    }
-
-    fn from_alpha_raw<'py>(
-        &mut self,
-        spectrum_delta_scan_idx: PyReadonlyArray1<'py, i64>,
-        isolation_lower_mz: PyReadonlyArray1<'py, f32>,
-        isolation_upper_mz: PyReadonlyArray1<'py, f32>,
-        spectrum_peak_start_idx: PyReadonlyArray1<'py, i64>,
-        spectrum_peak_stop_idx: PyReadonlyArray1<'py, i64>,
-        spectrum_cycle_idx: PyReadonlyArray1<'py, i64>,
-        peak_mz: PyReadonlyArray1<'py, f32>,
-        peak_intensity: PyReadonlyArray1<'py, f32>,
-    ) -> PyResult<()> {
-        let alpha_raw_view = AlphaRawView::new(
-            spectrum_delta_scan_idx.as_array(),
-            isolation_lower_mz.as_array(),
-            isolation_upper_mz.as_array(),
-            spectrum_peak_start_idx.as_array(),
-            spectrum_peak_stop_idx.as_array(),
-            spectrum_cycle_idx.as_array(),
-            peak_mz.as_array(),
-            peak_intensity.as_array(),
-        );
-
-        let dia_data = Self::from_alpha_raw_internal(&alpha_raw_view);
-        self.mz_index = dia_data.mz_index;
-        self.quadrupole_observations = dia_data.quadrupole_observations;
-        Ok(())
-    }
-}
-
-impl DIAData {
-    pub fn from_alpha_raw_internal(alpha_raw_view: &AlphaRawView) -> Self {
-        let mz_index = MZIndex::new();
-        let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
-        
-        // Parallel iteration over quadrupole observations
-        let quadrupole_observations: Vec<QuadrupoleObservation> = (0..num_quadrupole_observations)
-            .into_par_iter()
-            .map(|i| QuadrupoleObservation::from_alpha_raw(&alpha_raw_view, i, &mz_index))
-            .collect();
-        
-        Self {
-            mz_index,
-            quadrupole_observations,
+    pub fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
+        let mut valid_observations = Vec::new();
+        for (i, obs) in self.quadrupole_observations.iter().enumerate() {
+            if obs.isolation_window[0] <= precursor_mz && obs.isolation_window[1] >= precursor_mz {
+                valid_observations.push(i);
+            }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::ndarray::Array1;
-    use numpy::ndarray::array;
-
-    #[test]
-    fn test_dia_data_new() {
-        let dia_data = DIAData::new();
-        assert_eq!(dia_data.num_observations(), 0);
-        assert_eq!(dia_data.num_peaks(), 0);
-    }
-
-    #[test]
-    fn test_dia_data_from_alpha_raw() {
-        // Create test data
-        let spectrum_delta_scan_idx = array![0, 0, 1, 1];
-        let isolation_lower_mz = array![100.0, 100.0, 200.0, 200.0];
-        let isolation_upper_mz = array![200.0, 200.0, 300.0, 300.0];
-        let spectrum_peak_start_idx = array![0, 2, 0, 2];
-        let spectrum_peak_stop_idx = array![2, 4, 2, 4];
-        let spectrum_cycle_idx = array![0, 0, 1, 1];
-        let peak_mz = array![150.0, 250.0, 150.0, 250.0];
-        let peak_intensity = array![1.0, 2.0, 3.0, 4.0];
-
-        let alpha_raw_view = AlphaRawView::new(
-            spectrum_delta_scan_idx.view(),
-            isolation_lower_mz.view(),
-            isolation_upper_mz.view(),
-            spectrum_peak_start_idx.view(),
-            spectrum_peak_stop_idx.view(),
-            spectrum_cycle_idx.view(),
-            peak_mz.view(),
-            peak_intensity.view(),
-        );
-
-        let dia_data = DIAData::from_alpha_raw_internal(&alpha_raw_view);
-        assert_eq!(dia_data.num_observations(), 2); // Two unique delta scan indices
+        valid_observations
     }
 } 

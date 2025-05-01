@@ -10,46 +10,29 @@ use numpy::ndarray::s;
 use numpy::ndarray::{ArrayBase, ViewRepr, Dim, Array1, Array2};
 use numpy::PyArray1;
 use std::time::Instant;
-mod xic_index;
+
+
+mod xic_slice;
 mod quadrupole_observation;
-use xic_index::XICSlice;
-use xic_index::ppm_index;
-use xic_index::RESOLUTION_PPM;
-use xic_index::MZ_START;
-use xic_index::MZ_END;
-use xic_index::MZIndex;
+mod rt_index;
+mod mz_index;
+mod dia_data_builder;
+mod dia_data;
+mod kernel;
+mod benchmark;
+
+
+use mz_index::{ppm_index, RESOLUTION_PPM, MZ_START, MZ_END, MZIndex};
 use quadrupole_observation::QuadrupoleObservation;
+use rt_index::RTIndex;
+use dia_data_builder::DIADataBuilder;
+use dia_data::{DIAData, PeakGroupScoring};
+pub use kernel::GaussianKernel;
 
 
 use ndarray_npy::NpzWriter;
 use std::fs::File;
-
-pub struct RTIndex {
-    pub rt: Array1<f32>,
-}
-
-impl RTIndex {
-    pub fn new() -> Self {
-        Self {
-            rt: Array1::from_vec(Vec::new()),
-        }
-    }
-
-    pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> Self {
-
-        let mut rt = Vec::new();
-
-        for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
-            if alpha_raw_view.spectrum_delta_scan_idx[i] == 0 {
-                rt.push(alpha_raw_view.spectrum_rt[i]);
-            }
-        }
-
-        Self {
-            rt: Array1::from_vec(rt),
-        }
-    }
-}
+use rand::prelude::*;
 
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
@@ -89,127 +72,6 @@ impl<'py> AlphaRawView<'py> {
     }
 }
 
-#[pyclass]
-struct DIAData {
-    mz_index: MZIndex,
-    rt_index: RTIndex,
-    quadrupole_observations: Vec<QuadrupoleObservation>,
-}
-
-#[pymethods]
-impl DIAData {
-    #[new]
-    fn new() -> Self {
-        Self {
-            mz_index: MZIndex::new(),
-            rt_index: RTIndex::new(),
-            quadrupole_observations: Vec::new(),
-        }
-    }
-
-    #[getter]
-    fn num_observations(&self) -> usize {
-        self.quadrupole_observations.len()
-    }
-
-    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
-        let mut valid_observations = Vec::new();
-        for (i, obs) in self.quadrupole_observations.iter().enumerate() {
-            if obs.isolation_window[0] <= precursor_mz && obs.isolation_window[1] >= precursor_mz {
-                valid_observations.push(i);
-            }
-        }
-        valid_observations
-    }
-
-    fn search(&self, lib: &SpecLibFlat, mass_tolerance: f32) -> PyResult<()> {
-        let max_precursor_idx = min(1_000_000, lib.num_precursors());
-
-        let start_time = Instant::now();
-        // Parallel iteration over precursor indices
-        (0..max_precursor_idx).into_par_iter()
-            .for_each(|i| {
-                let (precursor_mz, fragment_mz, fragment_intensity) = lib.get_precursor(i);
-                self.search_precursor(
-                    precursor_mz,
-                    fragment_mz,
-                    fragment_intensity,
-                    lib,
-                    mass_tolerance
-                );
-            });
-        let end_time = Instant::now();
-        let duration = end_time.duration_since(start_time);
-
-        let precursors_per_second = max_precursor_idx as f32 / duration.as_secs_f32();
-        println!("Precursors per second: {:?}", precursors_per_second);
-
-        Ok(())
-    }
-
-    fn search_precursor(
-        &self,
-        precursor_mz: f32,
-        fragment_mz: Vec<f32>,
-        fragment_intensity: Vec<f32>,
-        lib: &SpecLibFlat,
-        mass_tolerance: f32
-    ) {
-
-        let valid_obs_idxs = self.get_valid_observations(precursor_mz);
-
-        let mut dense_xic: Array2<f32> = Array2::zeros((fragment_mz.len(), self.rt_index.rt.len()));
-
-        for obs_idx in valid_obs_idxs {
-            let obs = &self.quadrupole_observations[obs_idx];
-
-            for (f_idx, f_mz) in fragment_mz.iter().enumerate() {
-                obs.fill_xic_slice(
-                    &self.mz_index, 
-                    &mut dense_xic.row_mut(f_idx), 
-                    mass_tolerance,
-                    *f_mz
-                );
-            }
-            
-            /*
-            let path = "/Users/georgwallmann/Documents/data/alpha-rs/dense_xic.npz";
-            let file = File::create(path).unwrap();
-            let mut npz: NpzWriter<File> = NpzWriter::new(file);
-            npz.add_array("dense_xic", &dense_xic).unwrap();
-            npz.finish().unwrap();
-            */
-
-
-
-            //let xic = &obs.xic_slices;
-            //let xic_slice = xic.get_xic_slice(precursor_mz);
-        }
-    }
-}
-
-impl DIAData {
-    fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> Self {
-        let mz_index = MZIndex::new();
-        let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
-
-        let rt_index = RTIndex::from_alpha_raw(&alpha_raw_view);
-
-        // Parallel iteration over quadrupole observations
-        let quadrupole_observations: Vec<QuadrupoleObservation> = (0..num_quadrupole_observations)
-            .into_par_iter()
-            .map(|i| QuadrupoleObservation::from_alpha_raw(&alpha_raw_view, i, &mz_index))
-            .collect();
-        
-        Self {
-            mz_index,
-            rt_index,
-            quadrupole_observations,
-        }
-    }
-    
-}
-
 #[pyfunction]
 fn test_xic_index<'py>(
     spectrum_delta_scan_idx: PyReadonlyArray1<'py, i64>,
@@ -236,13 +98,13 @@ fn test_xic_index<'py>(
         peak_intensity.as_array(),
     );
 
-    let dia_data = DIAData::from_alpha_raw(&alpha_raw_view);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
     Ok(dia_data)
 }
 
 
 #[pyclass]
-struct SpecLibFlat {
+pub struct SpecLibFlat {
     precursor_mz: Vec<f32>,
     precursor_start_idx: Vec<i64>,
     precursor_stop_idx: Vec<i64>,
@@ -302,11 +164,26 @@ impl SpecLibFlat {
     }
 }
 
+#[pyfunction]
+fn benchmark_convolution() -> PyResult<(f64, f64)> {
+    // Run the modular benchmark function from the benchmark module
+    let results = benchmark::run_convolution_benchmark();
+    
+    // Return the original values from the first and second implementations for backward compatibility
+    if results.len() >= 2 {
+        Ok((results[0].time_seconds, results[1].time_seconds))
+    } else {
+        Err(PyErr::new::<PyValueError, _>("Benchmark failed to produce enough results"))
+    }
+}
+
 /// A Python module implemented in Rust.
 #[pymodule]
 fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
+    m.add_class::<PeakGroupScoring>()?;
     m.add_function(wrap_pyfunction!(test_xic_index, m)?)?;
+    m.add_function(wrap_pyfunction!(benchmark_convolution, m)?)?;
     Ok(())
 }

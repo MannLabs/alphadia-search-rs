@@ -2,9 +2,10 @@ use std::iter::zip;
 use numpy::ndarray::s;
 use numpy::ndarray::{ArrayBase, ViewRepr, Dim, ArrayViewMut1};
 
-use crate::xic_index::{XICSlice, MZIndex};
+use crate::xic_slice::XICSlice;
+use crate::mz_index::MZIndex;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct QuadrupoleObservation {
     pub isolation_window: [f32; 2],
     pub num_cycles: usize,
@@ -26,56 +27,13 @@ impl QuadrupoleObservation {
         self.xic_slices[closest_idx].intensity.push(intensity);
     }
 
-    pub fn from_alpha_raw(alpha_raw_view: &crate::AlphaRawView, delta_scan_idx: i64, mz_index: &MZIndex) -> Self {
-        let mut quad_obs = Self::new(mz_index);
-        let mut num_cycles = 0;
-        let mut num_peaks = 0;
-        
-        // Find the first valid scan to get isolation window
-        for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
-            if alpha_raw_view.spectrum_delta_scan_idx[i] == delta_scan_idx {
-                if num_cycles == 0 {
-                    // Set isolation window from the first valid scan
-                    quad_obs.isolation_window = [
-                        alpha_raw_view.isolation_lower_mz[i],
-                        alpha_raw_view.isolation_upper_mz[i]
-                    ];
-                }
-
-                // Get the peak indices for this scan
-                let peak_start_idx = alpha_raw_view.spectrum_peak_start_idx[i] as usize;
-                let peak_stop_idx = alpha_raw_view.spectrum_peak_stop_idx[i] as usize;
-                let cycle_idx = alpha_raw_view.spectrum_cycle_idx[i] as u16;
-
-                // Get the mz and intensity slices for this scan
-                let mz_slice = alpha_raw_view.peak_mz.slice(s![peak_start_idx..peak_stop_idx]);
-                let intensity_slice = alpha_raw_view.peak_intensity.slice(s![peak_start_idx..peak_stop_idx]);
-
-                // Add each peak to the appropriate XIC slice
-                for (mz_val, intensity_val) in zip(mz_slice.iter(), intensity_slice.iter()) {
-                    quad_obs.add_peak(*mz_val, *intensity_val, cycle_idx, mz_index);
-                    num_peaks += 1;
-                }
-
-                num_cycles += 1;
-            }
-        }
-
-        quad_obs.num_cycles = num_cycles;
-
-        quad_obs
-    }
-
     pub fn fill_xic_slice(&self, mz_index: &MZIndex, dense_xic: &mut ArrayViewMut1<f32>, mass_tolerance: f32, mz: f32) {
 
         let delta_mz = mz * mass_tolerance * 1e-6;
         let lower_mz = mz - delta_mz;
         let upper_mz = mz + delta_mz;
 
-        let start_idx = mz_index.find_closest_index(lower_mz);
-        let stop_idx = mz_index.find_closest_index(upper_mz);
-
-        for mz_idx in start_idx..stop_idx {
+        for mz_idx in mz_index.mz_range_indices(lower_mz, upper_mz) {
             let xic_slice = &self.xic_slices[mz_idx];
             for (cycle_idx, intensity) in xic_slice.cycle_index.iter().zip(xic_slice.intensity.iter()) {
                 dense_xic[*cycle_idx as usize] += intensity;
@@ -87,7 +45,7 @@ impl QuadrupoleObservation {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::xic_index::MZIndex;
+    use crate::mz_index::MZIndex;
 
     #[test]
     fn test_quadrupole_observation() {

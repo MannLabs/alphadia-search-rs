@@ -1,12 +1,13 @@
 use std::iter::zip;
 use numpy::ndarray::s;
-use numpy::ndarray::{ArrayBase, ViewRepr, Dim};
+use numpy::ndarray::{ArrayBase, ViewRepr, Dim, ArrayViewMut1};
 
 use crate::xic_index::{XICSlice, MZIndex};
 
 #[derive(Debug)]
 pub struct QuadrupoleObservation {
     pub isolation_window: [f32; 2],
+    pub num_cycles: usize,
     pub xic_slices: Vec<XICSlice>,
 }
 
@@ -14,6 +15,7 @@ impl QuadrupoleObservation {
     pub fn new(mz_index: &MZIndex) -> Self {
         Self {
             isolation_window: [0.0, 0.0],
+            num_cycles: 0,
             xic_slices: vec![XICSlice::empty(); mz_index.len()],
         }
     }
@@ -26,13 +28,13 @@ impl QuadrupoleObservation {
 
     pub fn from_alpha_raw(alpha_raw_view: &crate::AlphaRawView, delta_scan_idx: i64, mz_index: &MZIndex) -> Self {
         let mut quad_obs = Self::new(mz_index);
-        let mut num_valid_scans = 0;
+        let mut num_cycles = 0;
         let mut num_peaks = 0;
         
         // Find the first valid scan to get isolation window
         for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
             if alpha_raw_view.spectrum_delta_scan_idx[i] == delta_scan_idx {
-                if num_valid_scans == 0 {
+                if num_cycles == 0 {
                     // Set isolation window from the first valid scan
                     quad_obs.isolation_window = [
                         alpha_raw_view.isolation_lower_mz[i],
@@ -55,13 +57,30 @@ impl QuadrupoleObservation {
                     num_peaks += 1;
                 }
 
-                num_valid_scans += 1;
+                num_cycles += 1;
             }
         }
 
-        println!("Quadrupole observation idx: {}, Cycles: {}, Peaks: {}", delta_scan_idx, num_valid_scans, num_peaks);
+        quad_obs.num_cycles = num_cycles;
 
         quad_obs
+    }
+
+    pub fn fill_xic_slice(&self, mz_index: &MZIndex, dense_xic: &mut ArrayViewMut1<f32>, mass_tolerance: f32, mz: f32) {
+
+        let delta_mz = mz * mass_tolerance * 1e-6;
+        let lower_mz = mz - delta_mz;
+        let upper_mz = mz + delta_mz;
+
+        let start_idx = mz_index.find_closest_index(lower_mz);
+        let stop_idx = mz_index.find_closest_index(upper_mz);
+
+        for mz_idx in start_idx..stop_idx {
+            let xic_slice = &self.xic_slices[mz_idx];
+            for (cycle_idx, intensity) in xic_slice.cycle_index.iter().zip(xic_slice.intensity.iter()) {
+                dense_xic[*cycle_idx as usize] += intensity;
+            }
+        }
     }
 }
 

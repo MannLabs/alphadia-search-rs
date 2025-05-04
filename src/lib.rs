@@ -20,6 +20,8 @@ mod dia_data_builder;
 mod dia_data;
 mod kernel;
 mod benchmark;
+mod precursor;
+mod speclib_flat;
 
 
 use mz_index::{ppm_index, RESOLUTION_PPM, MZ_START, MZ_END, MZIndex};
@@ -28,6 +30,8 @@ use rt_index::RTIndex;
 use dia_data_builder::DIADataBuilder;
 use dia_data::{DIAData, PeakGroupScoring};
 pub use kernel::GaussianKernel;
+use precursor::Precursor;
+use speclib_flat::SpecLibFlat;
 
 
 use ndarray_npy::NpzWriter;
@@ -100,68 +104,6 @@ fn test_xic_index<'py>(
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
     Ok(dia_data)
-}
-
-
-#[pyclass]
-pub struct SpecLibFlat {
-    precursor_mz: Vec<f32>,
-    precursor_start_idx: Vec<i64>,
-    precursor_stop_idx: Vec<i64>,
-    fragment_mz: Vec<f32>,
-    fragment_intensity: Vec<f32>,
-}
-
-#[pymethods]
-impl SpecLibFlat {
-    #[new]
-    fn new() -> Self {
-        Self {
-            precursor_mz: Vec::new(),
-            precursor_start_idx: Vec::new(),
-            precursor_stop_idx: Vec::new(),
-            fragment_mz: Vec::new(),
-            fragment_intensity: Vec::new(),
-        }
-    }
-
-    #[staticmethod]
-    fn from_arrays(
-        precursor_mz: PyReadonlyArray1<'_, f32>,
-        precursor_start_idx: PyReadonlyArray1<'_, i64>,
-        precursor_stop_idx: PyReadonlyArray1<'_, i64>,
-        fragment_mz: PyReadonlyArray1<'_, f32>,
-        fragment_intensity: PyReadonlyArray1<'_, f32>,
-    ) -> Self {
-        Self {
-            precursor_mz: precursor_mz.as_array().to_vec(),
-            precursor_start_idx: precursor_start_idx.as_array().to_vec(),
-            precursor_stop_idx: precursor_stop_idx.as_array().to_vec(),
-            fragment_mz: fragment_mz.as_array().to_vec(),
-            fragment_intensity: fragment_intensity.as_array().to_vec(),
-        }
-    }
-
-    #[getter]
-    fn num_precursors(&self) -> usize {
-        self.precursor_mz.len()
-    }
-
-    #[getter]
-    fn num_fragments(&self) -> usize {
-        self.fragment_mz.len()
-    }
-
-    fn get_precursor(&self, index: usize) -> (f32, Vec<f32>, Vec<f32>) {
-        let precursor_mz = self.precursor_mz[index];
-        let start_idx = self.precursor_start_idx[index] as usize;
-        let stop_idx = self.precursor_stop_idx[index] as usize;
-
-        let fragment_mz = self.fragment_mz[start_idx..stop_idx].to_vec();
-        let fragment_intensity = self.fragment_intensity[start_idx..stop_idx].to_vec();
-
-        (precursor_mz, fragment_mz, fragment_intensity)
-    }
 }
 
 #[pyfunction]

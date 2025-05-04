@@ -20,9 +20,11 @@ if __name__ == "__main__":
     logger.info("Creating spec lib")
 
     speclib = SpecLibFlat.from_arrays(
+        precursor_df['precursor_idx'].values.astype(np.uint64),
         precursor_df['precursor_mz'].values.astype(np.float32),
-        precursor_df['flat_frag_start_idx'].values,
-        precursor_df['flat_frag_stop_idx'].values,
+        precursor_df['rt_pred'].values.astype(np.float32),
+        precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
+        precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
         fragment_df['mz'].values.astype(np.float32),
         fragment_df['intensity'].values.astype(np.float32)
     )

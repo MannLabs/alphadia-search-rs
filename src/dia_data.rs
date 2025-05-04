@@ -10,6 +10,7 @@ use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::SpecLibFlat;
 use crate::kernel::GaussianKernel;
 use crate::benchmark::benchmark_nonpadded_symmetric_simd;
+use crate::precursor::Precursor;
 
 use std::fs::File;
 use ndarray_npy::NpzWriter;
@@ -49,13 +50,10 @@ impl PeakGroupScoring {
         // Parallel iteration over precursor indices
         (0..max_precursor_idx).into_par_iter()
             .for_each(|i| {
-                let (precursor_mz, fragment_mz, fragment_intensity) = lib.get_precursor(i);
+                let precursor = lib.get_precursor(i);
                 self.search_precursor(
                     dia_data,
-                    precursor_mz,
-                    fragment_mz,
-                    fragment_intensity,
-                    lib,
+                    &precursor,
                     mass_tolerance
                 );
             });
@@ -68,23 +66,24 @@ impl PeakGroupScoring {
         Ok(())
     }
 
+}
+
+impl PeakGroupScoring {
+
     pub fn search_precursor(
         &self,
         dia_data: &DIAData,
-        precursor_mz: f32,
-        fragment_mz: Vec<f32>,
-        fragment_intensity: Vec<f32>,
-        lib: &SpecLibFlat,
+        precursor: &Precursor,
         mass_tolerance: f32
     ) {
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
+        let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 
-        let mut dense_xic: Array2<f32> = Array2::zeros((fragment_mz.len(), dia_data.rt_index.rt.len()));
+        let mut dense_xic: Array2<f32> = Array2::zeros((precursor.fragment_mz.len(), dia_data.rt_index.rt.len()));
 
         for obs_idx in valid_obs_idxs {
             let obs = &dia_data.quadrupole_observations[obs_idx];
 
-            for (f_idx, f_mz) in fragment_mz.iter().enumerate() {
+            for (f_idx, f_mz) in precursor.fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
                     &dia_data.mz_index, 
                     &mut dense_xic.row_mut(f_idx), 
@@ -96,21 +95,6 @@ impl PeakGroupScoring {
             let convolved_xic = benchmark_nonpadded_symmetric_simd(&self.kernel, &dense_xic);
 
 
-
-            // We can now use self.kernel for peak scoring here
-            // Example: apply 1D RT kernel to each row of dense_xic
-            
-            /*
-            let path = "/Users/georgwallmann/Documents/data/alpha-rs/dense_xic.npz";
-            let file = File::create(path).unwrap();
-            let mut npz: NpzWriter<File> = NpzWriter::new(file);
-            npz.add_array("dense_xic", &convolved_xic).unwrap();
-            npz.finish().unwrap();
-            */
-            
-
-            //let xic = &obs.xic_slices;
-            //let xic_slice = xic.get_xic_slice(precursor_mz);
         }
     }
 }

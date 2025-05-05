@@ -50,4 +50,5 @@ if __name__ == "__main__":
 
     logger.info("Searching")    
     mass_tolerance = 7
-    peak_group_scoring.search(rs_data, speclib, mass_tolerance)
+    rt_tolerance = 200
+    peak_group_scoring.search(rs_data, speclib, mass_tolerance, rt_tolerance)

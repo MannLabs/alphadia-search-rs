@@ -7,7 +7,7 @@ use std::fs::File;
 use ndarray_npy::NpzWriter;
 
 use crate::kernel::GaussianKernel;
-use crate::benchmark::benchmark_nonpadded_symmetric_simd;
+use crate::convolution::benchmark_nonpadded_symmetric_simd;
 use crate::precursor::Precursor;
 use crate::SpecLibFlat;
 use crate::dia_data::DIAData;
@@ -29,6 +29,45 @@ fn axis_dot_product(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
     for i in 0..n_rows {
         for j in 0..n_cols {
             result[j] += array[[i, j]] * weights[i];
+        }
+    }
+    
+    result
+}
+
+/// Applies natural logarithm to each element and sums values along the first axis.
+/// For each column, this computes the sum of log values across all rows.
+/// Returns a 1D array with the same length as the second dimension.
+fn axis_log_sum(array: &Array2<f32>) -> Array1<f32> {
+    let (n_rows, n_cols) = array.dim();
+    let mut result = Array1::zeros(n_cols);
+    
+    for i in 0..n_rows {
+        for j in 0..n_cols {
+            // Add a small epsilon to avoid log(0)
+            let val = array[[i, j]] + 1.0;
+            result[j] += val.ln();
+        }
+    }
+    
+    result
+}
+
+/// First applies logarithm to each element, then performs a weighted dot product along the first axis.
+/// Returns a 1D array with the same length as the second dimension.
+fn axis_log_dot_product(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+    let (n_rows, n_cols) = array.dim();
+    
+    // Check that the number of rows matches the number of weights
+    assert_eq!(n_rows, weights.len(), "Number of rows in array must match the length of weights vector");
+    
+    let mut result = Array1::zeros(n_cols);
+    
+    for i in 0..n_rows {
+        for j in 0..n_cols {
+            // Apply log transformation and then weighted sum
+            let val = (array[[i, j]] + 1.0).ln();
+            result[j] += val * weights[i];
         }
     }
     
@@ -77,12 +116,13 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
 #[pyclass]
 pub struct PeakGroupScoring {
     kernel: GaussianKernel,
+    peak_length: usize,
 }
 
 #[pymethods]
 impl PeakGroupScoring {
     #[new]
-    pub fn new(fwhm_rt: f32, kernel_size: usize) -> Self {
+    pub fn new(fwhm_rt: f32, kernel_size: usize, peak_length: usize) -> Self {
         Self {
             kernel: GaussianKernel::new(
                 fwhm_rt,
@@ -90,6 +130,7 @@ impl PeakGroupScoring {
                 kernel_size,
                 1.0, // rt_resolution
             ),
+            peak_length,
         }
     }
 
@@ -165,7 +206,9 @@ impl PeakGroupScoring {
 
         let convolved_xic = benchmark_nonpadded_symmetric_simd(&self.kernel, &dense_xic);
 
-        let score = axis_dot_product(&convolved_xic, &precursor.fragment_intensity);
+        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
+
+        //let score = axis_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
         let (local_maxima_indices, local_maxima_values) = find_local_maxima(&score, cycle_start_idx);
         
@@ -179,8 +222,8 @@ impl PeakGroupScoring {
             let cycle_center_idx = local_maxima_indices[i];
             let score = local_maxima_values[i];
 
-            let cycle_start_idx = max(0, cycle_center_idx - 5);
-            let cycle_stop_idx = min(cycle_center_idx + 5, dia_data.rt_index.len());
+            let cycle_start_idx = max(0, cycle_center_idx - self.peak_length);
+            let cycle_stop_idx = min(cycle_center_idx + self.peak_length + 1, dia_data.rt_index.len());
 
             let candidate = Candidate::new(
                 precursor.idx,

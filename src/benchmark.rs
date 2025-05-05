@@ -3,7 +3,7 @@ use std::time::Instant;
 use rand::prelude::*;
 use crate::kernel::GaussianKernel;
 use numpy::ndarray::Array2;
-
+use crate::convolution::benchmark_nonpadded_symmetric_simd;
 // Define a struct to hold benchmark results
 pub struct BenchmarkResult {
     pub name: String,
@@ -126,7 +126,8 @@ pub fn benchmark_padded_convolution_branching(kernel: &GaussianKernel, xic: &Arr
     convolved
 }
 
-// Combines both branch optimization and SIMD for the non-branching section
+
+/// Optimized convolution that combines both branch optimization and SIMD for the non-branching section
 pub fn benchmark_padded_convolution_branching_simd(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
     #[cfg(target_arch = "aarch64")]
     use std::arch::aarch64::{float32x4_t, vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
@@ -250,7 +251,7 @@ pub fn benchmark_padded_convolution_branching_simd(kernel: &GaussianKernel, xic:
     }
     
     convolved
-}
+} 
 
 // Implementation without padding that starts with first valid calculation
 pub fn benchmark_nonpadded_convolution_simd(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
@@ -541,121 +542,6 @@ pub fn benchmark_symmetric_kernel_simd(kernel: &GaussianKernel, xic: &Array2<f32
     convolved
 }
 
-// Implementation that combines non-padding with symmetric kernel optimization
-pub fn benchmark_nonpadded_symmetric_simd(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
-    #[cfg(target_arch = "aarch64")]
-    use std::arch::aarch64::{float32x4_t, vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
-    
-    let (n_fragments, n_points) = xic.dim();
-    let kernel_size = kernel.kernel_array.len();
-    let half_kernel = kernel_size / 2;
-    
-    // Create output array with same dimensions, initialized to zeros
-    let mut convolved: Array2<f32> = Array2::zeros((n_fragments, n_points));
-    
-    // Process each fragment
-    for f_idx in 0..n_fragments {
-        let xic_row = xic.row(f_idx);
-        let mut conv_row = convolved.row_mut(f_idx);
-        
-        // SIMD optimized main loop with symmetric kernel
-        #[cfg(target_arch = "aarch64")]
-        {
-            const SIMD_WIDTH: usize = 4; // Process 4 points at a time
-            
-            // We can start calculations from half_kernel (first valid point)
-            // And end at n_points - half_kernel (last valid point)
-            let start_idx = half_kernel;
-            let end_idx = n_points.saturating_sub(half_kernel);
-            let simd_end_idx = start_idx + ((end_idx - start_idx) / SIMD_WIDTH) * SIMD_WIDTH;
-            
-            // Process points in SIMD chunks in the valid region
-            for i in (start_idx..simd_end_idx).step_by(SIMD_WIDTH) {
-                // Accumulators for 4 points
-                let mut sum_vec = unsafe { vdupq_n_f32(0.0) };
-                
-                // Process center element of kernel
-                let center_kernel_val = kernel.kernel_array[half_kernel];
-                let center_kernel_vec = unsafe { vdupq_n_f32(center_kernel_val) };
-                let center_input_vec = unsafe { vld1q_f32(xic_row.as_ptr().add(i)) };
-                sum_vec = unsafe { vaddq_f32(sum_vec, vmulq_f32(center_input_vec, center_kernel_vec)) };
-                
-                // Process symmetric pairs
-                for k in 0..half_kernel {
-                    let kernel_val = kernel.kernel_array[k];
-                    let kernel_val_vec = unsafe { vdupq_n_f32(kernel_val) };
-                    
-                    let left_offset = i - (half_kernel - k);
-                    let right_offset = i + (half_kernel - k);
-                    
-                    let left_vec = unsafe { vld1q_f32(xic_row.as_ptr().add(left_offset)) };
-                    let right_vec = unsafe { vld1q_f32(xic_row.as_ptr().add(right_offset)) };
-                    
-                    // Add symmetric inputs, then multiply
-                    let sum_inputs = unsafe { vaddq_f32(left_vec, right_vec) };
-                    sum_vec = unsafe { vaddq_f32(sum_vec, vmulq_f32(sum_inputs, kernel_val_vec)) };
-                }
-                
-                // Store the results
-                unsafe { vst1q_f32(conv_row.as_mut_ptr().add(i), sum_vec) };
-            }
-            
-            // Handle remaining points in the valid region
-            for i in simd_end_idx..end_idx {
-                let mut sum = 0.0;
-                
-                // Center element
-                sum += xic_row[i] * kernel.kernel_array[half_kernel];
-                
-                // Process symmetric pairs
-                for k in 0..half_kernel {
-                    let kernel_val = kernel.kernel_array[k];
-                    
-                    // Get pair of symmetric inputs
-                    let left_val = xic_row[i - (half_kernel - k)];
-                    let right_val = xic_row[i + (half_kernel - k)];
-                    
-                    // Add symmetric inputs, then multiply by kernel value once
-                    sum += (left_val + right_val) * kernel_val;
-                }
-                
-                conv_row[i] = sum;
-            }
-        }
-        
-        #[cfg(not(target_arch = "aarch64"))]
-        {
-            // Fallback for non-aarch64: use the symmetric optimization in non-padded region
-            let start_idx = half_kernel;
-            let end_idx = n_points.saturating_sub(half_kernel);
-            
-            for i in start_idx..end_idx {
-                let mut sum = 0.0;
-                
-                // Center element
-                sum += xic_row[i] * kernel.kernel_array[half_kernel];
-                
-                // Process symmetric pairs
-                for k in 0..half_kernel {
-                    let kernel_val = kernel.kernel_array[k];
-                    
-                    // Get pair of symmetric inputs
-                    let left_val = xic_row[i - (half_kernel - k)];
-                    let right_val = xic_row[i + (half_kernel - k)];
-                    
-                    // Add symmetric inputs, then multiply by kernel value once
-                    sum += (left_val + right_val) * kernel_val;
-                }
-                
-                conv_row[i] = sum;
-            }
-        }
-        
-        // No edge handling since we're not padding - zeros remain at the edges
-    }
-    
-    convolved
-}
 
 // Function to generate random test data
 fn generate_test_data(num_arrays: usize, n_fragments: usize, n_points: usize) -> Vec<Array2<f32>> {

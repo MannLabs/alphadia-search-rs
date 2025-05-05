@@ -14,6 +14,16 @@ impl RTIndex {
         }
     }
 
+    /// Returns the number of retention time points in the index
+    pub fn len(&self) -> usize {
+        self.rt.len()
+    }
+
+    /// Returns true if the index contains no retention time points
+    pub fn is_empty(&self) -> bool {
+        self.rt.is_empty()
+    }
+
     /// Creates an RTIndex from an AlphaRawView.
     ///
     /// Extracts retention times for MS1 scans (where delta_scan_idx is 0).

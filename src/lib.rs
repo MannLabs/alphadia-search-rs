@@ -13,11 +13,13 @@ mod benchmark;
 mod precursor;
 mod speclib_flat;
 mod peak_group_scoring;
+mod candidate;
 
 use crate::dia_data::DIAData;
 pub use crate::kernel::GaussianKernel;
 use crate::speclib_flat::SpecLibFlat;
 use crate::peak_group_scoring::PeakGroupScoring;
+use crate::candidate::CandidateCollection;
 
 #[pyfunction]
 fn benchmark_convolution() -> PyResult<(f64, f64)> {
@@ -32,12 +34,12 @@ fn benchmark_convolution() -> PyResult<(f64, f64)> {
     }
 }
 
-/// A Python module implemented in Rust.
 #[pymodule]
 fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<PeakGroupScoring>()?;
+    m.add_class::<CandidateCollection>()?;
     m.add_function(wrap_pyfunction!(benchmark_convolution, m)?)?;
     Ok(())
 }

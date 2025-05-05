@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use numpy::ndarray::{Array2, Array1};
 use std::time::Instant;
-use std::cmp::min;
+use std::cmp::{min, max};
 use rayon::prelude::*;
 use std::fs::File;
 use ndarray_npy::NpzWriter;
@@ -11,6 +11,7 @@ use crate::benchmark::benchmark_nonpadded_symmetric_simd;
 use crate::precursor::Precursor;
 use crate::SpecLibFlat;
 use crate::dia_data::DIAData;
+use crate::candidate::{Candidate, CandidateCollection};
 
 const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 
@@ -92,7 +93,7 @@ impl PeakGroupScoring {
         }
     }
 
-    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat, mass_tolerance: f32, rt_tolerance: f32) -> PyResult<()> {
+    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat, mass_tolerance: f32, rt_tolerance: f32) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz
@@ -103,24 +104,26 @@ impl PeakGroupScoring {
         npz.finish().unwrap();
 
         let start_time = Instant::now();
-        // Parallel iteration over precursor indices
-        (0..max_precursor_idx).into_par_iter()
-            .for_each(|i| {
+        // Parallel iteration over precursor indices with flat_map to collect candidates
+        let candidates: Vec<Candidate> = (0..max_precursor_idx).into_par_iter()
+            .flat_map(|i| {
                 let precursor = lib.get_precursor(i);
                 self.search_precursor(
                     dia_data,
                     &precursor,
                     mass_tolerance,
                     rt_tolerance
-                );
-            });
+                )
+            })
+            .collect();
         let end_time = Instant::now();
         let duration = end_time.duration_since(start_time);
 
         let precursors_per_second = max_precursor_idx as f32 / duration.as_secs_f32();
         println!("Precursors per second: {:?}", precursors_per_second);
+        println!("Found {} candidates", candidates.len());
 
-        Ok(())
+        CandidateCollection::from_vec(candidates)
     }
 }
 
@@ -131,8 +134,7 @@ impl PeakGroupScoring {
         precursor: &Precursor,
         mass_tolerance: f32,
         rt_tolerance: f32
-    ) {
-        let peak_len = 5;
+    ) -> Vec<Candidate> {
         
         
         let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
@@ -169,7 +171,30 @@ impl PeakGroupScoring {
         
         // Take top 3 maxima (they're already sorted by value in descending order)
         let max_count = std::cmp::min(3, local_maxima_indices.len());
+
+        let mut candidates = Vec::new();
         
+
+        for i in 0..max_count {
+            let cycle_center_idx = local_maxima_indices[i];
+            let score = local_maxima_values[i];
+
+            let cycle_start_idx = max(0, cycle_center_idx - 5);
+            let cycle_stop_idx = min(cycle_center_idx + 5, dia_data.rt_index.len());
+
+            let candidate = Candidate::new(
+                precursor.idx,
+                i + 1,
+                score,
+                cycle_start_idx,
+                cycle_center_idx,
+                cycle_stop_idx,
+            );
+
+            candidates.push(candidate);
+        }
+
+        candidates
     }
 }
 

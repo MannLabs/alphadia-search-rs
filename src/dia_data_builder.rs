@@ -2,7 +2,7 @@ use rayon::prelude::*;
 use std::iter::zip;
 use numpy::ndarray::s;
 
-use crate::AlphaRawView;
+use crate::dia_data::AlphaRawView;
 use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;

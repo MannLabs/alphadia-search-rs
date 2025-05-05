@@ -1,6 +1,6 @@
 use numpy::ndarray::Array1;
 
-use crate::AlphaRawView;
+use crate::dia_data::AlphaRawView;
 
 pub struct RTIndex {
     pub rt: Array1<f32>,

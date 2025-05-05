@@ -1,6 +1,4 @@
-use std::iter::zip;
-use numpy::ndarray::s;
-use numpy::ndarray::{ArrayBase, ViewRepr, Dim, ArrayViewMut1};
+use numpy::ndarray::ArrayViewMut1;
 
 use crate::xic_slice::XICSlice;
 use crate::mz_index::MZIndex;

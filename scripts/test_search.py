@@ -1,4 +1,4 @@
-from alpha_rs import SpecLibFlat, test_xic_index, PeakGroupScoring
+from alpha_rs import SpecLibFlat, PeakGroupScoring, DIAData
 import os
 import pandas as pd
 import numpy as np
@@ -30,7 +30,7 @@ if __name__ == "__main__":
     )
 
     logger.info("Creating rs data")
-    rs_data = test_xic_index(
+    rs_data = DIAData.from_arrays(
         spectrum_df['delta_scan_idx'].values,
         spectrum_df['isolation_lower_mz'].values.astype(np.float32),
         spectrum_df['isolation_upper_mz'].values.astype(np.float32),

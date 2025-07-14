@@ -8,9 +8,9 @@ mod rt_index;
 mod mz_index;
 mod dia_data_builder;
 mod dia_data;
-mod kernel;
+pub mod kernel;
 pub mod benchmark;
-mod convolution;
+pub mod convolution;
 mod precursor;
 mod speclib_flat;
 pub mod peak_group_scoring;
@@ -23,8 +23,7 @@ use crate::speclib_flat::SpecLibFlat;
 use crate::peak_group_scoring::PeakGroupScoring;
 use crate::candidate::CandidateCollection;
 
-#[cfg(test)]
-mod convolution_test;
+
 
 #[pyfunction]
 fn benchmark_convolution() -> PyResult<(f64, f64)> {

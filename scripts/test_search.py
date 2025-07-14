@@ -2,13 +2,33 @@ from alpha_rs import SpecLibFlat, PeakGroupScoring, DIAData
 import os
 import pandas as pd
 import numpy as np
-tmp_folder = "/Users/georgwallmann/Documents/data/alpha-rs"
+import tempfile
 import logging
+from alphabase.tools.data_downloader import DataShareDownloader
+
 logging.basicConfig(level=logging.INFO)
 
 if __name__ == "__main__":
 
     logger = logging.getLogger(__name__)
+
+    # Use preferred folder if it exists, otherwise create temp directory
+    preferred_folder = "/Users/georgwallmann/Documents/data/alpha-rs"
+    if os.path.exists(preferred_folder):
+        tmp_folder = preferred_folder
+    else:
+        tmp_folder = tempfile.mkdtemp()
+    
+    logger.info(f"Using folder: {tmp_folder}")
+    
+    # Download required files (DataShareDownloader skips if files already exist)
+    logger.info("Ensuring test data is available...")
+    data_url = "https://datashare.biochem.mpg.de/s/gxfAcvJO7Ja6H4V"
+    required_files = ['spectrum_df.parquet', 'peak_df.parquet', 'precursor_df.parquet', 'fragment_df.parquet']
+    
+    for file_name in required_files:
+        file_url = f"{data_url}/download?files={file_name}"
+        DataShareDownloader(file_url, tmp_folder).download()
 
     logger.info("Loading data")
     spectrum_df = pd.read_parquet(os.path.join(tmp_folder, 'spectrum_df.parquet'))

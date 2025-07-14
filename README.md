@@ -45,6 +45,28 @@ High-performance alphaDIA backend
    python ./scripts/test_search.py  # Python integration test
    ```
 
+## Testing
+
+### Integration Test
+
+The `scripts/test_search.py` script provides a comprehensive integration test.
+```bash
+# Run the integration test
+python ./scripts/test_search.py
+```
+
+The script will automatically:
+1. Use existing test data in `/Users/georgwallmann/Documents/data/alpha-rs` if available
+2. Otherwise create a temporary directory and download required files:
+   - `spectrum_df.parquet` - Mass spectrometry spectra data
+   - `peak_df.parquet` - Peak detection results  
+   - `precursor_df.parquet` - Precursor ion information
+   - `fragment_df.parquet` - Fragment ion data
+
+**Expected output:**
+- Processing speed: ~200k+ precursors per second
+- Results: ~11M candidates found
+
 ## Development Workflow
 
 ### Code Quality Standards

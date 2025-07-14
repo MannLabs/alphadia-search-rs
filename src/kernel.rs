@@ -1,4 +1,4 @@
-use numpy::ndarray::{Array1, ArrayView1};
+use numpy::ndarray::Array1;
 use std::f32::consts::PI;
 
 #[derive(Clone)]

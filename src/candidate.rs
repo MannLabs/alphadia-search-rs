@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use numpy::{PyArray1, IntoPyArray, ndarray::Array1};
+use numpy::{IntoPyArray, ndarray::Array1};
 
 
 pub struct Candidate {

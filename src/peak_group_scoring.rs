@@ -12,7 +12,7 @@ use crate::precursor::Precursor;
 use crate::SpecLibFlat;
 use crate::dia_data::DIAData;
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::score::{axis_dot_product, axis_log_sum, axis_log_dot_product, axis_sqrt_dot_product};
+use crate::score::axis_sqrt_dot_product;
 
 const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 

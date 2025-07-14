@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{Python, PyErr};
+use pyo3::PyErr;
 use pyo3::exceptions::PyValueError;
 
 mod xic_slice;

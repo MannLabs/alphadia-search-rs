@@ -13,8 +13,9 @@ mod benchmark;
 mod convolution;
 mod precursor;
 mod speclib_flat;
-mod peak_group_scoring;
-mod candidate;
+pub mod peak_group_scoring;
+pub mod candidate;
+pub mod score;
 
 use crate::dia_data::DIAData;
 pub use crate::kernel::GaussianKernel;
@@ -37,6 +38,7 @@ fn benchmark_convolution() -> PyResult<(f64, f64)> {
         Err(PyErr::new::<PyValueError, _>("Benchmark failed to produce enough results"))
     }
 }
+
 
 #[pymodule]
 fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {

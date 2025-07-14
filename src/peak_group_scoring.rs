@@ -12,67 +12,9 @@ use crate::precursor::Precursor;
 use crate::SpecLibFlat;
 use crate::dia_data::DIAData;
 use crate::candidate::{Candidate, CandidateCollection};
+use crate::score::{axis_dot_product, axis_log_sum, axis_log_dot_product, axis_sqrt_dot_product};
 
 const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
-
-/// Performs a weighted dot product operation along the first axis of a 2D array.
-/// Each row of the 2D array is multiplied by its corresponding weight in the fragment_intensity vector,
-/// then columns are summed to produce a 1D array with the same length as the second dimension.
-fn axis_dot_product(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
-    let (n_rows, n_cols) = array.dim();
-    
-    // Check that the number of rows matches the number of weights
-    assert_eq!(n_rows, weights.len(), "Number of rows in array must match the length of weights vector");
-    
-    let mut result = Array1::zeros(n_cols);
-    
-    for i in 0..n_rows {
-        for j in 0..n_cols {
-            result[j] += array[[i, j]] * weights[i];
-        }
-    }
-    
-    result
-}
-
-/// Applies natural logarithm to each element and sums values along the first axis.
-/// For each column, this computes the sum of log values across all rows.
-/// Returns a 1D array with the same length as the second dimension.
-fn axis_log_sum(array: &Array2<f32>) -> Array1<f32> {
-    let (n_rows, n_cols) = array.dim();
-    let mut result = Array1::zeros(n_cols);
-    
-    for i in 0..n_rows {
-        for j in 0..n_cols {
-            // Add a small epsilon to avoid log(0)
-            let val = array[[i, j]] + 1.0;
-            result[j] += val.ln();
-        }
-    }
-    
-    result
-}
-
-/// First applies logarithm to each element, then performs a weighted dot product along the first axis.
-/// Returns a 1D array with the same length as the second dimension.
-fn axis_log_dot_product(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
-    let (n_rows, n_cols) = array.dim();
-    
-    // Check that the number of rows matches the number of weights
-    assert_eq!(n_rows, weights.len(), "Number of rows in array must match the length of weights vector");
-    
-    let mut result = Array1::zeros(n_cols);
-    
-    for i in 0..n_rows {
-        for j in 0..n_cols {
-            // Apply log transformation and then weighted sum
-            let val = (array[[i, j]] + 1.0).ln();
-            result[j] += val * weights[i];
-        }
-    }
-    
-    result
-}
 
 /// Finds local maxima in a 1D array.
 /// A local maximum is defined as a point that is higher than the 2 points to its left and right.
@@ -206,7 +148,7 @@ impl PeakGroupScoring {
 
         let convolved_xic = benchmark_nonpadded_symmetric_simd(&self.kernel, &dense_xic);
 
-        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
+        let score = axis_sqrt_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
         //let score = axis_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
@@ -246,54 +188,6 @@ mod tests {
     use super::*;
     use numpy::ndarray::{arr1, arr2};
     use approx::assert_relative_eq;
-
-    #[test]
-    fn test_axis_dot_product_basic_case() {
-        let array = arr2(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-        let weights = vec![0.5, 1.5];
-        let result = axis_dot_product(&array, &weights);
-        
-        // Correct expected values: 0.5*1.0 + 1.5*4.0 = 0.5 + 6.0 = 6.5
-        //                          0.5*2.0 + 1.5*5.0 = 1.0 + 7.5 = 8.5
-        //                          0.5*3.0 + 1.5*6.0 = 1.5 + 9.0 = 10.5
-        let expected = arr1(&[6.5, 8.5, 10.5]);
-        for (a, b) in result.iter().zip(expected.iter()) {
-            assert_relative_eq!(*a, *b, epsilon = 1e-5);
-        }
-    }
-
-    #[test]
-    fn test_axis_dot_product_single_row() {
-        let array = arr2(&[[1.0, 2.0, 3.0]]);
-        let weights = vec![2.0];
-        let result = axis_dot_product(&array, &weights);
-        
-        let expected = arr1(&[2.0, 4.0, 6.0]);
-        for (a, b) in result.iter().zip(expected.iter()) {
-            assert_relative_eq!(*a, *b, epsilon = 1e-5);
-        }
-    }
-
-    #[test]
-    fn test_axis_dot_product_all_zeros() {
-        let array = arr2(&[[0.0, 0.0], [0.0, 0.0]]);
-        let weights = vec![1.0, 1.0];
-        let result = axis_dot_product(&array, &weights);
-        
-        let expected = arr1(&[0.0, 0.0]);
-        for (a, b) in result.iter().zip(expected.iter()) {
-            assert_relative_eq!(*a, *b, epsilon = 1e-5);
-        }
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_axis_dot_product_dimension_mismatch() {
-        // Should panic because weights.len() != array.dim().0
-        let array = arr2(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-        let weights = vec![0.5];
-        let _ = axis_dot_product(&array, &weights);
-    }
 
     #[test]
     fn test_find_local_maxima_multiple_peaks() {

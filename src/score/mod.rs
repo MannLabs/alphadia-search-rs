@@ -1,8 +1,8 @@
-use numpy::ndarray::{Array2, Array1};
+use numpy::ndarray::{Array1, Array2};
 
 // Module declarations
-pub mod scalar;
 pub mod neon;
+pub mod scalar;
 
 // Re-export common scalar functions for convenience
 pub use scalar::{axis_dot_product, axis_log_sum};
@@ -21,4 +21,3 @@ pub fn axis_log_dot_product(array: &Array2<f32>, weights: &[f32]) -> Array1<f32>
 
 #[cfg(test)]
 mod tests;
- 

@@ -1,4 +1,3 @@
-
 pub struct Precursor {
     pub idx: usize,
     pub mz: f32,

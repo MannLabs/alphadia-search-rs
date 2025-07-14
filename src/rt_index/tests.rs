@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// Creates a test RTIndex with predefined values [10.0, 20.0, 30.0, 40.0, 50.0]
 fn create_test_index() -> RTIndex {
     let rt_values = vec![10.0, 20.0, 30.0, 40.0, 50.0];
@@ -63,4 +62,4 @@ fn test_empty_index() {
     let (lower, upper) = empty_rt_index.get_cycle_idx_limits(30.0, 5.0);
     assert_eq!(lower, 0);
     assert_eq!(upper, 0);
-} 
+}

@@ -6,7 +6,7 @@ pub const MZ_END: f32 = 2000.0;
 
 pub fn ppm_index(resolution_ppm: f32, mz_start: f32, mz_end: f32) -> Array1<f32> {
     let mz_start_safe = mz_start.max(50.0);
-    
+
     let mut index: Vec<f32> = Vec::from([mz_start_safe]);
     let mut current_mz = mz_start_safe;
 
@@ -42,21 +42,21 @@ impl MZIndex {
     pub fn find_closest_index(&self, mz: f32) -> usize {
         let mut left = 0;
         let mut right = self.mz.len();
-        
+
         while left < right {
             let mid = left + (right - left) / 2;
-            
+
             if self.mz[mid] == mz {
                 return mid;
             }
-            
+
             if self.mz[mid] < mz {
                 left = mid + 1;
             } else {
                 right = mid;
             }
         }
-        
+
         // After the loop, left is the insertion point
         // We need to check which of the adjacent indices is closer
         if left == 0 {
@@ -65,10 +65,10 @@ impl MZIndex {
         if left == self.mz.len() {
             return self.mz.len() - 1;
         }
-        
+
         let left_diff = (self.mz[left] - mz).abs();
         let right_diff = (self.mz[left - 1] - mz).abs();
-        
+
         if left_diff < right_diff {
             left
         } else {
@@ -77,23 +77,27 @@ impl MZIndex {
     }
 
     /// Returns an iterator over the indices of m/z values in the range [lower_mz, upper_mz]
-    /// 
+    ///
     /// This finds the first index with m/z >= lower_mz and iterates until the last index with m/z <= upper_mz
-    pub fn mz_range_indices(&self, lower_mz: f32, upper_mz: f32) -> impl Iterator<Item = usize> + '_ {
+    pub fn mz_range_indices(
+        &self,
+        lower_mz: f32,
+        upper_mz: f32,
+    ) -> impl Iterator<Item = usize> + '_ {
         // Find the first index where mz >= lower_mz
         let mut start_idx = 0;
         let mut right = self.mz.len();
-        
+
         while start_idx < right {
             let mid = start_idx + (right - start_idx) / 2;
-            
+
             if self.mz[mid] < lower_mz {
                 start_idx = mid + 1;
             } else {
                 right = mid;
             }
         }
-        
+
         // Find the end index by counting up from start_idx
         let end_idx = if start_idx < self.mz.len() {
             let mut idx = start_idx;
@@ -104,11 +108,11 @@ impl MZIndex {
         } else {
             start_idx
         };
-        
+
         // Return an iterator over the range of indices
         start_idx..end_idx
     }
 }
 
 #[cfg(test)]
-mod tests; 
+mod tests;

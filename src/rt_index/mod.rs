@@ -65,40 +65,44 @@ impl RTIndex {
         if self.rt.is_empty() {
             return (0, 0);
         }
-        
+
         let lower_rt = precursor_rt - rt_tolerance;
         let upper_rt = precursor_rt + rt_tolerance;
-        
+
         // Check if completely below the range
         if upper_rt < self.rt[0] {
             return (0, 0);
         }
-        
+
         // Check if completely above the range
         if lower_rt > self.rt[self.rt.len() - 1] {
             return (self.rt.len(), self.rt.len());
         }
-        
+
         // Convert to Vec to use binary_search method
         let rt_vec: Vec<f32> = self.rt.to_vec();
-        
+
         // Lower bound search - only if needed
         let lower_idx = if lower_rt <= self.rt[0] {
             0
         } else {
-            rt_vec.binary_search_by(|&x| x.partial_cmp(&lower_rt).unwrap()).unwrap_or_else(|x| x)
+            rt_vec
+                .binary_search_by(|&x| x.partial_cmp(&lower_rt).unwrap())
+                .unwrap_or_else(|x| x)
         };
-        
+
         // Upper bound search - only if needed
         let upper_idx = if upper_rt >= self.rt[self.rt.len() - 1] {
             self.rt.len()
         } else {
-            rt_vec.binary_search_by(|&x| x.partial_cmp(&upper_rt).unwrap()).unwrap_or_else(|x| x)
+            rt_vec
+                .binary_search_by(|&x| x.partial_cmp(&upper_rt).unwrap())
+                .unwrap_or_else(|x| x)
         };
-        
+
         (lower_idx, upper_idx)
     }
 }
 
 #[cfg(test)]
-mod tests; 
+mod tests;

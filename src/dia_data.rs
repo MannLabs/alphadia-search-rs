@@ -1,13 +1,11 @@
-use pyo3::prelude::*;
-use numpy::ndarray::{ArrayBase, ViewRepr, Dim};
+use numpy::ndarray::{ArrayBase, Dim, ViewRepr};
 use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 
-use crate::mz_index::MZIndex;
-use crate::rt_index::RTIndex;
-use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::dia_data_builder::DIADataBuilder;
-
-
+use crate::mz_index::MZIndex;
+use crate::quadrupole_observation::QuadrupoleObservation;
+use crate::rt_index::RTIndex;
 
 const _TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 
@@ -86,7 +84,7 @@ impl DIAData {
         spectrum_rt: PyReadonlyArray1<'py, f32>,
         peak_mz: PyReadonlyArray1<'py, f32>,
         peak_intensity: PyReadonlyArray1<'py, f32>,
-        _py: Python<'py>
+        _py: Python<'py>,
     ) -> PyResult<Self> {
         let alpha_raw_view = AlphaRawView::new(
             spectrum_delta_scan_idx.as_array(),
@@ -118,4 +116,4 @@ impl DIAData {
         }
         valid_observations
     }
-} 
+}

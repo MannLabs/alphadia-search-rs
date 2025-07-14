@@ -1,22 +1,26 @@
-use numpy::ndarray::{Array2, Array1};
+use numpy::ndarray::{Array1, Array2};
 
 /// Performs a weighted dot product operation along the first axis of a 2D array.
 /// Each row of the 2D array is multiplied by its corresponding weight in the fragment_intensity vector,
 /// then columns are summed to produce a 1D array with the same length as the second dimension.
 pub fn axis_dot_product(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
     let (n_rows, n_cols) = array.dim();
-    
+
     // Check that the number of rows matches the number of weights
-    assert_eq!(n_rows, weights.len(), "Number of rows in array must match the length of weights vector");
-    
+    assert_eq!(
+        n_rows,
+        weights.len(),
+        "Number of rows in array must match the length of weights vector"
+    );
+
     let mut result = Array1::zeros(n_cols);
-    
+
     for i in 0..n_rows {
         for j in 0..n_cols {
             result[j] += array[[i, j]] * weights[i];
         }
     }
-    
+
     result
 }
 
@@ -26,7 +30,7 @@ pub fn axis_dot_product(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
 pub fn axis_log_sum(array: &Array2<f32>) -> Array1<f32> {
     let (n_rows, n_cols) = array.dim();
     let mut result = Array1::zeros(n_cols);
-    
+
     for i in 0..n_rows {
         for j in 0..n_cols {
             // Add a small epsilon to avoid log(0)
@@ -34,19 +38,23 @@ pub fn axis_log_sum(array: &Array2<f32>) -> Array1<f32> {
             result[j] += val.ln();
         }
     }
-    
+
     result
 }
 
 /// Scalar implementation of log-dot-product operation
 pub fn axis_log_dot_product_scalar(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
     let (n_rows, n_cols) = array.dim();
-    
+
     // Check that the number of rows matches the number of weights
-    assert_eq!(n_rows, weights.len(), "Number of rows in array must match the length of weights vector");
-    
+    assert_eq!(
+        n_rows,
+        weights.len(),
+        "Number of rows in array must match the length of weights vector"
+    );
+
     let mut result = Array1::zeros(n_cols);
-    
+
     for i in 0..n_rows {
         for j in 0..n_cols {
             // Apply log transformation and then weighted sum
@@ -54,19 +62,23 @@ pub fn axis_log_dot_product_scalar(array: &Array2<f32>, weights: &[f32]) -> Arra
             result[j] += val * weights[i];
         }
     }
-    
+
     result
 }
 
 /// Scalar implementation of sqrt-dot-product operation
 pub fn axis_sqrt_dot_product_scalar(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
     let (n_rows, n_cols) = array.dim();
-    
+
     // Check that the number of rows matches the number of weights
-    assert_eq!(n_rows, weights.len(), "Number of rows in array must match the length of weights vector");
-    
+    assert_eq!(
+        n_rows,
+        weights.len(),
+        "Number of rows in array must match the length of weights vector"
+    );
+
     let mut result = Array1::zeros(n_cols);
-    
+
     for i in 0..n_rows {
         for j in 0..n_cols {
             // Apply square root transformation and then weighted sum
@@ -75,6 +87,6 @@ pub fn axis_sqrt_dot_product_scalar(array: &Array2<f32>, weights: &[f32]) -> Arr
             result[j] += val * weights[i];
         }
     }
-    
+
     result
-} 
+}

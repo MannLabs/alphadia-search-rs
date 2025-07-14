@@ -11,7 +11,10 @@ pub struct XICSlice {
 
 impl XICSlice {
     pub fn new(cycle_index: Vec<u16>, intensity: Vec<f32>) -> Self {
-        Self { cycle_index, intensity }
+        Self {
+            cycle_index,
+            intensity,
+        }
     }
 
     pub fn empty() -> Self {
@@ -32,12 +35,14 @@ impl XICSlice {
     /// A new XICSlice instance with random cycle indices and intensities
     pub fn random(max_elements: usize) -> Self {
         let mut unique_cycle_indices = HashSet::new();
-        
+
         // Generate unique random cycle indices
-        while unique_cycle_indices.len() < max_elements && unique_cycle_indices.len() < MAX_CYCLE_INDEX {
+        while unique_cycle_indices.len() < max_elements
+            && unique_cycle_indices.len() < MAX_CYCLE_INDEX
+        {
             unique_cycle_indices.insert(rand::rng().random_range(0..MAX_CYCLE_INDEX) as u16);
         }
-        
+
         let mut random_cycle_index: Vec<u16> = unique_cycle_indices.into_iter().collect();
         random_cycle_index.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
@@ -46,7 +51,6 @@ impl XICSlice {
             random_intensity.push(rand::rng().random_range(0.0..1.0));
         }
 
-        
         Self {
             cycle_index: random_cycle_index,
             intensity: random_intensity,
@@ -55,4 +59,4 @@ impl XICSlice {
 }
 
 #[cfg(test)]
-mod tests; 
+mod tests;

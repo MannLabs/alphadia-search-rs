@@ -1,6 +1,5 @@
+use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
-use numpy::{IntoPyArray, ndarray::Array1};
-
 
 pub struct Candidate {
     /// Identifier linking to precursor
@@ -18,8 +17,6 @@ pub struct Candidate {
     pub cycle_start: usize,
     pub cycle_stop: usize,
 }
-
-
 
 impl Candidate {
     pub fn new(
@@ -75,7 +72,20 @@ impl CandidateCollection {
 
     /// Convert the collection to separate arrays for all fields
     #[allow(clippy::type_complexity)]
-    pub fn to_arrays(&self, py: Python) -> PyResult<(PyObject, PyObject, PyObject, PyObject, PyObject, PyObject, PyObject, PyObject, PyObject)> {
+    pub fn to_arrays(
+        &self,
+        py: Python,
+    ) -> PyResult<(
+        PyObject,
+        PyObject,
+        PyObject,
+        PyObject,
+        PyObject,
+        PyObject,
+        PyObject,
+        PyObject,
+        PyObject,
+    )> {
         let n = self.candidates.len();
         let mut precursor_idxs = Array1::<u64>::zeros(n);
         let mut ranks = Array1::<u64>::zeros(n);
@@ -94,7 +104,7 @@ impl CandidateCollection {
             scan_center[i] = candidate.scan_center as u64;
             scan_start[i] = candidate.scan_start as u64;
             scan_stop[i] = candidate.scan_stop as u64;
-            
+
             cycle_start[i] = candidate.cycle_start as u64;
             cycle_center[i] = candidate.cycle_center as u64;
             cycle_stop[i] = candidate.cycle_stop as u64;
@@ -112,7 +122,6 @@ impl CandidateCollection {
             cycle_stop.into_pyarray(py).into(),
         ))
     }
-
 }
 
 impl CandidateCollection {

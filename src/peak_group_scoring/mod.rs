@@ -1,18 +1,18 @@
-use pyo3::prelude::*;
-use numpy::ndarray::{Array2, Array1};
-use std::time::Instant;
-use std::cmp::{min, max};
-use rayon::prelude::*;
-use std::fs::File;
 use ndarray_npy::NpzWriter;
+use numpy::ndarray::{Array1, Array2};
+use pyo3::prelude::*;
+use rayon::prelude::*;
+use std::cmp::{max, min};
+use std::fs::File;
+use std::time::Instant;
 
-use crate::kernel::GaussianKernel;
-use crate::convolution::convolution;
-use crate::precursor::Precursor;
-use crate::SpecLibFlat;
-use crate::dia_data::DIAData;
 use crate::candidate::{Candidate, CandidateCollection};
+use crate::convolution::convolution;
+use crate::dia_data::DIAData;
+use crate::kernel::GaussianKernel;
+use crate::precursor::Precursor;
 use crate::score::axis_sqrt_dot_product;
+use crate::SpecLibFlat;
 
 const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 
@@ -23,35 +23,42 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
     let mut indices = Vec::new();
     let mut values = Vec::new();
     let len = array.len();
-    
+
     // Need at least 5 points to find a local maximum with 2 points on each side
     if len < 5 {
         return (indices, values);
     }
-    
+
     // Check each point (except the first and last 2) for local maxima
-    for i in 2..len-2 {
-        if array[i-2] < array[i-1] && array[i-1] < array[i] && 
-           array[i] > array[i+1] && array[i+1] > array[i+2] {
+    for i in 2..len - 2 {
+        if array[i - 2] < array[i - 1]
+            && array[i - 1] < array[i]
+            && array[i] > array[i + 1]
+            && array[i + 1] > array[i + 2]
+        {
             indices.push(i + offset);
             values.push(array[i]);
         }
     }
-    
+
     // Sort by value in descending order
     if !values.is_empty() {
         // Create index mapping for sorting
         let mut idx_map: Vec<usize> = (0..values.len()).collect();
-        idx_map.sort_by(|&a, &b| values[b].partial_cmp(&values[a]).unwrap_or(std::cmp::Ordering::Equal));
-        
+        idx_map.sort_by(|&a, &b| {
+            values[b]
+                .partial_cmp(&values[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // Reorder both vectors using the sorted mapping
         let sorted_indices: Vec<usize> = idx_map.iter().map(|&i| indices[i]).collect();
         let sorted_values: Vec<f32> = idx_map.iter().map(|&i| values[i]).collect();
-        
+
         indices = sorted_indices;
         values = sorted_values;
     }
-    
+
     (indices, values)
 }
 
@@ -76,7 +83,13 @@ impl PeakGroupScoring {
         }
     }
 
-    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat, mass_tolerance: f32, rt_tolerance: f32) -> CandidateCollection {
+    pub fn search(
+        &self,
+        dia_data: &DIAData,
+        lib: &SpecLibFlat,
+        mass_tolerance: f32,
+        rt_tolerance: f32,
+    ) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz
@@ -88,15 +101,11 @@ impl PeakGroupScoring {
 
         let start_time = Instant::now();
         // Parallel iteration over precursor indices with flat_map to collect candidates
-        let candidates: Vec<Candidate> = (0..max_precursor_idx).into_par_iter()
+        let candidates: Vec<Candidate> = (0..max_precursor_idx)
+            .into_par_iter()
             .flat_map(|i| {
                 let precursor = lib.get_precursor(i);
-                self.search_precursor(
-                    dia_data,
-                    &precursor,
-                    mass_tolerance,
-                    rt_tolerance
-                )
+                self.search_precursor(dia_data, &precursor, mass_tolerance, rt_tolerance)
             })
             .collect();
         let end_time = Instant::now();
@@ -116,32 +125,35 @@ impl PeakGroupScoring {
         dia_data: &DIAData,
         precursor: &Precursor,
         mass_tolerance: f32,
-        rt_tolerance: f32
+        rt_tolerance: f32,
     ) -> Vec<Candidate> {
-        
-        
         let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 
-        let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index.get_cycle_idx_limits(precursor.rt, rt_tolerance);
+        let (cycle_start_idx, cycle_stop_idx) = dia_data
+            .rt_index
+            .get_cycle_idx_limits(precursor.rt, rt_tolerance);
 
         //#[cfg(debug_assertions)]
         //println!("Cycle idx limits: {:?}", cycle_start_idx);
         //#[cfg(debug_assertions)]
         //println!("Cycle idx limits: {:?}", cycle_stop_idx);
-        
-        let mut dense_xic: Array2<f32> = Array2::zeros((precursor.fragment_mz.len(), cycle_stop_idx - cycle_start_idx));
+
+        let mut dense_xic: Array2<f32> = Array2::zeros((
+            precursor.fragment_mz.len(),
+            cycle_stop_idx - cycle_start_idx,
+        ));
 
         for obs_idx in valid_obs_idxs {
             let obs = &dia_data.quadrupole_observations[obs_idx];
 
             for (f_idx, f_mz) in precursor.fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
-                    &dia_data.mz_index, 
-                    &mut dense_xic.row_mut(f_idx), 
+                    &dia_data.mz_index,
+                    &mut dense_xic.row_mut(f_idx),
                     cycle_start_idx,
                     cycle_stop_idx,
                     mass_tolerance,
-                    *f_mz
+                    *f_mz,
                 );
             }
         }
@@ -152,20 +164,23 @@ impl PeakGroupScoring {
 
         //let score = axis_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
-        let (local_maxima_indices, local_maxima_values) = find_local_maxima(&score, cycle_start_idx);
-        
+        let (local_maxima_indices, local_maxima_values) =
+            find_local_maxima(&score, cycle_start_idx);
+
         // Take top 3 maxima (they're already sorted by value in descending order)
         let max_count = std::cmp::min(3, local_maxima_indices.len());
 
         let mut candidates = Vec::new();
-        
 
         for i in 0..max_count {
             let cycle_center_idx = local_maxima_indices[i];
             let score = local_maxima_values[i];
 
             let cycle_start_idx = max(0, cycle_center_idx - self.peak_length);
-            let cycle_stop_idx = min(cycle_center_idx + self.peak_length + 1, dia_data.rt_index.len());
+            let cycle_stop_idx = min(
+                cycle_center_idx + self.peak_length + 1,
+                dia_data.rt_index.len(),
+            );
 
             let candidate = Candidate::new(
                 precursor.idx,
@@ -184,4 +199,4 @@ impl PeakGroupScoring {
 }
 
 #[cfg(test)]
-mod tests; 
+mod tests;

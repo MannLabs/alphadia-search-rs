@@ -99,7 +99,7 @@ pub fn get_current_backend() -> String {
 
 // Utility function for Python integration
 pub fn get_optimal_simd_backend() -> String {
-    get_backend().name().to_string()
+    select_best_backend().name().to_string()
 }
 
 

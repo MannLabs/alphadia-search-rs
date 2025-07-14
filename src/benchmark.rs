@@ -545,14 +545,14 @@ pub fn benchmark_symmetric_kernel_simd(kernel: &GaussianKernel, xic: &Array2<f32
 
 // Function to generate random test data
 fn generate_test_data(num_arrays: usize, n_fragments: usize, n_points: usize) -> Vec<Array2<f32>> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut arrays = Vec::with_capacity(num_arrays);
     
     for _ in 0..num_arrays {
         let mut arr = Array2::<f32>::zeros((n_fragments, n_points));
         for i in 0..n_fragments {
             for j in 0..n_points {
-                arr[[i, j]] = rng.gen_range(0.0..1.0);
+                arr[[i, j]] = rng.random_range(0.0..1.0);
             }
         }
         arrays.push(arr);

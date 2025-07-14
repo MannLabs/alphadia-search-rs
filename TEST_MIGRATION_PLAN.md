@@ -10,6 +10,13 @@
 
 ---
 
+## Acceptance Criteria
+
+- After each migration, **all tests must be run using `cargo test` and all must pass**.
+- PRs that do not pass all tests will not be accepted.
+
+---
+
 ## General Steps for Each Module
 
 1. **Create a new test file in `/tests`** named after the module (e.g., `tests/rt_index.rs`).

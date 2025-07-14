@@ -1,3 +1,4 @@
+#[cfg(target_arch = "aarch64")]
 use numpy::ndarray::{Array2, Array1};
 
 /// NEON-optimized implementation of log-dot-product operation for aarch64

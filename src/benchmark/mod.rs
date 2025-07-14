@@ -571,7 +571,7 @@ pub fn run_convolution_benchmark() -> Vec<BenchmarkResult> {
     let kernel_width = 20;
     
     println!("Running convolution benchmark in Rust...");
-    println!("Testing with {} arrays of shape {}x{}", num_arrays, n_fragments, n_points);
+    println!("Testing with {num_arrays} arrays of shape {n_fragments}x{n_points}");
     
     // Create a kernel with shape 20 and fwhm_rt = 2
     let kernel = GaussianKernel::new(
@@ -581,7 +581,7 @@ pub fn run_convolution_benchmark() -> Vec<BenchmarkResult> {
         1.0,    // rt_resolution
     );
 
-    println!("Kernel width: {}", kernel_width);
+    println!("Kernel width: {kernel_width}");
     
     // Generate test data
     println!("Generating random test data...");
@@ -602,7 +602,7 @@ pub fn run_convolution_benchmark() -> Vec<BenchmarkResult> {
     let mut baseline_time = 0.0;
     
     for (i, (name, implementation)) in implementations.iter().enumerate() {
-        println!("Benchmarking {} implementation...", name);
+        println!("Benchmarking {name} implementation...");
         let start_time = Instant::now();
         
         // Apply convolution to each array
@@ -662,7 +662,7 @@ pub fn test_convolution_implementations() -> bool {
         1.0,    // rt_resolution
     );
 
-    println!("Kernel width: {}", kernel_width);
+    println!("Kernel width: {kernel_width}");
     
     // Generate test data
     let arrays = generate_test_data(num_arrays, n_fragments, n_points);
@@ -701,12 +701,10 @@ pub fn test_convolution_implementations() -> bool {
             // Check if difference is within tolerance
             let passed = max_diff <= tolerance;
             if !passed {
-                println!("❌ {} implementation differs from Original by {}, exceeding tolerance {}", 
-                    name, max_diff, tolerance);
+                println!("❌ {name} implementation differs from Original by {max_diff}, exceeding tolerance {tolerance}");
                 all_tests_passed = false;
             } else {
-                println!("✅ {} implementation matches Original within tolerance (max diff: {})", 
-                    name, max_diff);
+                println!("✅ {name} implementation matches Original within tolerance (max diff: {max_diff})");
             }
         }
     }

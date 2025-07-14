@@ -1,5 +1,8 @@
+#[cfg(target_arch = "aarch64")]
 use numpy::ndarray::Array2;
+#[cfg(target_arch = "aarch64")]
 use crate::kernel::GaussianKernel;
+#[cfg(target_arch = "aarch64")]
 use std::cmp::min;
 
 /// NEON-optimized convolution implementation for aarch64

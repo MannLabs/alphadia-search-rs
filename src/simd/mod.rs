@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Rank { 
     Scalar = 0,
+    #[allow(dead_code)]
     Neon = 2,
 }
 
@@ -89,11 +90,11 @@ pub fn set_backend(backend_name: &str) -> Result<(), String> {
             BACKEND_OVERRIDE.store(idx, Ordering::Relaxed);
             Ok(())
         } else {
-            Err(format!("Backend '{}' is not available on this system", backend_name))
+            Err(format!("Backend '{backend_name}' is not available on this system"))
         }
     } else {
         let available: Vec<_> = BACKENDS.iter().map(|b| b.name()).collect();
-        Err(format!("Unknown backend '{}'. Available backends: {:?}", backend_name, available))
+        Err(format!("Unknown backend '{backend_name}'. Available backends: {available:?}"))
     }
 }
 

@@ -80,7 +80,7 @@ impl PeakGroupScoring {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz
-        let kernel_path = format!("{}/kernel.npz", TMP_PATH);
+        let kernel_path = format!("{TMP_PATH}/kernel.npz");
         let file = File::create(kernel_path).unwrap();
         let mut npz: NpzWriter<File> = NpzWriter::new(file);
         npz.add_array("kernel", &self.kernel.kernel_array).unwrap();
@@ -103,7 +103,7 @@ impl PeakGroupScoring {
         let duration = end_time.duration_since(start_time);
 
         let precursors_per_second = max_precursor_idx as f32 / duration.as_secs_f32();
-        println!("Precursors per second: {:?}", precursors_per_second);
+        println!("Precursors per second: {precursors_per_second:?}");
         println!("Found {} candidates", candidates.len());
 
         CandidateCollection::from_vec(candidates)

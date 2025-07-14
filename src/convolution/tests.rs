@@ -1,4 +1,4 @@
-use crate::convolution::{benchmark_nonpadded_symmetric_simd, safe_reference_convolution};
+use super::*;
 use crate::kernel::GaussianKernel;
 use numpy::ndarray::{Array1, Array2};
 use approx::assert_relative_eq;

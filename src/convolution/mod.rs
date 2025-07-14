@@ -179,6 +179,4 @@ pub fn benchmark_nonpadded_symmetric_simd(kernel: &GaussianKernel, xic: &Array2<
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-}
+mod tests;

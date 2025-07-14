@@ -1,6 +1,6 @@
 use super::*;
 use crate::kernel::GaussianKernel;
-use numpy::ndarray::{Array1, Array2};
+use numpy::ndarray::Array2;
 use approx::assert_relative_eq;
 
 #[test]

@@ -10,11 +10,12 @@ pub enum Rank {
 
 pub trait SimdBackend: Send + Sync {
     // Dummy function to track which backend implementation is called
+    #[allow(dead_code)]
     fn test_backend(&self) -> String;
     
     // Score module functions (actually used)
-    fn axis_log_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &Vec<f32>) -> numpy::ndarray::Array1<f32>;
-    fn axis_sqrt_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &Vec<f32>) -> numpy::ndarray::Array1<f32>;
+    fn axis_log_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &[f32]) -> numpy::ndarray::Array1<f32>;
+    fn axis_sqrt_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &[f32]) -> numpy::ndarray::Array1<f32>;
     
     // Convolution module functions
     fn convolution(&self, kernel: &crate::kernel::GaussianKernel, xic: &numpy::ndarray::Array2<f32>) -> numpy::ndarray::Array2<f32>;
@@ -57,6 +58,7 @@ fn select_best_backend() -> &'static dyn SimdBackend {
 }
 
 // Public API - dummy function to track backend usage
+#[allow(dead_code)]
 pub fn test_backend() -> String {
     get_backend().test_backend()
 }

@@ -46,7 +46,7 @@ fn get_optimal_simd_backend() -> PyResult<String> {
 
 #[pyfunction]
 fn set_simd_backend(backend_name: String) -> PyResult<()> {
-    simd::set_backend(&backend_name).map_err(|e| PyErr::new::<PyValueError, _>(e))
+    simd::set_backend(&backend_name).map_err(PyErr::new::<PyValueError, _>)
 }
 
 #[pyfunction]

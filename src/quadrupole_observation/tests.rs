@@ -1,6 +1,6 @@
 use super::*;
 use crate::mz_index::MZIndex;
-use numpy::ndarray::{Array1, ArrayViewMut1};
+use numpy::ndarray::Array1;
 
 #[test]
 fn test_quadrupole_observation() {

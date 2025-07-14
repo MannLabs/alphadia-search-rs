@@ -22,6 +22,12 @@ pub struct MZIndex {
     pub mz: Array1<f32>,
 }
 
+impl Default for MZIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MZIndex {
     pub fn new() -> Self {
         Self {

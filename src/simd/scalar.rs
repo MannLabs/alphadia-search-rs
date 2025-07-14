@@ -9,11 +9,11 @@ impl SimdBackend for ScalarBackend {
         "scalar".to_string()
     }
     
-    fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+    fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
         crate::score::scalar::axis_log_dot_product_scalar(array, weights)
     }
     
-    fn axis_sqrt_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+    fn axis_sqrt_dot_product(&self, array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
         crate::score::scalar::axis_sqrt_dot_product_scalar(array, weights)
     }
     

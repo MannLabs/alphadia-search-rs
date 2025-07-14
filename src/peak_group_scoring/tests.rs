@@ -1,6 +1,6 @@
 use super::*;
-use numpy::ndarray::{arr1, arr2};
-use approx::assert_relative_eq;
+use numpy::ndarray::arr1;
+// Removed unused imports: arr2, approx::assert_relative_eq
 
 #[test]
 fn test_find_local_maxima_multiple_peaks() {

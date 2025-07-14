@@ -643,6 +643,7 @@ pub fn run_convolution_benchmark() -> Vec<BenchmarkResult> {
 }
 
 // Function to test numerical similarity between different implementations
+#[allow(dead_code)]
 pub fn test_convolution_implementations() -> bool {
     // Use a smaller dataset for testing
     let n_points = 100;
@@ -683,7 +684,7 @@ pub fn test_convolution_implementations() -> bool {
         let reference_result = benchmark_padded_convolution(&kernel, arr);
         
         // Test each optimized implementation
-        for (i, (name, implementation)) in implementations.iter().enumerate().skip(1) {
+        for (_i, (name, implementation)) in implementations.iter().enumerate().skip(1) {
             let optimized_result = implementation(&kernel, arr);
             
             // Compare results

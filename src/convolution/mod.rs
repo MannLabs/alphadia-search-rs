@@ -12,6 +12,7 @@ pub fn convolution(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
 }
 
 // Safe reference implementation for testing
+#[allow(dead_code)]
 pub fn safe_reference_convolution(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
     let (n_fragments, n_points) = xic.dim();
     let kernel_size = kernel.kernel_array.len();
@@ -32,7 +33,7 @@ pub fn safe_reference_convolution(kernel: &GaussianKernel, xic: &Array2<f32>) ->
         
         // Only compute convolution for valid points (where kernel fits completely)
         let start_idx = half_kernel;
-        let end_idx = if n_points > half_kernel { n_points - half_kernel } else { 0 };
+        let end_idx = n_points.saturating_sub(half_kernel);
         
         for i in start_idx..end_idx {
             let mut sum = 0.0;

@@ -6,6 +6,12 @@ pub struct RTIndex {
     pub rt: Array1<f32>,
 }
 
+impl Default for RTIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RTIndex {
     /// Creates a new empty RTIndex.
     pub fn new() -> Self {

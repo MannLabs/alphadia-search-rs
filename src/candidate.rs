@@ -37,9 +37,9 @@ impl Candidate {
             scan_center: 0,
             scan_start: 0,
             scan_stop: 0,
-            cycle_start: cycle_start,
-            cycle_center: cycle_center,
-            cycle_stop: cycle_stop,
+            cycle_start,
+            cycle_center,
+            cycle_stop,
         }
     }
 }
@@ -48,6 +48,12 @@ impl Candidate {
 #[pyclass]
 pub struct CandidateCollection {
     candidates: Vec<Candidate>,
+}
+
+impl Default for CandidateCollection {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[pymethods]
@@ -68,6 +74,7 @@ impl CandidateCollection {
     }
 
     /// Convert the collection to separate arrays for all fields
+    #[allow(clippy::type_complexity)]
     pub fn to_arrays(&self, py: Python) -> PyResult<(PyObject, PyObject, PyObject, PyObject, PyObject, PyObject, PyObject, PyObject, PyObject)> {
         let n = self.candidates.len();
         let mut precursor_idxs = Array1::<u64>::zeros(n);
@@ -83,7 +90,7 @@ impl CandidateCollection {
         for (i, candidate) in self.candidates.iter().enumerate() {
             precursor_idxs[i] = candidate.precursor_idx as u64;
             ranks[i] = candidate.rank as u64;
-            scores[i] = candidate.score as f32;
+            scores[i] = candidate.score;
             scan_center[i] = candidate.scan_center as u64;
             scan_start[i] = candidate.scan_start as u64;
             scan_stop[i] = candidate.scan_stop as u64;

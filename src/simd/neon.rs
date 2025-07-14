@@ -16,11 +16,11 @@ impl SimdBackend for NeonBackend {
         "neon".to_string()
     }
     
-    fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+    fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
         crate::score::neon::axis_log_dot_product_neon(array, weights)
     }
     
-    fn axis_sqrt_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+    fn axis_sqrt_dot_product(&self, array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
         crate::score::neon::axis_sqrt_dot_product_neon(array, weights)
     }
     

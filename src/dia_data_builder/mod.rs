@@ -15,12 +15,12 @@ impl DIADataBuilder {
         let mz_index = MZIndex::new();
         let num_quadrupole_observations = alpha_raw_view.spectrum_delta_scan_idx.iter().max().unwrap() + 1;
 
-        let rt_index = RTIndex::from_alpha_raw(&alpha_raw_view);
+        let rt_index = RTIndex::from_alpha_raw(alpha_raw_view);
 
         // Parallel iteration over quadrupole observations
         let quadrupole_observations: Vec<QuadrupoleObservation> = (0..num_quadrupole_observations)
             .into_par_iter()
-            .map(|i| Self::build_quadrupole_observation(&alpha_raw_view, i, &mz_index))
+            .map(|i| Self::build_quadrupole_observation(alpha_raw_view, i, &mz_index))
             .collect();
         
         DIAData {

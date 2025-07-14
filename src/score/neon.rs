@@ -2,7 +2,7 @@ use numpy::ndarray::{Array2, Array1};
 
 /// NEON-optimized implementation of log-dot-product operation for aarch64
 #[cfg(target_arch = "aarch64")]
-pub fn axis_log_dot_product_neon(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+pub fn axis_log_dot_product_neon(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
     use std::arch::aarch64::{vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
     
     let (n_rows, n_cols) = array.dim();
@@ -68,7 +68,7 @@ unsafe fn fast_log_approx_neon(x: std::arch::aarch64::float32x4_t) -> std::arch:
     };
     
     // Constants for the approximation
-    const LN2_F32: f32 = 0.6931471805599453;
+    const LN2_F32: f32 = std::f32::consts::LN_2;
     
     // IEEE-754 floating-point bit structure: sign(1) | exponent(8) | mantissa(23)
     // ln(2^e * 1.m) = e*ln(2) + ln(1.m)
@@ -105,7 +105,7 @@ unsafe fn fast_log_approx_neon(x: std::arch::aarch64::float32x4_t) -> std::arch:
 
 /// NEON-optimized implementation of sqrt-dot-product operation for aarch64
 #[cfg(target_arch = "aarch64")]
-pub fn axis_sqrt_dot_product_neon(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+pub fn axis_sqrt_dot_product_neon(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
     use std::arch::aarch64::{vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32, vmaxq_f32};
     
     let (n_rows, n_cols) = array.dim();

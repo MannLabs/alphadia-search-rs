@@ -1,6 +1,7 @@
 use super::*;
 use serial_test::serial;
 
+// comment
 #[test]
 #[serial]
 fn test_natural_backend_selection() {

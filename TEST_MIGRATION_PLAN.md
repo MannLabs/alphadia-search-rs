@@ -1,6 +1,12 @@
 # TEST MIGRATION PLAN: Move Rust Tests from `src/` to `tests/`
 
-This plan details, for each module, how to migrate its tests from the source tree to the `/tests` directory, following Rust best practices. Each step can be performed in a separate, focused PR.
+## General Instructions (Strict)
+
+- **Do not add any additional tests.**
+- **Do not change any functionality.**
+- **Do not reformat code.**
+- **Only move existing test code as described in this plan.**
+- **Each PR should be as small and focused as possible (ideally one module per PR).**
 
 ---
 

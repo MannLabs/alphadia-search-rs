@@ -1,4 +1,4 @@
-from alpha_rs import SpecLibFlat, PeakGroupScoring, DIAData
+from alpha_rs import SpecLibFlat, PeakGroupScoring, DIAData, ScoringParameters
 import os
 import pandas as pd
 import numpy as np
@@ -62,16 +62,34 @@ if __name__ == "__main__":
         peak_df['intensity'].values.astype(np.float32)
     )
 
-    logger.info("Creating peak group scoring")
-    fwhm_rt = 3
-    kernel_size = 20
-    peak_length = 5
-
-    peak_group_scoring = PeakGroupScoring(fwhm_rt, kernel_size, peak_length)
+    logger.info("Creating peak group scoring with default parameters")
+    # Using default parameters (no arguments needed)
+    scoring_params = ScoringParameters()
+    
+    # Update parameters using dictionary
+    config_dict = {
+        'fwhm_rt': 3.0,
+        'kernel_size': 20,
+        'peak_length': 5,
+        'mass_tolerance': 7.0,
+        'rt_tolerance': 200.0
+    }
+    scoring_params.update(config_dict)
+    
+    # You can also update parameters after creation
+    update_dict = {'mass_tolerance': 10.0, 'rt_tolerance': 150.0}
+    scoring_params.update(update_dict)
+    
+    logger.info(f"Using parameters: fwhm_rt={scoring_params.fwhm_rt}, "
+                f"kernel_size={scoring_params.kernel_size}, "
+                f"peak_length={scoring_params.peak_length}, "
+                f"mass_tolerance={scoring_params.mass_tolerance}, "
+                f"rt_tolerance={scoring_params.rt_tolerance}")
+    
+    # Using the parameters object
+    peak_group_scoring = PeakGroupScoring(scoring_params)
 
     logger.info("Searching")    
-    mass_tolerance = 7
-    rt_tolerance = 200
-    candidates = peak_group_scoring.search(rs_data, speclib, mass_tolerance, rt_tolerance)
+    candidates = peak_group_scoring.search(rs_data, speclib)
 
     logger.info(f"Found {candidates.len()} candidates")

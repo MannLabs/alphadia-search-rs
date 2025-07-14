@@ -5,7 +5,7 @@ pub struct ScalarBackend;
 impl SimdBackend for ScalarBackend {
     fn test_backend(&self) -> String {
         // Dummy function to track that scalar backend was called
-        "aarch64_scalar".to_string()
+        "scalar".to_string()
     }
     
     fn name(&self) -> &'static str { 

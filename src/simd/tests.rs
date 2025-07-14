@@ -14,17 +14,17 @@ fn test_backend_selection_without_override() {
     {
         // Check if NEON is actually available
         if NEON.is_available() {
-            assert_eq!(result, "aarch64_neon", "Should select NEON backend on aarch64 with NEON support");
+            assert_eq!(result, "neon", "Should select NEON backend on aarch64 with NEON support");
             println!("✓ NEON backend correctly selected on aarch64");
         } else {
-            assert_eq!(result, "aarch64_scalar", "Should fall back to scalar when NEON unavailable");
+            assert_eq!(result, "scalar", "Should fall back to scalar when NEON unavailable");
             println!("⚠️  NEON not available, fell back to scalar backend");
         }
     }
     
     #[cfg(not(target_arch = "aarch64"))]
     {
-        assert_eq!(result, "aarch64_scalar", "Should select scalar backend on non-aarch64");
+        assert_eq!(result, "scalar", "Should select scalar backend on non-aarch64");
         println!("⚠️  Non-aarch64 architecture detected - SIMD testing limited to scalar backend");
     }
 }
@@ -36,7 +36,7 @@ fn test_force_scalar_backend() {
     set_backend("scalar").expect("Should be able to set scalar backend");
     let result = test_backend();
     
-    assert_eq!(result, "aarch64_scalar", "Should use scalar backend when set via API");
+    assert_eq!(result, "scalar", "Should use scalar backend when set via API");
     println!("✓ Successfully forced scalar backend via set_backend() API");
     
     // Clean up
@@ -53,7 +53,7 @@ fn test_force_neon_backend() {
         if NEON.is_available() {
             set_backend("neon").expect("Should be able to set NEON backend when available");
             let result = test_backend();
-            assert_eq!(result, "aarch64_neon", "Should use NEON backend when set and available");
+            assert_eq!(result, "neon", "Should use NEON backend when set and available");
             println!("✓ Successfully forced NEON backend via set_backend() API");
         } else {
             // Test that setting unavailable NEON fails gracefully
@@ -87,15 +87,15 @@ fn test_invalid_backend_fallback() {
             #[cfg(target_arch = "aarch64")]
         {
             if NEON.is_available() {
-                assert_eq!(result, "aarch64_neon", "Should fall back to NEON when invalid backend specified");
+                assert_eq!(result, "neon", "Should fall back to NEON when invalid backend specified");
             } else {
-                assert_eq!(result, "aarch64_scalar", "Should fall back to scalar when invalid backend specified");
+                assert_eq!(result, "scalar", "Should fall back to scalar when invalid backend specified");
             }
         }
     
     #[cfg(not(target_arch = "aarch64"))]
     {
-        assert_eq!(result, "aarch64_scalar", "Should fall back to scalar when invalid backend specified");
+        assert_eq!(result, "scalar", "Should fall back to scalar when invalid backend specified");
     }
     
     println!("✓ Invalid backend name correctly ignored, fell back to best available");

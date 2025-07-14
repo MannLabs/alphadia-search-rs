@@ -11,7 +11,7 @@ pub struct NeonBackend;
 impl SimdBackend for NeonBackend {
     fn test_backend(&self) -> String {
         // Dummy function to track that neon backend was called
-        "aarch64_neon".to_string()
+        "neon".to_string()
     }
     
     fn name(&self) -> &'static str { 

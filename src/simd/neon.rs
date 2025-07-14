@@ -24,6 +24,10 @@ impl SimdBackend for NeonBackend {
         crate::score::neon::axis_sqrt_dot_product_neon(array, weights)
     }
     
+    fn convolution(&self, kernel: &crate::kernel::GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
+        crate::convolution::neon::convolution_neon(kernel, xic)
+    }
+    
     fn name(&self) -> &'static str { 
         "neon" 
     }

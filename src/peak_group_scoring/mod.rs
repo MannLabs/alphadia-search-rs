@@ -7,7 +7,7 @@ use std::fs::File;
 use ndarray_npy::NpzWriter;
 
 use crate::kernel::GaussianKernel;
-use crate::convolution::benchmark_nonpadded_symmetric_simd;
+use crate::convolution::convolution;
 use crate::precursor::Precursor;
 use crate::SpecLibFlat;
 use crate::dia_data::DIAData;
@@ -146,7 +146,7 @@ impl PeakGroupScoring {
             }
         }
 
-        let convolved_xic = benchmark_nonpadded_symmetric_simd(&self.kernel, &dense_xic);
+        let convolved_xic = convolution(&self.kernel, &dense_xic);
 
         let score = axis_sqrt_dot_product(&convolved_xic, &precursor.fragment_intensity);
 

@@ -17,6 +17,10 @@ impl SimdBackend for ScalarBackend {
         crate::score::scalar::axis_sqrt_dot_product_scalar(array, weights)
     }
     
+    fn convolution(&self, kernel: &crate::kernel::GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
+        crate::convolution::scalar::convolution_scalar(kernel, xic)
+    }
+    
     fn name(&self) -> &'static str { 
         "scalar" 
     }

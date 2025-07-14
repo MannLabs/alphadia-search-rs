@@ -3,7 +3,7 @@ use std::time::Instant;
 use rand::prelude::*;
 use crate::kernel::GaussianKernel;
 use numpy::ndarray::Array2;
-use crate::convolution::benchmark_nonpadded_symmetric_simd;
+use crate::convolution::convolution;
 // Define a struct to hold benchmark results
 pub struct BenchmarkResult {
     pub name: String,
@@ -594,7 +594,7 @@ pub fn run_convolution_benchmark() -> Vec<BenchmarkResult> {
         ("Branching+SIMD".to_string(), benchmark_padded_convolution_branching_simd),
         ("Nonpadded+SIMD".to_string(), benchmark_nonpadded_convolution_simd),
         ("Symmetric+SIMD".to_string(), benchmark_symmetric_kernel_simd),
-        ("Nonpadded+Symmetric".to_string(), benchmark_nonpadded_symmetric_simd),
+        ("Nonpadded+Symmetric".to_string(), convolution),
     ];
     
     // Run benchmarks

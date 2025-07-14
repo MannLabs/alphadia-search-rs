@@ -16,6 +16,9 @@ pub trait SimdBackend: Send + Sync {
     fn axis_log_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &Vec<f32>) -> numpy::ndarray::Array1<f32>;
     fn axis_sqrt_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &Vec<f32>) -> numpy::ndarray::Array1<f32>;
     
+    // Convolution module functions
+    fn convolution(&self, kernel: &crate::kernel::GaussianKernel, xic: &numpy::ndarray::Array2<f32>) -> numpy::ndarray::Array2<f32>;
+    
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;

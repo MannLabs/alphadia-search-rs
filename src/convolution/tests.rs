@@ -14,7 +14,7 @@ fn test_basic_convolution() {
     let xic = Array2::from_shape_vec((1, 5), xic_data).unwrap();
     
     // Apply convolution
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic);
+    let result = convolution(&kernel, &xic);
     
     // Check dimensions match
     assert_eq!(result.dim(), xic.dim());
@@ -29,14 +29,14 @@ fn test_edge_cases() {
     let xic_data = vec![0.0, 0.0, 1.0, 0.0, 0.0];
     let xic = Array2::from_shape_vec((1, 5), xic_data).unwrap();
     
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic);
+    let result = convolution(&kernel, &xic);
     assert_eq!(result.dim(), xic.dim());
     
     // Test case: kernel size larger than data size
     let kernel_large = GaussianKernel::new(sigma, 1.0, 7, 1.0);
     let xic_small = Array2::from_shape_vec((1, 3), vec![0.0, 1.0, 0.0]).unwrap();
     
-    let result = benchmark_nonpadded_symmetric_simd(&kernel_large, &xic_small);
+    let result = convolution(&kernel_large, &xic_small);
     assert_eq!(result.dim(), xic_small.dim());
 }
 
@@ -47,12 +47,12 @@ fn test_empty_input() {
     let kernel = GaussianKernel::new(sigma, 1.0, 5, 1.0);
     
     let xic_empty = Array2::<f32>::zeros((0, 10));
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic_empty);
+    let result = convolution(&kernel, &xic_empty);
     assert_eq!(result.dim(), xic_empty.dim());
     
     // Test with empty array (0 columns)
     let xic_empty = Array2::<f32>::zeros((5, 0));
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic_empty);
+    let result = convolution(&kernel, &xic_empty);
     assert_eq!(result.dim(), xic_empty.dim());
 }
 
@@ -68,7 +68,7 @@ fn test_multiple_fragments() {
     xic[[1, 3]] = 1.0;
     xic[[2, 7]] = 1.0;
     
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic);
+    let result = convolution(&kernel, &xic);
     assert_eq!(result.dim(), xic.dim());
 }
 
@@ -81,7 +81,7 @@ fn test_against_reference_implementation() {
     let xic_data = vec![0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
     let xic = Array2::from_shape_vec((1, 10), xic_data).unwrap();
     
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic);
+    let result = convolution(&kernel, &xic);
     let reference_result = safe_reference_convolution(&kernel, &xic);
     
     // Compare optimized implementation with reference implementation
@@ -105,12 +105,12 @@ fn test_very_small_input() {
     
     // Test with very small input (1x1)
     let xic_small = Array2::from_shape_vec((1, 1), vec![1.0]).unwrap();
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic_small);
+    let result = convolution(&kernel, &xic_small);
     assert_eq!(result.dim(), xic_small.dim());
     
     // Test with input smaller than half kernel
     let xic_small = Array2::from_shape_vec((1, 2), vec![1.0, 2.0]).unwrap();
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic_small);
+    let result = convolution(&kernel, &xic_small);
     assert_eq!(result.dim(), xic_small.dim());
 }
 
@@ -135,7 +135,7 @@ fn test_specific_out_of_bounds_case() {
             }
             
             // This should not panic
-            let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic);
+            let result = convolution(&kernel, &xic);
             
             // Verify dimensions match
             assert_eq!(result.dim(), xic.dim());
@@ -157,7 +157,7 @@ fn test_edge_case_kernel_larger_than_input() {
     let xic = Array2::<f32>::ones((1, 5));
     
     // This should not panic
-    let result = benchmark_nonpadded_symmetric_simd(&kernel, &xic);
+    let result = convolution(&kernel, &xic);
     
     // Verify
     assert_eq!(result.dim(), xic.dim());

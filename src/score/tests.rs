@@ -1,4 +1,6 @@
 use super::*;
+use super::scalar::{axis_log_dot_product_scalar, axis_sqrt_dot_product_scalar};
+use super::neon::{axis_log_dot_product_neon, axis_sqrt_dot_product_neon};
 use numpy::ndarray::{arr1, arr2, Array2};
 use approx::assert_relative_eq;
 
@@ -98,7 +100,7 @@ fn test_simd_vs_scalar_implementation() {
     
     // Run both implementations
     let scalar_result = axis_log_dot_product_scalar(&data, &weights);
-    let simd_result = axis_log_dot_product_simd(&data, &weights);
+    let simd_result = axis_log_dot_product_neon(&data, &weights);
     
     // Verify SIMD and scalar results are reasonably close
     // The SIMD log approximation can diverge from scalar implementation
@@ -137,7 +139,7 @@ fn test_simd_approximation_accuracy() {
     
     // Run both implementations
     let scalar_result = axis_log_dot_product_scalar(&data, &weights);
-    let simd_result = axis_log_dot_product_simd(&data, &weights);
+    let simd_result = axis_log_dot_product_neon(&data, &weights);
     
     // Print values for inspection and verify the general pattern matches
     println!("Scalar\tSIMD\tRelDiff");
@@ -152,8 +154,8 @@ fn test_simd_approximation_accuracy() {
     let simd_mean = simd_result.sum() / simd_result.len() as f32;
     
     let mut numerator = 0.0;
-    let mut scalar_denom = 0.0;
-    let mut simd_denom = 0.0;
+    let mut scalar_denom: f32 = 0.0;
+    let mut simd_denom: f32 = 0.0;
     
     for j in 0..n_cols {
         let scalar_diff = scalar_result[j] - scalar_mean;
@@ -200,7 +202,7 @@ fn test_unaligned_data_handling() {
     
     // Run both implementations
     let scalar_result = axis_log_dot_product_scalar(&array, &weights);
-    let simd_result = axis_log_dot_product_simd(&array, &weights);
+    let simd_result = axis_log_dot_product_neon(&array, &weights);
     
     // Verify reasonable similarity - allow larger differences due to approximation
     for (j, (s, v)) in scalar_result.iter().zip(simd_result.iter()).enumerate() {
@@ -263,7 +265,7 @@ fn test_sqrt_simd_vs_scalar_implementation() {
     
     // Run both implementations
     let scalar_result = axis_sqrt_dot_product_scalar(&data, &weights);
-    let simd_result = axis_sqrt_dot_product_simd(&data, &weights);
+    let simd_result = axis_sqrt_dot_product_neon(&data, &weights);
     
     // Verify SIMD and scalar results are reasonably close
     // The SIMD sqrt approximation can diverge from scalar implementation
@@ -301,7 +303,7 @@ fn test_sqrt_approximation_accuracy() {
     
     // Run both implementations
     let scalar_result = axis_sqrt_dot_product_scalar(&data, &weights);
-    let simd_result = axis_sqrt_dot_product_simd(&data, &weights);
+    let simd_result = axis_sqrt_dot_product_neon(&data, &weights);
     
     // Print values for inspection and verify the general pattern matches
     println!("Scalar\tSIMD\tRelDiff");
@@ -316,8 +318,8 @@ fn test_sqrt_approximation_accuracy() {
     let simd_mean = simd_result.sum() / simd_result.len() as f32;
     
     let mut numerator = 0.0;
-    let mut scalar_denom = 0.0;
-    let mut simd_denom = 0.0;
+    let mut scalar_denom: f32 = 0.0;
+    let mut simd_denom: f32 = 0.0;
     
     for j in 0..n_cols {
         let scalar_diff = scalar_result[j] - scalar_mean;
@@ -364,7 +366,7 @@ fn test_sqrt_unaligned_data_handling() {
     
     // Run both implementations
     let scalar_result = axis_sqrt_dot_product_scalar(&array, &weights);
-    let simd_result = axis_sqrt_dot_product_simd(&array, &weights);
+    let simd_result = axis_sqrt_dot_product_neon(&array, &weights);
     
     // Verify reasonable similarity
     for (j, (s, v)) in scalar_result.iter().zip(simd_result.iter()).enumerate() {

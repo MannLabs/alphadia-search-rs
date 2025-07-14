@@ -12,6 +12,10 @@ pub trait SimdBackend: Send + Sync {
     // Dummy function to track which backend implementation is called
     fn test_backend(&self) -> String;
     
+    // Score module functions (actually used)
+    fn axis_log_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &Vec<f32>) -> numpy::ndarray::Array1<f32>;
+    fn axis_sqrt_dot_product(&self, array: &numpy::ndarray::Array2<f32>, weights: &Vec<f32>) -> numpy::ndarray::Array1<f32>;
+    
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
@@ -41,7 +45,21 @@ static BACKENDS: &[&dyn SimdBackend] = &[
 // Simple backend override: usize::MAX means no override
 static BACKEND_OVERRIDE: AtomicUsize = AtomicUsize::new(usize::MAX);
 
-fn get_backend() -> &'static dyn SimdBackend {
+fn select_best_backend() -> &'static dyn SimdBackend {
+    BACKENDS.iter()
+        .copied()
+        .filter(|b| b.is_available())
+        .max_by_key(|b| b.priority())
+        .unwrap_or(&SCALAR)
+}
+
+// Public API - dummy function to track backend usage
+pub fn test_backend() -> String {
+    get_backend().test_backend()
+}
+
+// Internal API for score module
+pub(crate) fn get_backend() -> &'static dyn SimdBackend {
     let override_idx = BACKEND_OVERRIDE.load(Ordering::Relaxed);
     
     if override_idx != usize::MAX {
@@ -55,19 +73,6 @@ fn get_backend() -> &'static dyn SimdBackend {
     
     // Natural selection based on availability and priority
     select_best_backend()
-}
-
-fn select_best_backend() -> &'static dyn SimdBackend {
-    BACKENDS.iter()
-        .copied()
-        .filter(|b| b.is_available())
-        .max_by_key(|b| b.priority())
-        .unwrap_or(&SCALAR)
-}
-
-// Public API - dummy function to track backend usage
-pub fn test_backend() -> String {
-    get_backend().test_backend()
 }
 
 // Public API - set a specific backend by name

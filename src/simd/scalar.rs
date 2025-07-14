@@ -1,4 +1,5 @@
 use super::{SimdBackend, Rank};
+use numpy::ndarray::{Array1, Array2};
 
 pub struct ScalarBackend;
 
@@ -6,6 +7,14 @@ impl SimdBackend for ScalarBackend {
     fn test_backend(&self) -> String {
         // Dummy function to track that scalar backend was called
         "scalar".to_string()
+    }
+    
+    fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+        crate::score::scalar::axis_log_dot_product_scalar(array, weights)
+    }
+    
+    fn axis_sqrt_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
+        crate::score::scalar::axis_sqrt_dot_product_scalar(array, weights)
     }
     
     fn name(&self) -> &'static str { 

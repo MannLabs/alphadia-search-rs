@@ -9,7 +9,7 @@ mod mz_index;
 mod dia_data_builder;
 mod dia_data;
 mod kernel;
-mod benchmark;
+pub mod benchmark;
 mod convolution;
 mod precursor;
 mod speclib_flat;

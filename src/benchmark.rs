@@ -719,12 +719,3 @@ pub fn test_convolution_implementations() -> bool {
     all_tests_passed
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_convolution_similarity() {
-        assert!(test_convolution_implementations());
-    }
-} 

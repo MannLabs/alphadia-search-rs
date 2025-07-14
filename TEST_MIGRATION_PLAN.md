@@ -17,6 +17,32 @@
 
 ---
 
+## PR Message Format
+
+Each migration PR should follow this format:
+
+**Title:** `migrate: Move [module_name] tests from src/ to tests/ (Step X/9)`
+
+**Description:**
+This PR implements step X of the test migration plan, moving [module_name] tests from `src/[module_name].rs` to `tests/[module_name].rs`.
+
+**Changes:**
+- Created `tests/[module_name].rs` with migrated test functions
+- Removed test module from `src/[module_name].rs`
+- Made [module_name] module public in `lib.rs` (if needed)
+- [Any other specific changes]
+
+**Technical Notes:**
+[Include any technical explanations for changes made, such as the rlib addition for Step 1]
+
+**Testing:**
+- All tests passing: [X unit tests + Y integration tests]
+- Verified with `cargo test`
+
+**Migration Status:** X/9 modules completed
+
+---
+
 ## General Steps for Each Module
 
 1. **Create a new test file in `/tests`** named after the module (e.g., `tests/rt_index.rs`).

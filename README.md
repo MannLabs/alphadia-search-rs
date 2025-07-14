@@ -27,9 +27,14 @@ High-performance mass spectrometry data analysis library with SIMD optimizations
 
 2. **Set up pre-commit hooks (recommended):**
    ```bash
-   ./scripts/setup-git-hooks.sh
+   # Install pre-commit
+   pip install pre-commit
+   # or: conda install -c conda-forge pre-commit
+   # or: brew install pre-commit
+   
+   # Install the git hook scripts
+   pre-commit install
    ```
-   This installs [pre-commit](https://pre-commit.com/) hooks that run the same linting and formatting checks as CI.
 
 3. **Install Python dependencies:**
    ```bash
@@ -63,8 +68,14 @@ This project enforces strict code quality standards via automated tooling:
 We use the [pre-commit](https://pre-commit.com/) framework for automated code quality checks:
 
 ```bash
-# Set up hooks (one-time setup)
-./scripts/setup-git-hooks.sh
+# Install pre-commit (one-time setup)
+pip install pre-commit
+
+# Install hooks (one-time setup)
+pre-commit install
+
+# Test hooks on all files
+pre-commit run --all-files
 
 # Hooks will automatically run on every commit
 git commit -m "your changes"
@@ -172,7 +183,11 @@ cargo run --release --bin benchmark
 
 1. **Fork and clone** the repository
 2. **Set up development environment** (see Development Setup)
-3. **Install pre-commit hooks**: `./scripts/setup-git-hooks.sh`
+3. **Install pre-commit hooks**:
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
 4. **Make your changes** with tests
 5. **Ensure all checks pass**: `pre-commit run --all-files`
 6. **Submit a pull request**

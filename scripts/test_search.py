@@ -45,8 +45,9 @@ if __name__ == "__main__":
     logger.info("Creating peak group scoring")
     fwhm_rt = 3
     kernel_size = 20
+    peak_length = 5
 
-    peak_group_scoring = PeakGroupScoring(fwhm_rt, kernel_size)
+    peak_group_scoring = PeakGroupScoring(fwhm_rt, kernel_size, peak_length)
 
     logger.info("Searching")    
     mass_tolerance = 7

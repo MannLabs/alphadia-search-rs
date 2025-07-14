@@ -720,11 +720,7 @@ pub fn test_convolution_implementations() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_convolution_similarity() {
-        assert!(test_convolution_implementations());
-    }
-} 
+mod tests;
+
+
+ 

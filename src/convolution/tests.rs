@@ -82,7 +82,7 @@ fn test_against_reference_implementation() {
     let xic = Array2::from_shape_vec((1, 10), xic_data).unwrap();
 
     let result = convolution(&kernel, &xic);
-    let reference_result = safe_reference_convolution(&kernel, &xic);
+    let reference_result = scalar::convolution_scalar(&kernel, &xic);
 
     // Compare optimized implementation with reference implementation
     assert_eq!(result.dim(), reference_result.dim());
@@ -141,7 +141,7 @@ fn test_specific_out_of_bounds_case() {
             assert_eq!(result.dim(), xic.dim());
 
             // Compare with reference implementation
-            let reference = safe_reference_convolution(&kernel, &xic);
+            let reference = scalar::convolution_scalar(&kernel, &xic);
             assert_eq!(result.dim(), reference.dim());
         }
     }

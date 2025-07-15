@@ -54,4 +54,3 @@ impl Default for ScoringParameters {
         Self::new()
     }
 }
-

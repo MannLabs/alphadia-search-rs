@@ -1,5 +1,5 @@
-use super::*;
 use super::parameters::ScoringParameters;
+use super::*;
 use numpy::ndarray::arr1;
 use pyo3::types::PyDict;
 use pyo3::Python;
@@ -48,7 +48,7 @@ fn test_find_local_maxima_flat_regions() {
 #[test]
 fn test_parameter_defaults() {
     let params = ScoringParameters::new();
-    
+
     // Verify all default values
     assert_eq!(params.fwhm_rt, 3.0);
     assert_eq!(params.kernel_size, 20);
@@ -60,7 +60,7 @@ fn test_parameter_defaults() {
 #[test]
 fn test_parameter_internal_modification() {
     let mut params = ScoringParameters::new();
-    
+
     // Test that we can still modify parameters internally in Rust
     // (This is for internal Rust usage, not Python)
     params.fwhm_rt = 5.0;
@@ -68,7 +68,7 @@ fn test_parameter_internal_modification() {
     params.peak_length = 8;
     params.mass_tolerance = 12.0;
     params.rt_tolerance = 300.0;
-    
+
     assert_eq!(params.fwhm_rt, 5.0);
     assert_eq!(params.kernel_size, 30);
     assert_eq!(params.peak_length, 8);
@@ -81,13 +81,13 @@ fn test_update_method_partial() {
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| {
         let mut params = ScoringParameters::new();
-        
+
         // Update only one parameter
         let dict = PyDict::new(py);
         dict.set_item("rt_tolerance", 150.0).unwrap();
-        
+
         params.update(&dict).unwrap();
-        
+
         // Verify only the updated parameter changed
         assert_eq!(params.rt_tolerance, 150.0);
     });

@@ -65,8 +65,6 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
     (indices, values)
 }
 
-
-
 #[pyclass]
 pub struct PeakGroupScoring {
     kernel: GaussianKernel,
@@ -88,11 +86,7 @@ impl PeakGroupScoring {
         }
     }
 
-    pub fn search(
-        &self,
-        dia_data: &DIAData,
-        lib: &SpecLibFlat,
-    ) -> CandidateCollection {
+    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz
@@ -108,7 +102,12 @@ impl PeakGroupScoring {
             .into_par_iter()
             .flat_map(|i| {
                 let precursor = lib.get_precursor(i);
-                self.search_precursor(dia_data, &precursor, self.params.mass_tolerance, self.params.rt_tolerance)
+                self.search_precursor(
+                    dia_data,
+                    &precursor,
+                    self.params.mass_tolerance,
+                    self.params.rt_tolerance,
+                )
             })
             .collect();
         let end_time = Instant::now();

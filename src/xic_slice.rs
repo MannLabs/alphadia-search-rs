@@ -36,7 +36,7 @@ impl XICSlice {
         
         // Generate unique random cycle indices
         while unique_cycle_indices.len() < max_elements && unique_cycle_indices.len() < MAX_CYCLE_INDEX {
-            unique_cycle_indices.insert(rand::thread_rng().gen_range(0..MAX_CYCLE_INDEX) as u16);
+            unique_cycle_indices.insert(rand::rng().random_range(0..MAX_CYCLE_INDEX) as u16);
         }
         
         let mut random_cycle_index: Vec<u16> = unique_cycle_indices.into_iter().collect();
@@ -44,7 +44,7 @@ impl XICSlice {
 
         let mut random_intensity = Vec::with_capacity(random_cycle_index.len());
         for _ in 0..random_cycle_index.len() {
-            random_intensity.push(rand::thread_rng().gen_range(0.0..1.0));
+            random_intensity.push(rand::rng().random_range(0.0..1.0));
         }
 
         

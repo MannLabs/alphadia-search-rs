@@ -94,15 +94,15 @@ impl CandidateCollection {
         }
 
         Ok((
-            precursor_idxs.into_pyarray(py).into_py(py),
-            ranks.into_pyarray(py).into_py(py),
-            scores.into_pyarray(py).into_py(py),
-            scan_center.into_pyarray(py).into_py(py),
-            scan_start.into_pyarray(py).into_py(py),
-            scan_stop.into_pyarray(py).into_py(py),
-            cycle_center.into_pyarray(py).into_py(py),
-            cycle_start.into_pyarray(py).into_py(py),
-            cycle_stop.into_pyarray(py).into_py(py),
+            precursor_idxs.into_pyarray(py).into(),
+            ranks.into_pyarray(py).into(),
+            scores.into_pyarray(py).into(),
+            scan_center.into_pyarray(py).into(),
+            scan_start.into_pyarray(py).into(),
+            scan_stop.into_pyarray(py).into(),
+            cycle_center.into_pyarray(py).into(),
+            cycle_start.into_pyarray(py).into(),
+            cycle_stop.into_pyarray(py).into(),
         ))
     }
 

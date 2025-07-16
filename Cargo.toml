@@ -9,11 +9,11 @@ name = "alpha_rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = "0.23.3"
-numpy = "0.23"
-rand = "0.8.5"
-rayon = "1.8"
-num_cpus = "1.16"
+pyo3 = "0.25.1"
+numpy = "0.25.0"
+rand = "0.9.1"
+rayon = "1.10.0"
+num_cpus = "1.17.0"
 ndarray-npy = "0.9.1"
 
 [dev-dependencies]

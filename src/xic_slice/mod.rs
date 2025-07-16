@@ -1,4 +1,3 @@
-use numpy::ndarray::Array1;
 use rand::Rng;
 use std::collections::HashSet;
 
@@ -56,6 +55,4 @@ impl XICSlice {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-} 
+mod tests; 

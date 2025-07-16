@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use pyo3::{Python, PyErr};
+use pyo3::PyErr;
 use pyo3::exceptions::PyValueError;
 
 mod xic_slice;
@@ -23,8 +23,7 @@ use crate::speclib_flat::SpecLibFlat;
 use crate::peak_group_scoring::PeakGroupScoring;
 use crate::candidate::CandidateCollection;
 
-#[cfg(test)]
-mod convolution_test;
+
 
 #[pyfunction]
 fn benchmark_convolution() -> PyResult<(f64, f64)> {

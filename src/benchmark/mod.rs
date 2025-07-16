@@ -130,7 +130,7 @@ pub fn benchmark_padded_convolution_branching(kernel: &GaussianKernel, xic: &Arr
 /// Optimized convolution that combines both branch optimization and SIMD for the non-branching section
 pub fn benchmark_padded_convolution_branching_simd(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
     #[cfg(target_arch = "aarch64")]
-    use std::arch::aarch64::{float32x4_t, vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
+    use std::arch::aarch64::{vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
     
     let (n_fragments, n_points) = xic.dim();
     let kernel_size = kernel.kernel_array.len();
@@ -256,7 +256,7 @@ pub fn benchmark_padded_convolution_branching_simd(kernel: &GaussianKernel, xic:
 // Implementation without padding that starts with first valid calculation
 pub fn benchmark_nonpadded_convolution_simd(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
     #[cfg(target_arch = "aarch64")]
-    use std::arch::aarch64::{float32x4_t, vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
+    use std::arch::aarch64::{vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
     
     let (n_fragments, n_points) = xic.dim();
     let kernel_size = kernel.kernel_array.len();
@@ -349,7 +349,7 @@ pub fn benchmark_nonpadded_convolution_simd(kernel: &GaussianKernel, xic: &Array
 // Implementation that leverages the symmetry of the Gaussian kernel
 pub fn benchmark_symmetric_kernel_simd(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
     #[cfg(target_arch = "aarch64")]
-    use std::arch::aarch64::{float32x4_t, vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
+    use std::arch::aarch64::{vaddq_f32, vld1q_f32, vmulq_f32, vdupq_n_f32, vst1q_f32};
     
     let (n_fragments, n_points) = xic.dim();
     let kernel_size = kernel.kernel_array.len();
@@ -720,11 +720,7 @@ pub fn test_convolution_implementations() -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_convolution_similarity() {
-        assert!(test_convolution_implementations());
-    }
-} 
+mod tests;
+
+
+ 

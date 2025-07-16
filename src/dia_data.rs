@@ -157,3 +157,28 @@ impl DIAData {
         self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
     }
 }
+
+// Implement the DIADataTrait for DIAData
+impl crate::traits::DIADataTrait for DIAData {
+    type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
+    
+    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
+        self.get_valid_observations(precursor_mz)
+    }
+    
+    fn mz_index(&self) -> &crate::mz_index::MZIndex {
+        &self.mz_index
+    }
+    
+    fn rt_index(&self) -> &crate::rt_index::RTIndex {
+        &self.rt_index
+    }
+    
+    fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
+        &self.quadrupole_observations
+    }
+
+    fn memory_footprint_bytes(&self) -> usize {
+        self.memory_footprint_bytes()
+    }
+}

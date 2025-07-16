@@ -1,6 +1,6 @@
 use super::*;
-use numpy::ndarray::ArrayView1;
 use crate::dia_data::AlphaRawView;
+use numpy::ndarray::ArrayView1;
 
 fn create_mock_alpha_raw_view<'a>(
     spectrum_delta_scan_idx: &'a [i64],
@@ -36,25 +36,25 @@ fn test_optimized_builder_basic_functionality() {
     let spectrum_peak_stop_idx = [2i64, 4, 6, 8, 10, 12];
     let spectrum_cycle_idx = [0i64, 1, 0, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1, 3.0, 3.1];
-    
+
     // Peak data - 2 peaks per spectrum
     let peak_mz = [
         110.0f32, 115.0, // spectrum 0
-        111.0, 116.0,    // spectrum 1  
-        210.0, 215.0,    // spectrum 2
-        211.0, 216.0,    // spectrum 3
-        310.0, 315.0,    // spectrum 4
-        311.0, 316.0,    // spectrum 5
+        111.0, 116.0, // spectrum 1
+        210.0, 215.0, // spectrum 2
+        211.0, 216.0, // spectrum 3
+        310.0, 315.0, // spectrum 4
+        311.0, 316.0, // spectrum 5
     ];
     let peak_intensity = [
         1000.0f32, 1100.0, // spectrum 0
-        1200.0, 1300.0,    // spectrum 1
-        2000.0, 2100.0,    // spectrum 2
-        2200.0, 2300.0,    // spectrum 3
-        3000.0, 3100.0,    // spectrum 4
-        3200.0, 3300.0,    // spectrum 5
+        1200.0, 1300.0, // spectrum 1
+        2000.0, 2100.0, // spectrum 2
+        2200.0, 2300.0, // spectrum 3
+        3000.0, 3100.0, // spectrum 4
+        3200.0, 3300.0, // spectrum 5
     ];
-    
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -66,12 +66,12 @@ fn test_optimized_builder_basic_functionality() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Should have 3 observations (delta_scan_idx 0, 1, 2)
     assert_eq!(dia_data.num_observations(), 3);
-    
+
     // Check that indices were built
     assert!(dia_data.mz_index.len() > 0);
     assert!(dia_data.rt_index.rt.len() > 0);
@@ -86,9 +86,14 @@ fn test_observation_isolation_windows() {
     let spectrum_peak_stop_idx = [2i64, 4, 6, 8, 10, 12];
     let spectrum_cycle_idx = [0i64, 1, 0, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1, 3.0, 3.1];
-    let peak_mz = [110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0];
-    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0, 3300.0];
-    
+    let peak_mz = [
+        110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0,
+    ];
+    let peak_intensity = [
+        1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0,
+        3300.0,
+    ];
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -100,18 +105,18 @@ fn test_observation_isolation_windows() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Test isolation windows for each observation
     let obs0 = &dia_data.quadrupole_observations[0];
     assert_eq!(obs0.isolation_window[0], 100.0);
     assert_eq!(obs0.isolation_window[1], 125.0);
-    
+
     let obs1 = &dia_data.quadrupole_observations[1];
     assert_eq!(obs1.isolation_window[0], 200.0);
     assert_eq!(obs1.isolation_window[1], 225.0);
-    
+
     let obs2 = &dia_data.quadrupole_observations[2];
     assert_eq!(obs2.isolation_window[0], 300.0);
     assert_eq!(obs2.isolation_window[1], 325.0);
@@ -126,9 +131,14 @@ fn test_valid_observations() {
     let spectrum_peak_stop_idx = [2i64, 4, 6, 8, 10, 12];
     let spectrum_cycle_idx = [0i64, 1, 0, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1, 3.0, 3.1];
-    let peak_mz = [110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0];
-    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0, 3300.0];
-    
+    let peak_mz = [
+        110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0,
+    ];
+    let peak_intensity = [
+        1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0,
+        3300.0,
+    ];
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -140,19 +150,19 @@ fn test_valid_observations() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Test precursor matching
     let valid_for_112 = dia_data.get_valid_observations(112.0);
     assert_eq!(valid_for_112, vec![0]); // Should match observation 0 (100-125)
-    
+
     let valid_for_212 = dia_data.get_valid_observations(212.0);
     assert_eq!(valid_for_212, vec![1]); // Should match observation 1 (200-225)
-    
+
     let valid_for_312 = dia_data.get_valid_observations(312.0);
     assert_eq!(valid_for_312, vec![2]); // Should match observation 2 (300-325)
-    
+
     let valid_for_50 = dia_data.get_valid_observations(50.0);
     assert_eq!(valid_for_50, Vec::<usize>::new()); // Should match no observations
 }
@@ -167,8 +177,10 @@ fn test_parallel_building_deterministic() {
     let spectrum_cycle_idx = [0i64, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1];
     let peak_mz = [110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0];
-    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0];
-    
+    let peak_intensity = [
+        1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0,
+    ];
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -180,21 +192,21 @@ fn test_parallel_building_deterministic() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     // Build multiple times to ensure deterministic results
     let dia_data1 = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
     let dia_data2 = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Results should be identical
     assert_eq!(dia_data1.num_observations(), dia_data2.num_observations());
-    
+
     for i in 0..dia_data1.num_observations() {
         let obs1 = &dia_data1.quadrupole_observations[i];
         let obs2 = &dia_data2.quadrupole_observations[i];
-        
+
         assert_eq!(obs1.isolation_window, obs2.isolation_window);
     }
-} 
+}
 
 #[test]
 fn test_cycle_ordering_preservation() {
@@ -207,11 +219,11 @@ fn test_cycle_ordering_preservation() {
     let spectrum_peak_stop_idx = [1i64, 2, 3];
     let spectrum_cycle_idx = [2i64, 0, 1]; // Non-sequential: 2, 0, 1
     let spectrum_rt = [1.0f32, 1.1, 1.2];
-    
+
     // All peaks have same m/z to test ordering within same mz_idx
     let peak_mz = [120.0f32, 120.0, 120.0];
     let peak_intensity = [1000.0f32, 2000.0, 3000.0];
-    
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -223,27 +235,23 @@ fn test_cycle_ordering_preservation() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Find the mz_idx for our test m/z
     let mz_idx = dia_data.mz_index.find_closest_index(120.0);
     let obs = &dia_data.quadrupole_observations[0];
     let (cycles, intensities) = obs.get_slice_data(mz_idx);
-    
+
     // Cycles should be in temporal order: [0, 1, 2] not [2, 0, 1]
     // This verifies the sort_by_key fix is working
     assert_eq!(cycles.len(), 3);
     assert_eq!(cycles[0], 0); // First cycle chronologically
-    assert_eq!(cycles[1], 1); // Second cycle chronologically  
+    assert_eq!(cycles[1], 1); // Second cycle chronologically
     assert_eq!(cycles[2], 2); // Third cycle chronologically
-    
+
     // Intensities should follow the cycle ordering
     assert_eq!(intensities[0], 2000.0); // Intensity from cycle 0
     assert_eq!(intensities[1], 3000.0); // Intensity from cycle 1
     assert_eq!(intensities[2], 1000.0); // Intensity from cycle 2
-} 
-
-
-
- 
+}

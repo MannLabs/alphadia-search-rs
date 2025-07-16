@@ -13,8 +13,8 @@ use crate::dia_data_next_gen::DIADataNextGen;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_sqrt_dot_product;
-use crate::SpecLibFlat;
 use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
+use crate::SpecLibFlat;
 
 pub mod parameters;
 pub use parameters::ScoringParameters;
@@ -92,14 +92,22 @@ impl PeakGroupScoring {
         self.search_generic(dia_data, lib)
     }
 
-    pub fn search_next_gen(&self, dia_data: &DIADataNextGen, lib: &SpecLibFlat) -> CandidateCollection {
+    pub fn search_next_gen(
+        &self,
+        dia_data: &DIADataNextGen,
+        lib: &SpecLibFlat,
+    ) -> CandidateCollection {
         self.search_generic(dia_data, lib)
     }
 }
 
 impl PeakGroupScoring {
     /// Generic search function that works with any type implementing DIADataTrait
-    fn search_generic<T: DIADataTrait + Sync>(&self, dia_data: &T, lib: &SpecLibFlat) -> CandidateCollection {
+    fn search_generic<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+    ) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz

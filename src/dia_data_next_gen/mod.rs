@@ -8,7 +8,7 @@ use crate::quadrupole_observation_next_gen::QuadrupoleObservationNextGen;
 use crate::rt_index::RTIndex;
 
 /// Next generation DIAData structure using optimized memory layout
-/// 
+///
 /// This structure achieves >99.9% memory overhead reduction compared to the original
 /// by using consolidated arrays instead of millions of individual allocations.
 #[pyclass]
@@ -108,28 +108,29 @@ impl DIADataNextGen {
 
 // Implement the DIADataTrait for DIADataNextGen
 impl crate::traits::DIADataTrait for DIADataNextGen {
-    type QuadrupoleObservation = crate::quadrupole_observation_next_gen::QuadrupoleObservationNextGen;
-    
+    type QuadrupoleObservation =
+        crate::quadrupole_observation_next_gen::QuadrupoleObservationNextGen;
+
     fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
         self.get_valid_observations(precursor_mz)
     }
-    
+
     fn mz_index(&self) -> &crate::mz_index::MZIndex {
         &self.mz_index
     }
-    
+
     fn rt_index(&self) -> &crate::rt_index::RTIndex {
         &self.rt_index
     }
-    
+
     fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
         &self.quadrupole_observations
     }
-    
+
     fn memory_footprint_bytes(&self) -> usize {
         self.memory_footprint_bytes()
     }
 }
 
 #[cfg(test)]
-mod tests; 
+mod tests;

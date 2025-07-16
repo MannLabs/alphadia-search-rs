@@ -1,6 +1,6 @@
 use super::*;
-use numpy::ndarray::ArrayView1;
 use crate::dia_data::AlphaRawView;
+use numpy::ndarray::ArrayView1;
 
 fn create_mock_alpha_raw_view<'a>(
     spectrum_delta_scan_idx: &'a [i64],
@@ -51,10 +51,12 @@ fn test_from_alpha_raw_view() {
     let spectrum_peak_stop_idx = [2i64, 4, 6, 8];
     let spectrum_cycle_idx = [0i64, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1];
-    
+
     let peak_mz = [110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0];
-    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0];
-    
+    let peak_intensity = [
+        1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0,
+    ];
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -66,11 +68,11 @@ fn test_from_alpha_raw_view() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     // Test that we can build DIADataNextGen from AlphaRawView directly
     use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     assert_eq!(dia_data.num_observations(), 2);
     assert!(dia_data.mz_index.len() > 0);
     assert!(dia_data.rt_index.rt.len() > 0);
@@ -86,10 +88,15 @@ fn test_get_valid_observations() {
     let spectrum_peak_stop_idx = [2i64, 4, 6, 8, 10, 12];
     let spectrum_cycle_idx = [0i64, 1, 0, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1, 3.0, 3.1];
-    
-    let peak_mz = [110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0];
-    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0, 3300.0];
-    
+
+    let peak_mz = [
+        110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0,
+    ];
+    let peak_intensity = [
+        1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0,
+        3300.0,
+    ];
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -101,31 +108,31 @@ fn test_get_valid_observations() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Test valid observations for different m/z values
     let valid_for_112 = dia_data.get_valid_observations(112.0);
     assert_eq!(valid_for_112, vec![0]); // Should match observation 0 (100-125)
-    
+
     let valid_for_212 = dia_data.get_valid_observations(212.0);
     assert_eq!(valid_for_212, vec![1]); // Should match observation 1 (200-225)
-    
+
     let valid_for_312 = dia_data.get_valid_observations(312.0);
     assert_eq!(valid_for_312, vec![2]); // Should match observation 2 (300-325)
-    
+
     // Test edge cases
     let valid_for_100 = dia_data.get_valid_observations(100.0);
     assert_eq!(valid_for_100, vec![0]); // Lower boundary inclusive
-    
+
     let valid_for_125 = dia_data.get_valid_observations(125.0);
     assert_eq!(valid_for_125, vec![0]); // Upper boundary inclusive
-    
+
     // Test no matches
     let valid_for_50 = dia_data.get_valid_observations(50.0);
     assert_eq!(valid_for_50, Vec::<usize>::new()); // Should match no observations
-    
+
     let valid_for_175 = dia_data.get_valid_observations(175.0);
     assert_eq!(valid_for_175, Vec::<usize>::new()); // Between windows
 }
@@ -139,9 +146,14 @@ fn test_observation_consistency() {
     let spectrum_peak_stop_idx = [2i64, 4, 6, 8, 10, 12];
     let spectrum_cycle_idx = [0i64, 1, 0, 1, 0, 1];
     let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1, 3.0, 3.1];
-    let peak_mz = [110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0];
-    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0, 3300.0];
-    
+    let peak_mz = [
+        110.0f32, 115.0, 111.0, 116.0, 210.0, 215.0, 211.0, 216.0, 310.0, 315.0, 311.0, 316.0,
+    ];
+    let peak_intensity = [
+        1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0, 3000.0, 3100.0, 3200.0,
+        3300.0,
+    ];
+
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -153,29 +165,47 @@ fn test_observation_consistency() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
     let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Verify the number of observations matches expected
     assert_eq!(dia_data.num_observations(), 3);
-    
+
     // Verify isolation windows are correctly set
-    assert_eq!(dia_data.quadrupole_observations[0].isolation_window[0], 100.0);
-    assert_eq!(dia_data.quadrupole_observations[0].isolation_window[1], 125.0);
-    
-    assert_eq!(dia_data.quadrupole_observations[1].isolation_window[0], 200.0);
-    assert_eq!(dia_data.quadrupole_observations[1].isolation_window[1], 225.0);
-    
-    assert_eq!(dia_data.quadrupole_observations[2].isolation_window[0], 300.0);
-    assert_eq!(dia_data.quadrupole_observations[2].isolation_window[1], 325.0);
+    assert_eq!(
+        dia_data.quadrupole_observations[0].isolation_window[0],
+        100.0
+    );
+    assert_eq!(
+        dia_data.quadrupole_observations[0].isolation_window[1],
+        125.0
+    );
+
+    assert_eq!(
+        dia_data.quadrupole_observations[1].isolation_window[0],
+        200.0
+    );
+    assert_eq!(
+        dia_data.quadrupole_observations[1].isolation_window[1],
+        225.0
+    );
+
+    assert_eq!(
+        dia_data.quadrupole_observations[2].isolation_window[0],
+        300.0
+    );
+    assert_eq!(
+        dia_data.quadrupole_observations[2].isolation_window[1],
+        325.0
+    );
 }
 
 #[test]
 fn test_empty_data_handling() {
     let dia_data = DIADataNextGen::new();
-    
+
     // Test empty data behavior
     assert_eq!(dia_data.num_observations(), 0);
     assert_eq!(dia_data.get_valid_observations(100.0), Vec::<usize>::new());
-} 
+}

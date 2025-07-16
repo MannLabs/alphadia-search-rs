@@ -128,7 +128,8 @@ impl DIAData {
         total_size += self.rt_index.rt.len() * std::mem::size_of::<f32>();
 
         // Size of quadrupole_observations Vec overhead
-        total_size += std::mem::size_of::<Vec<crate::quadrupole_observation::QuadrupoleObservation>>();
+        total_size +=
+            std::mem::size_of::<Vec<crate::quadrupole_observation::QuadrupoleObservation>>();
 
         // Size of each QuadrupoleObservation
         for obs in &self.quadrupole_observations {
@@ -142,7 +143,7 @@ impl DIAData {
                 // Vec overhead for cycle_index and intensity
                 total_size += std::mem::size_of::<Vec<u16>>();
                 total_size += std::mem::size_of::<Vec<f32>>();
-                
+
                 // Actual data in the vectors
                 total_size += xic_slice.cycle_index.len() * std::mem::size_of::<u16>();
                 total_size += xic_slice.intensity.len() * std::mem::size_of::<f32>();
@@ -161,19 +162,19 @@ impl DIAData {
 // Implement the DIADataTrait for DIAData
 impl crate::traits::DIADataTrait for DIAData {
     type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
-    
+
     fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
         self.get_valid_observations(precursor_mz)
     }
-    
+
     fn mz_index(&self) -> &crate::mz_index::MZIndex {
         &self.mz_index
     }
-    
+
     fn rt_index(&self) -> &crate::rt_index::RTIndex {
         &self.rt_index
     }
-    
+
     fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
         &self.quadrupole_observations
     }

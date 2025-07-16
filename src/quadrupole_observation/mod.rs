@@ -77,7 +77,14 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         mass_tolerance: f32,
         mz: f32,
     ) {
-        self.fill_xic_slice(mz_index, dense_xic, cycle_start_idx, cycle_stop_idx, mass_tolerance, mz)
+        self.fill_xic_slice(
+            mz_index,
+            dense_xic,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            mz,
+        )
     }
 }
 

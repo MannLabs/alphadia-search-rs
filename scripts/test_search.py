@@ -62,6 +62,12 @@ if __name__ == "__main__":
         peak_df['intensity'].values.astype(np.float32)
     )
 
+    # Log memory footprint
+    memory_mb = rs_data.memory_footprint_mb()
+    memory_bytes = rs_data.memory_footprint_bytes()
+    logger.info(f"DIAData memory footprint: {memory_mb:.2f} MB ({memory_bytes:,} bytes)")
+    logger.info(f"DIAData contains {rs_data.num_observations} quadrupole observations")
+
     logger.info("Creating peak group scoring with default parameters")
     # Using default parameters (no arguments needed)
     scoring_params = ScoringParameters()

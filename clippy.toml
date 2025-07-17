@@ -14,4 +14,4 @@ too-many-lines-threshold = 150
 type-complexity-threshold = 300
 
 # Be more permissive with exported API changes during development
-avoid-breaking-exported-api = false 
+avoid-breaking-exported-api = false

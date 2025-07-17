@@ -7,7 +7,6 @@ use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 
-
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
     pub isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,

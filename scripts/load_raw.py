@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def process_raw_file(hdf_file_path, cycle_len=301):
     """
     Process a raw file and optionally save as HDF.
-    
+
     Args:
         raw_file_path: Path to the raw file
         hdf_file_path: Optional path to save HDF file
@@ -25,15 +25,15 @@ def process_raw_file(hdf_file_path, cycle_len=301):
     # Load the raw data
     dia_data = MSData_Base()
     dia_data.load_hdf(hdf_file_path)
-    
+
     # Calculate cycle indices
     delta_scan_idx = np.tile(np.arange(cycle_len), int(len(dia_data.spectrum_df) / cycle_len + 1))
     cycle_idx = np.repeat(np.arange(int(len(dia_data.spectrum_df) / cycle_len + 1)), cycle_len)
-    
+
     # Add indices to spectrum dataframe
     dia_data.spectrum_df['delta_scan_idx'] = delta_scan_idx[:len(dia_data.spectrum_df)]
     dia_data.spectrum_df['cycle_idx'] = cycle_idx[:len(dia_data.spectrum_df)]
-    
+
     logger.info(f"Processing with alpha_rs")
     # Process with alpha_rs
     hist = alpha_rs.test_xic_index(
@@ -46,7 +46,7 @@ def process_raw_file(hdf_file_path, cycle_len=301):
         dia_data.peak_df['mz'].values.astype(np.float32),
         dia_data.peak_df['intensity'].values.astype(np.float32)
     )
-    
+
     logger.info(f"Processing complete")
     return dia_data
 
@@ -54,9 +54,9 @@ def main():
     parser = argparse.ArgumentParser(description='Process a raw file and generate XIC index histogram')
     parser.add_argument('hdf_file', help='Path to the HDF file')
     parser.add_argument('--cycle_len', type=int, default=301, help='Cycle length')
-    
+
     args = parser.parse_args()
-    
+
     process_raw_file(args.hdf_file, args.cycle_len)
 
 if __name__ == "__main__":

@@ -30,14 +30,14 @@ if __name__ == "__main__":
         tmp_folder = preferred_folder
     else:
         tmp_folder = tempfile.mkdtemp()
-    
+
     logger.info(f"Using folder: {tmp_folder}")
-    
+
     # Download required files (DataShareDownloader skips if files already exist)
     logger.info("Ensuring test data is available...")
     data_url = "https://datashare.biochem.mpg.de/s/gxfAcvJO7Ja6H4V"
     required_files = ['spectrum_df.parquet', 'peak_df.parquet', 'precursor_df.parquet', 'fragment_df.parquet']
-    
+
     for file_name in required_files:
         file_url = f"{data_url}/download?files={file_name}"
         DataShareDownloader(file_url, tmp_folder).download()
@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
     logger.info("Setting up scoring parameters")
     scoring_params = ScoringParameters()
-    
+
     # Update parameters using dictionary
     config_dict = {
         'fwhm_rt': 3.0,
@@ -89,8 +89,8 @@ if __name__ == "__main__":
         'candidate_count': 3
     }
     scoring_params.update(config_dict)
-    
-    
+
+
     logger.info(f"Using parameters: fwhm_rt={scoring_params.fwhm_rt}, "
                 f"kernel_size={scoring_params.kernel_size}, "
                 f"peak_length={scoring_params.peak_length}, "
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("BENCHMARKING DIADataNextGen")
     logger.info("=" * 60)
-    
+
     # Measure creation time
     logger.info("Creating DIADataNextGen...")
     start_time = time.perf_counter()
@@ -144,7 +144,7 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("BENCHMARKING DIAData (Original)")
     logger.info("=" * 60)
-    
+
     # Measure creation time
     logger.info("Creating DIAData...")
     start_time = time.perf_counter()
@@ -180,26 +180,26 @@ if __name__ == "__main__":
     logger.info("=" * 60)
     logger.info("PERFORMANCE COMPARISON SUMMARY")
     logger.info("=" * 60)
-    
+
     logger.info(f"Creation Time:")
     logger.info(f"  DIAData:        {creation_time_original:.4f}s")
     logger.info(f"  DIADataNextGen: {creation_time_next_gen:.4f}s")
     logger.info(f"  Speedup:        {creation_time_original/creation_time_next_gen:.2f}x")
-    
+
     logger.info(f"Search Time:")
     logger.info(f"  DIAData:        {search_time_original:.4f}s")
     logger.info(f"  DIADataNextGen: {search_time_next_gen:.4f}s")
     logger.info(f"  Speedup:        {search_time_original/search_time_next_gen:.2f}x")
-    
+
     logger.info(f"Destruction Time:")
     logger.info(f"  DIAData:        {destruction_time_original:.4f}s")
     logger.info(f"  DIADataNextGen: {destruction_time_next_gen:.4f}s")
-    
+
     logger.info(f"Memory Usage:")
     logger.info(f"  DIAData:        {memory_mb_original:.2f} MB")
     logger.info(f"  DIADataNextGen: {memory_mb:.2f} MB")
     logger.info(f"  Memory ratio:   {memory_mb_original/memory_mb:.2f}x")
-    
+
     logger.info(f"Results:")
     logger.info(f"  DIAData candidates:        {candidates_original.len()}")
     logger.info(f"  DIADataNextGen candidates: {candidates_next_gen.len()}")

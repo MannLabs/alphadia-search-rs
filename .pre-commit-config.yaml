@@ -6,25 +6,25 @@ repos:
     hooks:
       - id: cargo-fmt
         name: cargo fmt
-        entry: cargo fmt --all -- --check
+        entry: cargo fmt --all
         language: system
         files: \.rs$
         pass_filenames: false
-        
+
       - id: cargo-clippy
         name: cargo clippy
         entry: cargo clippy -- -D warnings
         language: system
         files: \.rs$
         pass_filenames: false
-        
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: trailing-whitespace
-      - id: end-of-file-fixer
+      #- id: end-of-file-fixer
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files
-        args: ['--maxkb=1000'] 
+        args: ['--maxkb=1000']

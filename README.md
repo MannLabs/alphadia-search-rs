@@ -23,7 +23,7 @@ High-performance alphaDIA backend
    pip install pre-commit
    # or: conda install -c conda-forge pre-commit
    # or: brew install pre-commit
-   
+
    # Install the git hook scripts
    pre-commit install
    ```
@@ -59,7 +59,7 @@ The script will automatically:
 1. Use existing test data in `/Users/georgwallmann/Documents/data/alpha-rs` if available
 2. Otherwise create a temporary directory and download required files:
    - `spectrum_df.parquet` - Mass spectrometry spectra data
-   - `peak_df.parquet` - Peak detection results  
+   - `peak_df.parquet` - Peak detection results
    - `precursor_df.parquet` - Precursor ion information
    - `fragment_df.parquet` - Fragment ion data
 

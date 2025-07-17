@@ -20,14 +20,14 @@ pub trait SimdBackend: Send + Sync {
     fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32>;
     fn axis_sqrt_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32>;
     fn axis_log_sum(&self, array: &Array2<f32>) -> Array1<f32>;
-    
+
     // Kernel module functions
     fn gaussian_convolve_1d(&self, data: &Array1<f32>, kernel: &Array1<f32>) -> Array1<f32>;
-    
+
     // Convolution module functions
     fn convolution_1d(&self, signal: &Array1<f32>, kernel: &Array1<f32>) -> Array1<f32>;
     fn convolution_2d(&self, signal: &Array2<f32>, kernel: &Array2<f32>) -> Array2<f32>;
-    
+
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
@@ -36,7 +36,7 @@ pub trait SimdBackend: Send + Sync {
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Rank { 
+pub enum Rank {
     Scalar = 0,
     Sse42 = 1,
     Neon = 2,
@@ -48,7 +48,7 @@ pub enum Rank {
 
 **Improvement rationale:** Using a `Rank` enum expresses intent (ordering) without magic numbers, while `max_by_key` still works because `Rank` is `Copy + Ord`. Rankings are ordered by performance potential:
 - **Scalar (0)**: Universal fallback, no SIMD acceleration
-- **SSE4.2 (1)**: Basic 128-bit x86 SIMD, wide compatibility (95+ % of x86_64 CPUs)  
+- **SSE4.2 (1)**: Basic 128-bit x86 SIMD, wide compatibility (95+ % of x86_64 CPUs)
 - **NEON (2)**: 128-bit ARM SIMD, standard on all AArch64 processors
 - **AVX2 (3)**: 256-bit x86 SIMD, excellent performance/compatibility balance
 - **AVX-512 (4)**: 512-bit x86 SIMD, maximum throughput for compute-intensive workloads
@@ -74,7 +74,7 @@ pub struct NeonBackend;
 
 #[cfg(target_arch = "aarch64")]
 impl SimdBackend for NeonBackend {
-    fn is_available(&self) -> bool { 
+    fn is_available(&self) -> bool {
         cpufeatures::new!(neon, "neon");
         neon::get()  // Improved: use cpufeatures crate
     }
@@ -94,7 +94,7 @@ pub struct Sse42Backend;
 
 #[cfg(target_arch = "x86_64")]
 impl SimdBackend for Sse42Backend {
-    fn is_available(&self) -> bool { 
+    fn is_available(&self) -> bool {
         cpufeatures::new!(sse42, "sse4.2");
         sse42::get()
     }
@@ -111,7 +111,7 @@ pub struct Avx2Backend;
 
 #[cfg(target_arch = "x86_64")]
 impl SimdBackend for Avx2Backend {
-    fn is_available(&self) -> bool { 
+    fn is_available(&self) -> bool {
         cpufeatures::new!(avx2, "avx2");
         avx2::get()
     }
@@ -128,7 +128,7 @@ pub struct Avx512Backend;
 
 #[cfg(target_arch = "x86_64")]
 impl SimdBackend for Avx512Backend {
-    fn is_available(&self) -> bool { 
+    fn is_available(&self) -> bool {
         // Check for AVX-512F (foundation) + commonly available extensions
         cpufeatures::new!(avx512f, "avx512f");
         cpufeatures::new!(avx512vl, "avx512vl");
@@ -148,7 +148,7 @@ pub struct Sve2Backend;
 
 #[cfg(target_arch = "aarch64")]
 impl SimdBackend for Sve2Backend {
-    fn is_available(&self) -> bool { 
+    fn is_available(&self) -> bool {
         cpufeatures::new!(sve2, "sve2");
         sve2::get()
     }
@@ -205,7 +205,7 @@ fn select_best_backend() -> &'static dyn SimdBackend {
             return *backend;
         }
     }
-    
+
     BACKENDS.iter()
         .copied()
         .filter(|b| b.is_available())
@@ -257,7 +257,7 @@ The `get_simd_info()` function provides a handy debug hook while API-compatibili
 4. Keep existing SIMD implementations in place (score module functions)
 5. Add environment variable override support (`ALPHA_RS_BACKEND`)
 
-### Phase 2: SIMD Integration  
+### Phase 2: SIMD Integration
 1. **Score module**: Add `avx2.rs`, `avx512.rs`, `sse42.rs` alongside existing code
 2. **Kernel module**: Add `neon.rs`, `avx2.rs`, `avx512.rs` for convolution ops
 3. **Convolution module**: Add optimized implementations as separate files
@@ -276,7 +276,7 @@ The `get_simd_info()` function provides a handy debug hook while API-compatibili
 ## Key Benefits
 
 - **Single wheel per platform** - runtime optimization selection
-- **Backward compatible** - existing API unchanged  
+- **Backward compatible** - existing API unchanged
 - **Allocation-free** - static backend registry eliminates heap allocations
 - **Reproducible** - environment override enables testing and debugging
 - **Extensible** - easy to add new SIMD variants
@@ -293,12 +293,12 @@ src/
 │   ├── mod.rs                 // Dispatcher + trait + get_backend() (~100 lines)
 │   ├── scalar.rs              // ScalarBackend implementation
 │   ├── neon.rs                // NeonBackend implementation
-│   ├── sse42.rs               // Sse42Backend implementation  
+│   ├── sse42.rs               // Sse42Backend implementation
 │   ├── avx2.rs                // Avx2Backend implementation
 │   └── avx512.rs              // Avx512Backend implementation
 ├── score/
 │   ├── mod.rs                 // Public API + current NEON function
-│   ├── avx2.rs                // AVX2-optimized score functions  
+│   ├── avx2.rs                // AVX2-optimized score functions
 │   ├── avx512.rs              // AVX-512-optimized score functions
 │   └── sse42.rs               // SSE4.2-optimized score functions
 ├── kernel/
@@ -333,16 +333,16 @@ pub fn axis_log_dot_product(array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f
 
 ### Backend Implementation Pattern
 ```rust
-// In src/simd/neon.rs 
+// In src/simd/neon.rs
 impl SimdBackend for NeonBackend {
     fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
         crate::score::axis_log_dot_product_simd(array, weights) // Use existing function
     }
-    
+
     fn gaussian_convolve_1d(&self, data: &Array1<f32>, kernel: &Array1<f32>) -> Array1<f32> {
         crate::kernel::neon::gaussian_convolve_1d_neon(data, kernel) // Call module function
     }
-    
+
     fn convolution_1d(&self, signal: &Array1<f32>, kernel: &Array1<f32>) -> Array1<f32> {
         crate::convolution::neon::convolution_1d_neon(signal, kernel) // Call module function
     }
@@ -353,7 +353,7 @@ impl SimdBackend for Avx2Backend {
     fn axis_log_dot_product(&self, array: &Array2<f32>, weights: &Vec<f32>) -> Array1<f32> {
         crate::score::avx2::axis_log_dot_product_avx2(array, weights) // Call module function
     }
-    
+
     fn gaussian_convolve_1d(&self, data: &Array1<f32>, kernel: &Array1<f32>) -> Array1<f32> {
         crate::kernel::avx2::gaussian_convolve_1d_avx2(data, kernel) // Call module function
     }
@@ -384,4 +384,4 @@ impl SimdBackend for Avx2Backend {
 - **Backend Coverage:** SSE4.2/AVX2/AVX-512 for x86_64, NEON/SVE2 for ARM64
 - **Zero Configuration:** Automatically selects best available backend at runtime
 
-This design is clean, practical, and ready for production deployment with simple allocation-free runtime dispatch that maintains full API compatibility. 
+This design is clean, practical, and ready for production deployment with simple allocation-free runtime dispatch that maintains full API compatibility.

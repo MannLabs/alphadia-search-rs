@@ -132,9 +132,9 @@ class PeakScoring:
         fwhm_rt = self.config_dict.get('fwhm_rt', 3.0)
         kernel_size = self.config_dict.get('kernel_size', 15)
         peak_length = self.config_dict.get('peak_length', 5)
-        
+
         peak_group_scoring = PeakGroupScoring(fwhm_rt, kernel_size, peak_length)
-  
+
         mass_tolerance = self.config_dict['ms2_tolerance']
         rt_tolerance = self.config_dict['rt_tolerance']
         candidates = peak_group_scoring.search(self.dia_data, self.speclib, mass_tolerance, rt_tolerance)

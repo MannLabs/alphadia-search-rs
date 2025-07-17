@@ -7,7 +7,6 @@ use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 
-const _TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,

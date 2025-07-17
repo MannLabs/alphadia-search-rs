@@ -213,7 +213,6 @@ impl PeakGroupScoring {
 
         candidates
     }
-
 }
 
 #[cfg(test)]

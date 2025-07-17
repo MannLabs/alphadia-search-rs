@@ -14,6 +14,8 @@ pub struct ScoringParameters {
     pub mass_tolerance: f32,
     #[pyo3(get)]
     pub rt_tolerance: f32,
+    #[pyo3(get)]
+    pub candidate_count: usize,
 }
 
 #[pymethods]
@@ -26,6 +28,7 @@ impl ScoringParameters {
             peak_length: 5,
             mass_tolerance: 7.0,
             rt_tolerance: 200.0,
+            candidate_count: 3,
         }
     }
 
@@ -44,6 +47,9 @@ impl ScoringParameters {
         }
         if let Some(value) = config.get_item("rt_tolerance")? {
             self.rt_tolerance = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("candidate_count")? {
+            self.candidate_count = value.extract::<usize>()?;
         }
         Ok(())
     }

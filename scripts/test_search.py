@@ -85,7 +85,8 @@ if __name__ == "__main__":
         'kernel_size': 20,
         'peak_length': 5,
         'mass_tolerance': 7.0,
-        'rt_tolerance': 1000.0
+        'rt_tolerance': 1000.0,
+        'candidate_count': 3
     }
     scoring_params.update(config_dict)
     
@@ -94,7 +95,8 @@ if __name__ == "__main__":
                 f"kernel_size={scoring_params.kernel_size}, "
                 f"peak_length={scoring_params.peak_length}, "
                 f"mass_tolerance={scoring_params.mass_tolerance}, "
-                f"rt_tolerance={scoring_params.rt_tolerance}")
+                f"rt_tolerance={scoring_params.rt_tolerance}, "
+                f"candidate_count={scoring_params.candidate_count}")
 
     # =============================================================================
     # BENCHMARK DIADataNextGen

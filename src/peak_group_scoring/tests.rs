@@ -55,6 +55,7 @@ fn test_parameter_defaults() {
     assert_eq!(params.peak_length, 5);
     assert_eq!(params.mass_tolerance, 7.0);
     assert_eq!(params.rt_tolerance, 200.0);
+    assert_eq!(params.candidate_count, 3);
 }
 
 #[test]
@@ -68,12 +69,14 @@ fn test_parameter_internal_modification() {
     params.peak_length = 8;
     params.mass_tolerance = 12.0;
     params.rt_tolerance = 300.0;
+    params.candidate_count = 4;
 
     assert_eq!(params.fwhm_rt, 5.0);
     assert_eq!(params.kernel_size, 30);
     assert_eq!(params.peak_length, 8);
     assert_eq!(params.mass_tolerance, 12.0);
     assert_eq!(params.rt_tolerance, 300.0);
+    assert_eq!(params.candidate_count, 4);
 }
 
 #[test]

@@ -25,7 +25,7 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     # Use preferred folder if it exists, otherwise create temp directory
-    preferred_folder = "/Users/mschwoerer/alpha-rsdata/alpha-rs"
+    preferred_folder = "/Users/georgwallmann/Documents/data/alpha-rs"
     if os.path.exists(preferred_folder):
         tmp_folder = preferred_folder
     else:

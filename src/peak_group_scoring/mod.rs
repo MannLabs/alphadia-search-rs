@@ -214,26 +214,6 @@ impl PeakGroupScoring {
         candidates
     }
 
-    // Keep the old methods for backwards compatibility, but they now delegate to the generic version
-    pub fn search_precursor(
-        &self,
-        dia_data: &DIAData,
-        precursor: &Precursor,
-        mass_tolerance: f32,
-        rt_tolerance: f32,
-    ) -> Vec<Candidate> {
-        self.search_precursor_generic(dia_data, precursor, mass_tolerance, rt_tolerance)
-    }
-
-    pub fn search_precursor_next_gen(
-        &self,
-        dia_data: &DIADataNextGen,
-        precursor: &Precursor,
-        mass_tolerance: f32,
-        rt_tolerance: f32,
-    ) -> Vec<Candidate> {
-        self.search_precursor_generic(dia_data, precursor, mass_tolerance, rt_tolerance)
-    }
 }
 
 #[cfg(test)]

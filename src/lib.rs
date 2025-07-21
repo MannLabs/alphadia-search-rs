@@ -16,6 +16,7 @@ mod speclib_flat;
 pub mod peak_group_scoring;
 pub mod candidate;
 pub mod score;
+mod simd;
 
 use crate::dia_data::DIAData;
 pub use crate::kernel::GaussianKernel;
@@ -38,6 +39,26 @@ fn benchmark_convolution() -> PyResult<(f64, f64)> {
     }
 }
 
+#[pyfunction]
+fn get_optimal_simd_backend() -> PyResult<String> {
+    Ok(simd::get_optimal_simd_backend())
+}
+
+#[pyfunction]
+fn set_simd_backend(backend_name: String) -> PyResult<()> {
+    simd::set_backend(&backend_name).map_err(|e| PyErr::new::<PyValueError, _>(e))
+}
+
+#[pyfunction]
+fn clear_simd_backend() -> PyResult<()> {
+    simd::clear_backend();
+    Ok(())
+}
+
+#[pyfunction]
+fn get_current_simd_backend() -> PyResult<String> {
+    Ok(simd::get_current_backend())
+}
 
 #[pymodule]
 fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -46,5 +67,9 @@ fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PeakGroupScoring>()?;
     m.add_class::<CandidateCollection>()?;
     m.add_function(wrap_pyfunction!(benchmark_convolution, m)?)?;
+    m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
     Ok(())
 }

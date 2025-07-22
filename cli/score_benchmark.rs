@@ -121,6 +121,7 @@ fn verify_accuracy(
 }
 
 fn get_available_implementations() -> Vec<(String, LogDotProductFunction)> {
+    #[allow(unused_mut)]
     let mut implementations: Vec<(String, LogDotProductFunction)> =
         vec![("Scalar".to_string(), axis_log_dot_product_scalar)];
 

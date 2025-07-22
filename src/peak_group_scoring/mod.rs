@@ -12,7 +12,7 @@ use crate::dia_data::DIAData;
 use crate::dia_data_next_gen::DIADataNextGen;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
-use crate::score::axis_sqrt_dot_product;
+use crate::score::axis_log_dot_product;
 use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::SpecLibFlat;
 
@@ -179,7 +179,7 @@ impl PeakGroupScoring {
 
         let convolved_xic = convolution(&self.kernel, &dense_xic);
 
-        let score = axis_sqrt_dot_product(&convolved_xic, &precursor.fragment_intensity);
+        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);

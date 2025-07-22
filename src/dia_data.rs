@@ -1,15 +1,13 @@
-use pyo3::prelude::*;
-use numpy::ndarray::{ArrayBase, ViewRepr, Dim};
+use numpy::ndarray::{ArrayBase, Dim, ViewRepr};
 use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 
-use crate::mz_index::MZIndex;
-use crate::rt_index::RTIndex;
-use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::dia_data_builder::DIADataBuilder;
+use crate::mz_index::MZIndex;
+use crate::quadrupole_observation::QuadrupoleObservation;
+use crate::rt_index::RTIndex;
 
-
-
-const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
+const _TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
@@ -24,6 +22,7 @@ pub struct AlphaRawView<'py> {
 }
 
 impl<'py> AlphaRawView<'py> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
         isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
@@ -56,6 +55,12 @@ pub struct DIAData {
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
 }
 
+impl Default for DIAData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[pymethods]
 impl DIAData {
     #[new]
@@ -68,6 +73,7 @@ impl DIAData {
     }
 
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     pub fn from_arrays<'py>(
         spectrum_delta_scan_idx: PyReadonlyArray1<'py, i64>,
         isolation_lower_mz: PyReadonlyArray1<'py, f32>,
@@ -78,7 +84,7 @@ impl DIAData {
         spectrum_rt: PyReadonlyArray1<'py, f32>,
         peak_mz: PyReadonlyArray1<'py, f32>,
         peak_intensity: PyReadonlyArray1<'py, f32>,
-        py: Python<'py>
+        _py: Python<'py>,
     ) -> PyResult<Self> {
         let alpha_raw_view = AlphaRawView::new(
             spectrum_delta_scan_idx.as_array(),
@@ -110,4 +116,4 @@ impl DIAData {
         }
         valid_observations
     }
-} 
+}

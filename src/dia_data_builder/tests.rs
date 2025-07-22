@@ -29,7 +29,7 @@ fn create_mock_alpha_raw_view<'a>(
 fn test_build_quadrupole_observation() {
     // Create a simple mz_index
     let mz_index = MZIndex::new();
-    
+
     // Prepare test data
     let spectrum_delta_scan_idx = [0, 0, 1, 1];
     let isolation_lower_mz = [100.0, 100.0, 200.0, 200.0];
@@ -39,8 +39,10 @@ fn test_build_quadrupole_observation() {
     let spectrum_cycle_idx = [0, 1, 0, 1];
     let spectrum_rt = [1.0, 2.0, 3.0, 4.0];
     let peak_mz = [120.0, 130.0, 140.0, 145.0, 210.0, 220.0, 230.0, 240.0];
-    let peak_intensity = [1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0];
-    
+    let peak_intensity = [
+        1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0,
+    ];
+
     // Create mock AlphaRawView
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
@@ -53,17 +55,17 @@ fn test_build_quadrupole_observation() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     // Build a quadrupole observation for delta_scan_idx = 0
     let quad_obs = DIADataBuilder::build_quadrupole_observation(&alpha_raw_view, 0, &mz_index);
-    
+
     // Validate the quadrupole observation
     assert_eq!(quad_obs.isolation_window, [100.0, 150.0]);
     assert_eq!(quad_obs.num_cycles, 2);
-    
+
     // Build another quadrupole observation for delta_scan_idx = 1
     let quad_obs = DIADataBuilder::build_quadrupole_observation(&alpha_raw_view, 1, &mz_index);
-    
+
     // Validate the quadrupole observation
     assert_eq!(quad_obs.isolation_window, [200.0, 250.0]);
     assert_eq!(quad_obs.num_cycles, 2);
@@ -80,8 +82,10 @@ fn test_from_alpha_raw() {
     let spectrum_cycle_idx = [0, 1, 0, 1];
     let spectrum_rt = [1.0, 2.0, 3.0, 4.0];
     let peak_mz = [120.0, 130.0, 140.0, 145.0, 210.0, 220.0, 230.0, 240.0];
-    let peak_intensity = [1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0];
-    
+    let peak_intensity = [
+        1000.0, 2000.0, 3000.0, 4000.0, 5000.0, 6000.0, 7000.0, 8000.0,
+    ];
+
     // Create mock AlphaRawView
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
@@ -94,23 +98,29 @@ fn test_from_alpha_raw() {
         &peak_mz,
         &peak_intensity,
     );
-    
+
     // Build DIA data
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    
+
     // Validate the DIA data
     assert_eq!(dia_data.num_observations(), 2);
-    assert_eq!(dia_data.quadrupole_observations[0].isolation_window, [100.0, 150.0]);
-    assert_eq!(dia_data.quadrupole_observations[1].isolation_window, [200.0, 250.0]);
-    
+    assert_eq!(
+        dia_data.quadrupole_observations[0].isolation_window,
+        [100.0, 150.0]
+    );
+    assert_eq!(
+        dia_data.quadrupole_observations[1].isolation_window,
+        [200.0, 250.0]
+    );
+
     // Test get_valid_observations
     let valid_obs = dia_data.get_valid_observations(125.0);
     assert_eq!(valid_obs, vec![0]);
-    
+
     let valid_obs = dia_data.get_valid_observations(225.0);
     assert_eq!(valid_obs, vec![1]);
-    
+
     // No valid observations for mz outside any isolation window
     let valid_obs = dia_data.get_valid_observations(175.0);
     assert_eq!(valid_obs, Vec::<usize>::new());
-} 
+}

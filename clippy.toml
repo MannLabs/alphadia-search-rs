@@ -1,0 +1,17 @@
+# Clippy configuration for alpha-rs
+# Scientific computing and SIMD code can legitimately be more complex
+
+# Allow slightly higher complexity for SIMD and mathematical algorithms
+cognitive-complexity-threshold = 30
+
+# Allow more arguments for SIMD functions and mathematical operations
+too-many-arguments-threshold = 8
+
+# Allow longer functions for SIMD implementations
+too-many-lines-threshold = 150
+
+# Allow complex types for ndarray and SIMD operations
+type-complexity-threshold = 300
+
+# Be more permissive with exported API changes during development
+avoid-breaking-exported-api = false 

@@ -1,6 +1,6 @@
-use pyo3::prelude::*;
-use numpy::PyReadonlyArray1;
 use crate::precursor::Precursor;
+use numpy::PyReadonlyArray1;
+use pyo3::prelude::*;
 
 #[pyclass]
 pub struct SpecLibFlat {
@@ -80,4 +80,4 @@ impl SpecLibFlat {
             fragment_intensity,
         }
     }
-} 
+}

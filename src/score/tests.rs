@@ -79,12 +79,6 @@ fn test_axis_log_dot_product_basic() {
     }
 }
 
-
-
-
-
-
-
 #[test]
 fn test_axis_sqrt_dot_product_basic() {
     let array = arr2(&[[0.0, 1.0, 4.0], [9.0, 16.0, 25.0]]);
@@ -114,9 +108,3 @@ fn test_axis_sqrt_dot_product_negative_values() {
         assert_relative_eq!(*a, *b, epsilon = 1e-5);
     }
 }
-
-
-
-
-
-

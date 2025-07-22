@@ -144,7 +144,7 @@ fn test_simd_approximation_accuracy() {
 #[cfg(target_arch = "aarch64")]
 fn test_unaligned_data_handling() {
     use numpy::ndarray::arr2;
-    
+
     // Test with array sizes that aren't multiples of SIMD width
     let array = arr2(&[
         [0.1, 0.2, 0.3, 0.4, 0.5],
@@ -318,7 +318,7 @@ fn test_sqrt_approximation_accuracy() {
 #[cfg(target_arch = "aarch64")]
 fn test_sqrt_unaligned_data_handling() {
     use numpy::ndarray::arr2;
-    
+
     // Test with array sizes that aren't multiples of SIMD width
     let array = arr2(&[
         [0.0, 1.0, 4.0, 9.0, 16.0],
@@ -352,4 +352,4 @@ fn test_sqrt_unaligned_data_handling() {
             (s - v).abs() / s.abs() * 100.0
         );
     }
-} 
+}

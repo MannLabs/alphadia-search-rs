@@ -21,3 +21,6 @@ pub fn axis_log_dot_product(array: &Array2<f32>, weights: &[f32]) -> Array1<f32>
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_neon;

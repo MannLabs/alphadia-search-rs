@@ -21,7 +21,7 @@ mod xic_slice;
 use crate::candidate::CandidateCollection;
 use crate::dia_data::DIAData;
 pub use crate::kernel::GaussianKernel;
-use crate::peak_group_scoring::PeakGroupScoring;
+use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::speclib_flat::SpecLibFlat;
 
 #[pyfunction]
@@ -65,6 +65,7 @@ fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<PeakGroupScoring>()?;
+    m.add_class::<ScoringParameters>()?;
     m.add_class::<CandidateCollection>()?;
     m.add_function(wrap_pyfunction!(benchmark_convolution, m)?)?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;

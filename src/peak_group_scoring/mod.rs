@@ -14,6 +14,9 @@ use crate::precursor::Precursor;
 use crate::score::axis_sqrt_dot_product;
 use crate::SpecLibFlat;
 
+pub mod parameters;
+pub use parameters::ScoringParameters;
+
 const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
 
 /// Finds local maxima in a 1D array.
@@ -65,31 +68,25 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
 #[pyclass]
 pub struct PeakGroupScoring {
     kernel: GaussianKernel,
-    peak_length: usize,
+    params: ScoringParameters,
 }
 
 #[pymethods]
 impl PeakGroupScoring {
     #[new]
-    pub fn new(fwhm_rt: f32, kernel_size: usize, peak_length: usize) -> Self {
+    pub fn new(params: ScoringParameters) -> Self {
         Self {
             kernel: GaussianKernel::new(
-                fwhm_rt,
+                params.fwhm_rt,
                 1.0, // sigma_scale_rt
-                kernel_size,
+                params.kernel_size,
                 1.0, // rt_resolution
             ),
-            peak_length,
+            params,
         }
     }
 
-    pub fn search(
-        &self,
-        dia_data: &DIAData,
-        lib: &SpecLibFlat,
-        mass_tolerance: f32,
-        rt_tolerance: f32,
-    ) -> CandidateCollection {
+    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz
@@ -105,7 +102,12 @@ impl PeakGroupScoring {
             .into_par_iter()
             .flat_map(|i| {
                 let precursor = lib.get_precursor(i);
-                self.search_precursor(dia_data, &precursor, mass_tolerance, rt_tolerance)
+                self.search_precursor(
+                    dia_data,
+                    &precursor,
+                    self.params.mass_tolerance,
+                    self.params.rt_tolerance,
+                )
             })
             .collect();
         let end_time = Instant::now();
@@ -176,9 +178,9 @@ impl PeakGroupScoring {
             let cycle_center_idx = local_maxima_indices[i];
             let score = local_maxima_values[i];
 
-            let cycle_start_idx = max(0, cycle_center_idx - self.peak_length);
+            let cycle_start_idx = max(0, cycle_center_idx - self.params.peak_length);
             let cycle_stop_idx = min(
-                cycle_center_idx + self.peak_length + 1,
+                cycle_center_idx + self.params.peak_length + 1,
                 dia_data.rt_index.len(),
             );
 

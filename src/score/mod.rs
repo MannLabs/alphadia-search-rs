@@ -4,9 +4,6 @@ use numpy::ndarray::{Array1, Array2};
 pub mod neon;
 pub mod scalar;
 
-// Re-export common scalar functions for convenience
-pub use scalar::{axis_dot_product, axis_log_sum};
-
 /// First applies square root to each element, then performs a weighted dot product along the first axis.
 /// Returns a 1D array with the same length as the second dimension.
 pub fn axis_sqrt_dot_product(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
@@ -21,3 +18,6 @@ pub fn axis_log_dot_product(array: &Array2<f32>, weights: &[f32]) -> Array1<f32>
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_neon;

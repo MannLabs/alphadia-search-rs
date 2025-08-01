@@ -213,7 +213,8 @@ fn test_sqrt_simd_vs_scalar_implementation() {
             (s - v).abs() / s.abs() * 100.0
         );
 
-        // Allow a small difference due to sqrt approximation
+        // Allow 1% relative error due to SIMD sqrt approximation
+        // SIMD uses fast reciprocal square root approximation which introduces small errors
         assert!(
             (s - v).abs() / s.abs() < 0.01,
             "Value {} differs too much: scalar={}, simd={}, rel_diff={:.2}%",
@@ -342,7 +343,8 @@ fn test_sqrt_unaligned_data_handling() {
             (s - v).abs() / s.abs() * 100.0
         );
 
-        // Allow a small relative difference
+        // Allow 1% relative error due to SIMD sqrt approximation
+        // SIMD uses fast reciprocal square root approximation which introduces small errors
         assert!(
             (s - v).abs() / s.abs() < 0.01,
             "Value {} differs too much: scalar={}, simd={}, rel_diff={:.2}%",

@@ -19,7 +19,7 @@ use crate::SpecLibFlat;
 pub mod parameters;
 pub use parameters::ScoringParameters;
 
-const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alpha-rs/";
+const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alphadia-ng/";
 
 /// Finds local maxima in a 1D array.
 /// A local maximum is defined as a point that is higher than the 2 points to its left and right.

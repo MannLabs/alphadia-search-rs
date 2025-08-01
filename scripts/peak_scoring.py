@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import logging
 
-from alpha_rs import SpecLibFlat, DIAData, PeakGroupScoring
+from alphadia_ng import SpecLibFlat, DIAData, PeakGroupScoring
 
 class PeakScoring:
     def __init__(

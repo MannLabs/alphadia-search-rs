@@ -1,4 +1,4 @@
-import alpha_rs
+import alphadia_ng
 import time
 
-alpha_rs.benchmark_convolution()
+alphadia_ng.benchmark_convolution()

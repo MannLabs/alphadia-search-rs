@@ -78,6 +78,16 @@ The `score-benchmark` CLI tool benchmarks multiple implementations of `axis_log_
 cargo run --bin score-benchmark
 ```
 
+### Troubleshooting
+
+**Library Loading Error on macOS:**
+If you encounter the error `dyld[xxxxx]: Library not loaded: @rpath/libpython3.11.dylib` when running `cargo test`, set the library path:
+
+```bash
+export DYLD_LIBRARY_PATH=$(realpath $(which python)/../../lib)
+cargo test
+```
+
 ## Development Workflow
 
 ### Code Quality Standards

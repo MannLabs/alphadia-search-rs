@@ -128,6 +128,7 @@ impl PeakGroupScoring {
                     &precursor,
                     self.params.mass_tolerance,
                     self.params.rt_tolerance,
+                    self.params.candidate_count,
                 )
             })
             .collect();
@@ -148,6 +149,7 @@ impl PeakGroupScoring {
         precursor: &Precursor,
         mass_tolerance: f32,
         rt_tolerance: f32,
+        candidate_count: usize,
     ) -> Vec<Candidate> {
         let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 
@@ -182,8 +184,8 @@ impl PeakGroupScoring {
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);
 
-        // Take top 3 maxima (they're already sorted by value in descending order)
-        let max_count = std::cmp::min(3, local_maxima_indices.len());
+        // Take top maxima (they're already sorted by value in descending order)
+        let max_count = std::cmp::min(candidate_count, local_maxima_indices.len());
 
         let mut candidates = Vec::new();
 
@@ -210,27 +212,6 @@ impl PeakGroupScoring {
         }
 
         candidates
-    }
-
-    // Keep the old methods for backwards compatibility, but they now delegate to the generic version
-    pub fn search_precursor(
-        &self,
-        dia_data: &DIAData,
-        precursor: &Precursor,
-        mass_tolerance: f32,
-        rt_tolerance: f32,
-    ) -> Vec<Candidate> {
-        self.search_precursor_generic(dia_data, precursor, mass_tolerance, rt_tolerance)
-    }
-
-    pub fn search_precursor_next_gen(
-        &self,
-        dia_data: &DIADataNextGen,
-        precursor: &Precursor,
-        mass_tolerance: f32,
-        rt_tolerance: f32,
-    ) -> Vec<Candidate> {
-        self.search_precursor_generic(dia_data, precursor, mass_tolerance, rt_tolerance)
     }
 }
 

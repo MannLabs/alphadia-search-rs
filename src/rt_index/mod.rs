@@ -2,8 +2,11 @@ use numpy::ndarray::Array1;
 
 use crate::dia_data::AlphaRawView;
 
+const MIN_CYCLES: f32 = 10.0;
+
 pub struct RTIndex {
     pub rt: Array1<f32>,
+    delta_t: f32,
 }
 
 impl Default for RTIndex {
@@ -13,10 +16,20 @@ impl Default for RTIndex {
 }
 
 impl RTIndex {
+    /// Calculates the mean delta_t (average cycle time) from retention times.
+    pub fn calculate_mean_delta_t(rt: &Array1<f32>) -> f32 {
+        if rt.len() > 1 {
+            (rt[rt.len() - 1] - rt[0]) / (rt.len() - 1) as f32
+        } else {
+            1.0 // fallback if only one point
+        }
+    }
+
     /// Creates a new empty RTIndex.
     pub fn new() -> Self {
         Self {
             rt: Array1::from_vec(Vec::new()),
+            delta_t: 1.0, // default fallback
         }
     }
 
@@ -46,28 +59,43 @@ impl RTIndex {
             }
         }
 
+        let rt_array = Array1::from_vec(rt);
+        let delta_t = Self::calculate_mean_delta_t(&rt_array);
+
         Self {
-            rt: Array1::from_vec(rt),
+            rt: rt_array,
+            delta_t,
         }
     }
 
     /// Finds the index range within the retention time array that falls within a tolerance window.
+    /// Ensures the range is at least MIN_CYCLES*delta_t + num_cycles_padding*delta_t wide.
     ///
     /// # Arguments
     ///
     /// * `precursor_rt` - Target retention time
     /// * `rt_tolerance` - Window size around the target (precursor_rt +- rt_tolerance)
+    /// * `num_cycles_padding` - Additional padding size in number of cycles for the convolution kernel
     ///
     /// # Returns
     ///
     /// A tuple of (lower_idx, upper_idx) representing the range boundaries
-    pub fn get_cycle_idx_limits(&self, precursor_rt: f32, rt_tolerance: f32) -> (usize, usize) {
+    pub fn get_cycle_idx_limits(
+        &self,
+        precursor_rt: f32,
+        rt_tolerance: f32,
+        num_cycles_padding: usize,
+    ) -> (usize, usize) {
         if self.rt.is_empty() {
             return (0, 0);
         }
 
-        let lower_rt = precursor_rt - rt_tolerance;
-        let upper_rt = precursor_rt + rt_tolerance;
+        // Calculate minimum required tolerance: MIN_CYCLES*delta_t + num_cycles_padding*delta_t
+        let min_tolerance = (MIN_CYCLES + num_cycles_padding as f32) * self.delta_t;
+        let effective_tolerance = rt_tolerance.max(min_tolerance);
+
+        let lower_rt = precursor_rt - effective_tolerance;
+        let upper_rt = precursor_rt + effective_tolerance;
 
         // Check if completely below the range
         if upper_rt < self.rt[0] {

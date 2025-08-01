@@ -3,7 +3,8 @@ use numpy::ndarray::{Array1, Array2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::cmp::{max, min};
-use std::fs::File;
+use std::env;
+use std::fs::{self, File};
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
@@ -18,8 +19,6 @@ use crate::SpecLibFlat;
 
 pub mod parameters;
 pub use parameters::ScoringParameters;
-
-const TMP_PATH: &str = "/Users/georgwallmann/Documents/data/alphadia-ng/";
 
 /// Finds local maxima in a 1D array.
 /// A local maximum is defined as a point that is higher than the 2 points to its left and right.
@@ -110,8 +109,11 @@ impl PeakGroupScoring {
     ) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
-        // store kernel to tmp file as npz
-        let kernel_path = format!("{TMP_PATH}/kernel.npz");
+        // store kernel to tmp file as npz using system temp directory
+        let tmp_dir = env::temp_dir().join("alpha_ng");
+        fs::create_dir_all(&tmp_dir).unwrap();
+        let kernel_path = tmp_dir.join("kernel.npz");
+
         let file = File::create(kernel_path).unwrap();
         let mut npz: NpzWriter<File> = NpzWriter::new(file);
         npz.add_array("kernel", &self.kernel.kernel_array).unwrap();
@@ -153,9 +155,11 @@ impl PeakGroupScoring {
     ) -> Vec<Candidate> {
         let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 
-        let (cycle_start_idx, cycle_stop_idx) = dia_data
-            .rt_index()
-            .get_cycle_idx_limits(precursor.rt, rt_tolerance);
+        let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index().get_cycle_idx_limits(
+            precursor.rt,
+            rt_tolerance,
+            self.params.kernel_size,
+        );
 
         let mut dense_xic: Array2<f32> = Array2::zeros((
             precursor.fragment_mz.len(),

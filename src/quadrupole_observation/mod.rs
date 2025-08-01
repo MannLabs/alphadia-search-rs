@@ -66,5 +66,27 @@ impl QuadrupoleObservation {
     }
 }
 
+// Implement the QuadrupoleObservationTrait for QuadrupoleObservation
+impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
+    fn fill_xic_slice(
+        &self,
+        mz_index: &crate::mz_index::MZIndex,
+        dense_xic: &mut numpy::ndarray::ArrayViewMut1<f32>,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+        mz: f32,
+    ) {
+        self.fill_xic_slice(
+            mz_index,
+            dense_xic,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            mz,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests;

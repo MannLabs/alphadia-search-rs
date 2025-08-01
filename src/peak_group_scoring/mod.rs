@@ -9,9 +9,11 @@ use std::time::Instant;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::convolution::convolution;
 use crate::dia_data::DIAData;
+use crate::dia_data_next_gen::DIADataNextGen;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_sqrt_dot_product;
+use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::SpecLibFlat;
 
 pub mod parameters;
@@ -87,6 +89,25 @@ impl PeakGroupScoring {
     }
 
     pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
+        self.search_generic(dia_data, lib)
+    }
+
+    pub fn search_next_gen(
+        &self,
+        dia_data: &DIADataNextGen,
+        lib: &SpecLibFlat,
+    ) -> CandidateCollection {
+        self.search_generic(dia_data, lib)
+    }
+}
+
+impl PeakGroupScoring {
+    /// Generic search function that works with any type implementing DIADataTrait
+    fn search_generic<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+    ) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
 
         // store kernel to tmp file as npz
@@ -102,7 +123,7 @@ impl PeakGroupScoring {
             .into_par_iter()
             .flat_map(|i| {
                 let precursor = lib.get_precursor(i);
-                self.search_precursor(
+                self.search_precursor_generic(
                     dia_data,
                     &precursor,
                     self.params.mass_tolerance,
@@ -119,12 +140,11 @@ impl PeakGroupScoring {
 
         CandidateCollection::from_vec(candidates)
     }
-}
 
-impl PeakGroupScoring {
-    pub fn search_precursor(
+    /// Generic precursor search function that works with any type implementing DIADataTrait
+    fn search_precursor_generic<T: DIADataTrait>(
         &self,
-        dia_data: &DIAData,
+        dia_data: &T,
         precursor: &Precursor,
         mass_tolerance: f32,
         rt_tolerance: f32,
@@ -132,13 +152,8 @@ impl PeakGroupScoring {
         let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 
         let (cycle_start_idx, cycle_stop_idx) = dia_data
-            .rt_index
+            .rt_index()
             .get_cycle_idx_limits(precursor.rt, rt_tolerance);
-
-        //#[cfg(debug_assertions)]
-        //println!("Cycle idx limits: {:?}", cycle_start_idx);
-        //#[cfg(debug_assertions)]
-        //println!("Cycle idx limits: {:?}", cycle_stop_idx);
 
         let mut dense_xic: Array2<f32> = Array2::zeros((
             precursor.fragment_mz.len(),
@@ -146,11 +161,11 @@ impl PeakGroupScoring {
         ));
 
         for obs_idx in valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations[obs_idx];
+            let obs = &dia_data.quadrupole_observations()[obs_idx];
 
             for (f_idx, f_mz) in precursor.fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
-                    &dia_data.mz_index,
+                    dia_data.mz_index(),
                     &mut dense_xic.row_mut(f_idx),
                     cycle_start_idx,
                     cycle_stop_idx,
@@ -163,8 +178,6 @@ impl PeakGroupScoring {
         let convolved_xic = convolution(&self.kernel, &dense_xic);
 
         let score = axis_sqrt_dot_product(&convolved_xic, &precursor.fragment_intensity);
-
-        //let score = axis_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);
@@ -181,7 +194,7 @@ impl PeakGroupScoring {
             let cycle_start_idx = max(0, cycle_center_idx - self.params.peak_length);
             let cycle_stop_idx = min(
                 cycle_center_idx + self.params.peak_length + 1,
-                dia_data.rt_index.len(),
+                dia_data.rt_index().len(),
             );
 
             let candidate = Candidate::new(
@@ -197,6 +210,27 @@ impl PeakGroupScoring {
         }
 
         candidates
+    }
+
+    // Keep the old methods for backwards compatibility, but they now delegate to the generic version
+    pub fn search_precursor(
+        &self,
+        dia_data: &DIAData,
+        precursor: &Precursor,
+        mass_tolerance: f32,
+        rt_tolerance: f32,
+    ) -> Vec<Candidate> {
+        self.search_precursor_generic(dia_data, precursor, mass_tolerance, rt_tolerance)
+    }
+
+    pub fn search_precursor_next_gen(
+        &self,
+        dia_data: &DIADataNextGen,
+        precursor: &Precursor,
+        mass_tolerance: f32,
+        rt_tolerance: f32,
+    ) -> Vec<Candidate> {
+        self.search_precursor_generic(dia_data, precursor, mass_tolerance, rt_tolerance)
     }
 }
 

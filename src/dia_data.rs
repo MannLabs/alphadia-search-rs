@@ -116,4 +116,70 @@ impl DIAData {
         }
         valid_observations
     }
+
+    /// Returns the memory footprint of the DIAData structure in bytes
+    pub fn memory_footprint_bytes(&self) -> usize {
+        let mut total_size = 0;
+
+        // Size of MZIndex (Array1<f32>)
+        total_size += self.mz_index.mz.len() * std::mem::size_of::<f32>();
+
+        // Size of RTIndex (Array1<f32>)
+        total_size += self.rt_index.rt.len() * std::mem::size_of::<f32>();
+
+        // Size of quadrupole_observations Vec overhead
+        total_size +=
+            std::mem::size_of::<Vec<crate::quadrupole_observation::QuadrupoleObservation>>();
+
+        // Size of each QuadrupoleObservation
+        for obs in &self.quadrupole_observations {
+            // Fixed size: isolation_window + num_cycles + Vec overhead for xic_slices
+            total_size += std::mem::size_of::<[f32; 2]>(); // isolation_window
+            total_size += std::mem::size_of::<usize>(); // num_cycles
+            total_size += std::mem::size_of::<Vec<crate::xic_slice::XICSlice>>(); // Vec overhead for xic_slices
+
+            // Size of each XICSlice
+            for xic_slice in &obs.xic_slices {
+                // Vec overhead for cycle_index and intensity
+                total_size += std::mem::size_of::<Vec<u16>>();
+                total_size += std::mem::size_of::<Vec<f32>>();
+
+                // Actual data in the vectors
+                total_size += xic_slice.cycle_index.len() * std::mem::size_of::<u16>();
+                total_size += xic_slice.intensity.len() * std::mem::size_of::<f32>();
+            }
+        }
+
+        total_size
+    }
+
+    /// Returns the memory footprint in megabytes for easier reading
+    pub fn memory_footprint_mb(&self) -> f64 {
+        self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
+    }
+}
+
+// Implement the DIADataTrait for DIAData
+impl crate::traits::DIADataTrait for DIAData {
+    type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
+
+    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
+        self.get_valid_observations(precursor_mz)
+    }
+
+    fn mz_index(&self) -> &crate::mz_index::MZIndex {
+        &self.mz_index
+    }
+
+    fn rt_index(&self) -> &crate::rt_index::RTIndex {
+        &self.rt_index
+    }
+
+    fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
+        &self.quadrupole_observations
+    }
+
+    fn memory_footprint_bytes(&self) -> usize {
+        self.memory_footprint_bytes()
+    }
 }

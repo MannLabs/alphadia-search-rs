@@ -5,21 +5,29 @@ use pyo3::PyErr;
 mod benchmark;
 pub mod candidate;
 mod convolution;
-mod dia_data;
-mod dia_data_builder;
+pub mod dia_data;
+pub mod dia_data_builder;
+pub mod dia_data_builder_next_gen;
+mod dia_data_next_gen;
 mod kernel;
 mod mz_index;
 pub mod peak_group_scoring;
 mod precursor;
 mod quadrupole_observation;
+mod quadrupole_observation_next_gen;
 mod rt_index;
 pub mod score;
 mod simd;
 mod speclib_flat;
+pub mod traits;
 mod xic_slice;
+
+#[cfg(test)]
+mod integration_tests;
 
 use crate::candidate::CandidateCollection;
 use crate::dia_data::DIAData;
+use crate::dia_data_next_gen::DIADataNextGen;
 pub use crate::kernel::GaussianKernel;
 use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::speclib_flat::SpecLibFlat;
@@ -63,6 +71,7 @@ fn get_current_simd_backend() -> PyResult<String> {
 #[pymodule]
 fn alpha_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
+    m.add_class::<DIADataNextGen>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<PeakGroupScoring>()?;
     m.add_class::<ScoringParameters>()?;

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "alpha_rs"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pyo3 = "0.25.1"
@@ -16,6 +16,10 @@ rayon = "1.10.0"
 num_cpus = "1.17.0"
 ndarray-npy = "0.9.1"
 cpufeatures = "0.2"
+
+[[bin]]
+name = "score-benchmark"
+path = "cli/score_benchmark.rs"
 
 [dev-dependencies]
 approx = "0.4.0"

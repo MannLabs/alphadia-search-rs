@@ -67,6 +67,17 @@ The script will automatically:
 - Processing speed: ~200k+ precursors per second
 - Results: ~11M candidates found
 
+## CLI Benchmarking
+
+### Score Benchmark Tool
+
+The `score-benchmark` CLI tool benchmarks multiple implementations of `axis_log_dot_product` to compare performance and verify numerical accuracy.
+
+```bash
+# Run the benchmark
+cargo run --bin score-benchmark
+```
+
 ### Troubleshooting
 
 **Library Loading Error on macOS:**

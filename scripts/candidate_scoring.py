@@ -17,72 +17,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_candidates_from_parquet(candidates_path):
+def load_candidates_from_parquet(candidates_path, top_n=None):
     """
-    Load candidates from parquet file and convert to CandidateCollection.
+    Load candidates from parquet file and return filtered DataFrame.
 
     Parameters
     ----------
     candidates_path : str
         Path to the candidates parquet file
+    top_n : int, optional
+        Number of top candidates by score to keep
 
     Returns
     -------
-    CandidateCollection
-        Candidates loaded into CandidateCollection object
+    pd.DataFrame
+        Candidates loaded as DataFrame
     """
     logger.info(f"Loading candidates from: {candidates_path}")
     candidates_df = pd.read_parquet(candidates_path)
 
     logger.info(f"Loaded {len(candidates_df)} candidates")
 
-    # Convert DataFrame to arrays for CandidateCollection.from_arrays
-    precursor_idxs = candidates_df['precursor_idx'].values.astype(np.uint64)
-    ranks = candidates_df['rank'].values.astype(np.uint64)
-    scores = candidates_df['score'].values.astype(np.float32)
-    scan_center = candidates_df['scan_center'].values.astype(np.uint64)
-    scan_start = candidates_df['scan_start'].values.astype(np.uint64)
-    scan_stop = candidates_df['scan_stop'].values.astype(np.uint64)
-    frame_center = candidates_df['frame_center'].values.astype(np.uint64)
-    frame_start = candidates_df['frame_start'].values.astype(np.uint64)
-    frame_stop = candidates_df['frame_stop'].values.astype(np.uint64)
+    # Filter top N candidates by highest score if specified
+    if top_n is not None:
+        candidates_df = candidates_df.nlargest(top_n, 'score')
+        logger.info(f"Filtered to top {len(candidates_df)} candidates by score")
 
-    # Create CandidateCollection from arrays
-    candidates = CandidateCollection.from_arrays(
-        precursor_idxs.tolist(),
-        ranks.tolist(),
-        scores.tolist(),
-        scan_center.tolist(),
-        scan_start.tolist(),
-        scan_stop.tolist(),
-        frame_center.tolist(),
-        frame_start.tolist(),
-        frame_stop.tolist()
-    )
+    return candidates_df
 
-    return candidates
-
-def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates):
+def create_dia_data_next_gen(ms_data):
     """
-    Run candidate scoring using alphaRaw MSData_Base object, SpecLibFlat, and candidates.
+    Create DIADataNextGen from alpharaw MSData_Base object.
 
     Parameters
     ----------
     ms_data : MSData_Base
         AlphaRaw MSData_Base object containing spectrum data
-    alpha_base_spec_lib_flat : SpecLibFlat
-        Spectral library in flat format
-    candidates : CandidateCollection
-        Candidate collection to score
 
     Returns
     -------
-    CandidateCollection
-        Scored candidates
+    DIADataNextGen
+        DIADataNextGen object created from the MS data
     """
     logger.info("Creating DIADataNextGen from MSData_Base")
 
-    # Prepare arrays for DIADataNextGen
     spectrum_arrays = (
         ms_data.spectrum_df['delta_scan_idx'].values,
         ms_data.spectrum_df['isolation_lower_mz'].values.astype(np.float32),
@@ -106,8 +84,23 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates):
     creation_time = end_time - start_time
     logger.info(f"DIADataNextGen creation time: {creation_time:.4f} seconds")
 
-    logger.info("Setting up scoring parameters")
-    scoring_params = ScoringParameters()
+    return rs_data_next_gen
+
+def create_spec_lib_flat(alpha_base_spec_lib_flat):
+    """
+    Create SpecLibFlat from alphabase SpecLibFlat object.
+
+    Parameters
+    ----------
+    alpha_base_spec_lib_flat : AlphaBaseSpecLibFlat
+        Alphabase spectral library in flat format
+
+    Returns
+    -------
+    SpecLibFlat
+        SpecLibFlat object for alphadia-ng
+    """
+    logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 
     spec_lib_flat = SpecLibFlat.from_arrays(
         alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
@@ -119,100 +112,51 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates):
         alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32)
     )
 
-    # Default parameters
-    config_dict = {
-        'fwhm_rt': 3.0,
-        'kernel_size': 20,
-        'peak_length': 5,
-        'mass_tolerance': 7.0,
-        'rt_tolerance': 200.0,
-        'candidate_count': 5
-    }
-    scoring_params.update(config_dict)
+    return spec_lib_flat
 
-    logger.info(f"Using parameters: {config_dict}")
-
-    # Create peak group scoring
-    peak_group_scoring = PeakGroupScoring(scoring_params)
-
-    # Measure scoring time
-    logger.info("Running candidate scoring...")
-    start_time = time.perf_counter()
-    scored_candidates = peak_group_scoring.score_candidates_next_gen(
-        rs_data_next_gen,
-        spec_lib_flat,
-        candidates
-    )
-    end_time = time.perf_counter()
-    scoring_time = end_time - start_time
-    logger.info(f"Candidate scoring time: {scoring_time:.4f} seconds")
-    logger.info(f"Scored {scored_candidates.len()} candidates")
-
-    return scored_candidates
-
-def parse_scored_candidates(scored_candidates, ms_data, alpha_base_spec_lib_flat):
+def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     """
-    Parse scored candidates back to DataFrame format.
+    Run candidate scoring using alphaRaw MSData_Base object, SpecLibFlat, and candidates.
 
     Parameters
     ----------
-    scored_candidates : CandidateCollection
-        Scored candidates from peak group scoring
     ms_data : MSData_Base
-        AlphaRaw MSData_Base object
+        AlphaRaw MSData_Base object containing spectrum data
     alpha_base_spec_lib_flat : SpecLibFlat
         Spectral library in flat format
+    candidates_df : pd.DataFrame
+        Candidates DataFrame to score
 
     Returns
     -------
     pd.DataFrame
-        DataFrame containing scored candidates
+        Scored candidates DataFrame
     """
-    result = scored_candidates.to_arrays()
+    rs_data_next_gen = create_dia_data_next_gen(ms_data)
 
-    precursor_idx = result[0]
-    rank = result[1]
-    score = result[2]
-    scan_center = result[3]
-    scan_start = result[4]
-    scan_stop = result[5]
-    frame_center = result[6]
-    frame_start = result[7]
-    frame_stop = result[8]
 
-    scored_candidates_df = pd.DataFrame({
-        'precursor_idx': precursor_idx,
-        'rank': rank,
-        'score': score,
-        'scan_center': scan_center,
-        'scan_start': scan_start,
-        'scan_stop': scan_stop,
-        'frame_center': frame_center,
-        'frame_start': frame_start,
-        'frame_stop': frame_stop
-    })
+    spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
 
-    # Merge with precursor information
-    scored_candidates_df = scored_candidates_df.merge(
-        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'elution_group_idx', 'decoy']],
-        on='precursor_idx',
-        how='left'
-    )
-
-    # Convert frame indices back to cycle indices
-    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
-    scored_candidates_df['cycle_start'] = scored_candidates_df['frame_start'] // cycle_len
-    scored_candidates_df['cycle_stop'] = scored_candidates_df['frame_stop'] // cycle_len
-    scored_candidates_df['cycle_center'] = scored_candidates_df['frame_center'] // cycle_len
-
-    return scored_candidates_df
+    # scoring will be done in the next step
 
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
-    parser.add_argument("ms_data_path", help="Path to the MS data file (HDF format)")
-    parser.add_argument("spec_lib_path", help="Path to the spectral library file (HDF format)")
-    parser.add_argument("candidates_path", help="Path to the candidates file (parquet format)")
-    parser.add_argument("output_folder", help="Path to the output folder")
+    parser.add_argument("--ms_data_path",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/CPD_NE_000057_08.hdf",
+                       help="Path to the MS data file (HDF format)")
+    parser.add_argument("--spec_lib_path",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
+                       help="Path to the spectral library file (HDF format)")
+    parser.add_argument("--candidates_path",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/candidates.parquet",
+                       help="Path to the candidates file (parquet format)")
+    parser.add_argument("--output_folder",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib",
+                       help="Path to the output folder")
+    parser.add_argument("--top-n",
+                       type=int,
+                       default=100000,
+                       help="Top N candidates to score")
     args = parser.parse_args()
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
@@ -225,10 +169,10 @@ def main():
     spec_lib_flat.load_hdf(args.spec_lib_path)
 
     # Load candidates
-    candidates = load_candidates_from_parquet(args.candidates_path)
+    candidates = load_candidates_from_parquet(args.candidates_path, args.top_n)
 
     # Run scoring
-    scored_candidates = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
+    run_candidate_scoring(ms_data, spec_lib_flat, candidates)
 
 if __name__ == "__main__":
     main()

@@ -3,7 +3,7 @@
 import numpy as np
 import argparse
 from alpharaw.ms_data_base import MSData_Base
-import alpha_rs
+import alphadia_ng
 import logging
 
 # Configure logging
@@ -34,9 +34,9 @@ def process_raw_file(hdf_file_path, cycle_len=301):
     dia_data.spectrum_df['delta_scan_idx'] = delta_scan_idx[:len(dia_data.spectrum_df)]
     dia_data.spectrum_df['cycle_idx'] = cycle_idx[:len(dia_data.spectrum_df)]
 
-    logger.info(f"Processing with alpha_rs")
-    # Process with alpha_rs
-    hist = alpha_rs.test_xic_index(
+    logger.info(f"Processing with alphadia_ng")
+    # Process with alphadia_ng
+    hist = alphadia_ng.test_xic_index(
         dia_data.spectrum_df['delta_scan_idx'].values,
         dia_data.spectrum_df['isolation_lower_mz'].values.astype(np.float32),
         dia_data.spectrum_df['isolation_upper_mz'].values.astype(np.float32),

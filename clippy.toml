@@ -1,4 +1,4 @@
-# Clippy configuration for alpha-rs
+# Clippy configuration for alphadia-ng
 # Scientific computing and SIMD code can legitimately be more complex
 
 # Allow slightly higher complexity for SIMD and mathematical algorithms

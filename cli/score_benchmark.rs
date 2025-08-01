@@ -18,8 +18,8 @@ use std::time::Instant;
 
 // Import from the library
 #[cfg(target_arch = "aarch64")]
-use alpha_rs::score::neon::axis_log_dot_product_neon;
-use alpha_rs::score::scalar::axis_log_dot_product_scalar;
+use alphadia_ng::score::neon::axis_log_dot_product_neon;
+use alphadia_ng::score::scalar::axis_log_dot_product_scalar;
 
 // Constants
 const ACCURACY_TOLERANCE: f32 = 0.20;

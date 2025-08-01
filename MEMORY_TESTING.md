@@ -1,12 +1,12 @@
 # Memory Footprint Testing Guide
 
-This guide explains how to run, test, and analyze memory usage in the alpha-rs package.
+This guide explains how to run, test, and analyze memory usage in the alphadia-ng package.
 
 ## Prerequisites
 
 ```bash
 # Activate the conda environment
-conda activate alpha-rs
+conda activate alphadia-ng
 
 ```
 

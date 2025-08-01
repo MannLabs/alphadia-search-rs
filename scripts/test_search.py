@@ -1,4 +1,4 @@
-from alpha_rs import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters
+from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters
 import os
 import pandas as pd
 import numpy as np
@@ -16,8 +16,8 @@ if __name__ == "__main__":
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Run DIADataNextGen benchmark")
-    parser.add_argument("--path", type=str, default="/Users/georgwallmann/Documents/data/alpha-rs",
-                        help="Path to data folder (default: /Users/georgwallmann/Documents/data/alpha-rs)")
+    parser.add_argument("--path", type=str, default="/Users/georgwallmann/Documents/data/alphadia-ng",
+                        help="Path to data folder (default: /Users/georgwallmann/Documents/data/alphadia-ng)")
     args = parser.parse_args()
 
     # Use provided path if it exists, otherwise create temp directory

@@ -9,7 +9,7 @@ This document describes the rules for running the `scripts/test_search.py` scrip
 
 ## Prerequisites
 
-- Conda environment named 'alpha-rs' must be active
+- Conda environment named 'alphadia-ng' must be active
 - Maturin must be installed for building Rust extensions
 - Required Python packages must be installed in the conda environment
 
@@ -17,7 +17,7 @@ This document describes the rules for running the `scripts/test_search.py` scrip
 
 1. Activate the conda environment:
    ```bash
-   conda activate alpha-rs
+   conda activate alphadia-ng
    ```
 
 2. Build the Rust extension:

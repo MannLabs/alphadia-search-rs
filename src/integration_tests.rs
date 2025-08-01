@@ -554,7 +554,7 @@ mod tests {
 
                     for cycle in 0..cycles_per_obs {
                         assert!((old_xic[cycle] - new_xic[cycle]).abs() < 1e-6,
-                            "Comprehensive test mismatch: obs={}, mz_offset={}, tolerance={}, cycle={}: old={}, new={}", 
+                            "Comprehensive test mismatch: obs={}, mz_offset={}, tolerance={}, cycle={}: old={}, new={}",
                             obs_idx, mz_offset, tolerance, cycle, old_xic[cycle], new_xic[cycle]);
                     }
                 }

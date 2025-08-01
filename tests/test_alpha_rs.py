@@ -1,7 +1,7 @@
 """Test module for alpha_rs functions using pytest."""
 
 import numpy as np
-import pytest   
+import pytest
 import sys
 import os
 
@@ -41,4 +41,4 @@ def test_sum_container_class():
     arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
     container = alpha_rs.SumContainer(arr)
     result = container.sum_array()
-    assert result == 15.0 
+    assert result == 15.0

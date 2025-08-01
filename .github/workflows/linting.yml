@@ -8,19 +8,14 @@ on:
     tags:
       - '*'
   pull_request:
-  
+
 
 jobs:
-  clippy:
+  pre-commit:
+    name: Run all pre-commit hooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - run: cargo clippy -- -D warnings 
-
-  formatting:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-      - run: cargo fmt --all -- --check 
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+    - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - uses: pre-commit/action@v3.0.1

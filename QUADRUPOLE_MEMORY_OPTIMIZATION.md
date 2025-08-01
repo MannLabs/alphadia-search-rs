@@ -41,7 +41,7 @@ pub struct XICSlice {
 
 **Current Algorithm Problems:**
 1. **Expensive repeated lookups**: Every peak calls `find_closest_index()` (binary search on ~3M elements)
-2. **Multiple data passes**: Full spectrum scan for each delta_scan_idx (poor cache utilization)  
+2. **Multiple data passes**: Full spectrum scan for each delta_scan_idx (poor cache utilization)
 3. **Random memory access**: Processing by spectrum order creates poor cache locality
 4. **Two-phase optimization needed**: Incremental building creates suboptimal temporary structures
 
@@ -65,10 +65,10 @@ Pre-bin all peaks by (delta_scan_idx, mz_index) in single pass, then build optim
 pub struct QuadrupoleObservation {
     pub isolation_window: [f32; 2],
     pub num_cycles: usize,
-    
+
     // Start indices only - stop[i] = start[i+1] (last stop = total length)
     pub slice_starts: Vec<u32>,             // Length = mz_index.len() + 1
-    
+
     // Consolidated data arrays
     pub cycle_indices: Vec<u16>,            // All cycle indices concatenated
     pub intensities: Vec<f32>,              // All intensities concatenated
@@ -97,47 +97,47 @@ impl OptimizedDIADataBuilder {
     pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> DIAData {
         let mz_index = MZIndex::new();
         let rt_index = RTIndex::from_alpha_raw(alpha_raw_view);
-        
+
         // Phase 1: Single-pass binning
         let binned_peaks = Self::bin_peaks_by_mz(alpha_raw_view, &mz_index);
-        
+
         // Phase 2: Fully parallel observation building
         let quadrupole_observations = Self::build_observations_parallel(
             &binned_peaks, &mz_index, alpha_raw_view
         );
-        
+
         DIAData { mz_index, rt_index, quadrupole_observations }
     }
-    
+
     fn bin_peaks_by_mz(
-        alpha_raw_view: &AlphaRawView, 
+        alpha_raw_view: &AlphaRawView,
         mz_index: &MZIndex
     ) -> DashMap<(i64, usize), Vec<(u16, f32)>> {
         let binned_peaks = DashMap::new();
-        
+
         // Single pass through all spectra - O(n) instead of O(n*m)
         for spectrum_idx in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
             let delta_scan_idx = alpha_raw_view.spectrum_delta_scan_idx[spectrum_idx];
             let cycle_idx = alpha_raw_view.spectrum_cycle_idx[spectrum_idx] as u16;
-            
+
             let peak_start = alpha_raw_view.spectrum_peak_start_idx[spectrum_idx] as usize;
             let peak_stop = alpha_raw_view.spectrum_peak_stop_idx[spectrum_idx] as usize;
-            
+
             // Process all peaks in this spectrum
             for peak_idx in peak_start..peak_stop {
                 let mz = alpha_raw_view.peak_mz[peak_idx];
                 let intensity = alpha_raw_view.peak_intensity[peak_idx];
                 let mz_idx = mz_index.find_closest_index(mz);
-                
+
                 binned_peaks.entry((delta_scan_idx, mz_idx))
                            .or_insert_with(Vec::new)
                            .push((cycle_idx, intensity));
             }
         }
-        
+
         binned_peaks
     }
-    
+
     fn build_observations_parallel(
         binned_peaks: &DashMap<(i64, usize), Vec<(u16, f32)>>,
         mz_index: &MZIndex,
@@ -146,16 +146,16 @@ impl OptimizedDIADataBuilder {
         let num_observations = binned_peaks.iter()
             .map(|entry| entry.key().0)
             .max().unwrap_or(0) + 1;
-        
+
         // Extract metadata once
         let metadata = Self::extract_metadata(alpha_raw_view);
-            
+
         // FULLY PARALLEL: Each observation is completely independent!
         (0..num_observations).into_par_iter().map(|delta_scan_idx| {
             Self::build_single_observation(binned_peaks, mz_index, delta_scan_idx, &metadata)
         }).collect()
     }
-    
+
     fn build_single_observation(
         binned_peaks: &DashMap<(i64, usize), Vec<(u16, f32)>>,
         mz_index: &MZIndex,
@@ -169,16 +169,16 @@ impl OptimizedDIADataBuilder {
                            .map_or(0, |entry| entry.value().len())
             })
             .sum();
-        
+
         // Pre-allocate with exact capacity
         let mut slice_starts = Vec::with_capacity(mz_index.len() + 1);
         let mut cycle_indices = Vec::with_capacity(total_peaks);
         let mut intensities = Vec::with_capacity(total_peaks);
-        
+
         // Build in mz_index order for optimal cache locality
         for mz_idx in 0..mz_index.len() {
             slice_starts.push(cycle_indices.len() as u32);
-            
+
             if let Some(entry) = binned_peaks.get(&(delta_scan_idx, mz_idx)) {
                 for &(cycle_idx, intensity) in entry.value() {
                     cycle_indices.push(cycle_idx);
@@ -186,12 +186,12 @@ impl OptimizedDIADataBuilder {
                 }
             }
         }
-        
+
         slice_starts.push(cycle_indices.len() as u32);
-        
-        let (isolation_lower, isolation_upper, num_cycles) = 
+
+        let (isolation_lower, isolation_upper, num_cycles) =
             metadata.get(&delta_scan_idx).unwrap_or(&(0.0, 0.0, 0));
-        
+
         QuadrupoleObservation {
             isolation_window: [*isolation_lower, *isolation_upper],
             num_cycles: *num_cycles,
@@ -200,17 +200,17 @@ impl OptimizedDIADataBuilder {
             intensities,
         }
     }
-    
+
     fn extract_metadata(alpha_raw_view: &AlphaRawView) -> HashMap<i64, (f32, f32, usize)> {
         let mut metadata = HashMap::new();
-        
+
         for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
             let delta_scan_idx = alpha_raw_view.spectrum_delta_scan_idx[i];
-            
+
             if !metadata.contains_key(&delta_scan_idx) {
                 let isolation_lower = alpha_raw_view.isolation_lower_mz[i];
                 let isolation_upper = alpha_raw_view.isolation_upper_mz[i];
-                
+
                 // Count unique cycles for this delta_scan_idx
                 let unique_cycles: HashSet<_> = alpha_raw_view.spectrum_delta_scan_idx
                     .iter()
@@ -218,11 +218,11 @@ impl OptimizedDIADataBuilder {
                     .filter(|(&ds, _)| ds == delta_scan_idx)
                     .map(|(_, &cycle)| cycle)
                     .collect();
-                
+
                 metadata.insert(delta_scan_idx, (isolation_lower, isolation_upper, unique_cycles.len()));
             }
         }
-        
+
         metadata
     }
 }
@@ -334,7 +334,7 @@ impl QuadrupoleObservation {
             // Direct slice access using optimized indexing
             let start = self.slice_starts[mz_idx] as usize;
             let stop = self.slice_starts[mz_idx + 1] as usize;
-            
+
             let cycle_indices = &self.cycle_indices[start..stop];
             let intensities = &self.intensities[start..stop];
 
@@ -346,20 +346,20 @@ impl QuadrupoleObservation {
             // Process cycles within range
             for i in start_pos..cycle_indices.len() {
                 let cycle_idx = cycle_indices[i] as usize;
-                
+
                 if cycle_idx >= cycle_stop_idx {
                     break;
                 }
-                
+
                 dense_xic[cycle_idx - cycle_start_idx] += intensities[i];
             }
         }
     }
-    
+
     pub fn get_xic_slice_data(&self, mz_idx: usize) -> (&[u16], &[f32]) {
         let start = self.slice_starts[mz_idx] as usize;
         let stop = self.slice_starts[mz_idx + 1] as usize;
-        
+
         (&self.cycle_indices[start..stop], &self.intensities[start..stop])
     }
 }
@@ -384,12 +384,12 @@ impl DIAData {
             // Fixed size components
             total_size += std::mem::size_of::<[f32; 2]>(); // isolation_window
             total_size += std::mem::size_of::<usize>(); // num_cycles
-            
+
             // Optimized storage - only 3 Vec overheads total
             total_size += std::mem::size_of::<Vec<u32>>(); // slice_starts Vec overhead
-            total_size += std::mem::size_of::<Vec<u16>>(); // cycle_indices Vec overhead  
+            total_size += std::mem::size_of::<Vec<u16>>(); // cycle_indices Vec overhead
             total_size += std::mem::size_of::<Vec<f32>>(); // intensities Vec overhead
-            
+
             // Actual data in the optimized arrays
             total_size += obs.slice_starts.len() * std::mem::size_of::<u32>();
             total_size += obs.cycle_indices.len() * std::mem::size_of::<u16>();
@@ -407,7 +407,7 @@ impl DIAData {
 - **Per QuadrupoleObservation**: ~4M XICSlice objects × 48+ bytes overhead = ~192+ MB overhead
 - **Total for 300 observations**: ~57.6+ GB overhead
 
-### After Optimization  
+### After Optimization
 - **Per QuadrupoleObservation**: 3 Vec allocations × 8 bytes = 24 bytes overhead
 - **Total for 300 observations**: ~7.2 KB overhead
 
@@ -462,18 +462,18 @@ impl DIAData {
 
 ## Testing Strategy
 
-1. **Unit Tests**: 
+1. **Unit Tests**:
    - Test binning algorithm correctness
    - Verify metadata extraction (isolation_window, num_cycles)
    - Test optimized QuadrupoleObservation structure
-2. **Memory Tests**: 
+2. **Memory Tests**:
    - Confirm >99.9% memory reduction
    - Benchmark memory usage vs current implementation
-3. **Performance Tests**: 
+3. **Performance Tests**:
    - Benchmark single-threaded vs multithreaded performance
    - Measure construction speed improvement
    - Profile cache miss rates and memory bandwidth
-4. **Integration Tests**: 
+4. **Integration Tests**:
    - Validate identical outputs vs current DIADataBuilder
    - Test with real data files using scripts/test_search.py
    - Ensure Python API compatibility
@@ -487,4 +487,4 @@ impl DIAData {
 - **Risk**: Index bounds errors in slice_starts access
   - **Mitigation**: Comprehensive bounds checking and testing
 - **Risk**: Performance regression in edge cases
-  - **Mitigation**: Extensive benchmarking with real-world data 
+  - **Mitigation**: Extensive benchmarking with real-world data

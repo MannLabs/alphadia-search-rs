@@ -20,7 +20,7 @@ pub struct QuadrupoleObservationNextGen {
     /// All cycle indices concatenated from all slices
     pub cycle_indices: Vec<u16>,
 
-    /// All intensities concatenated from all slices  
+    /// All intensities concatenated from all slices
     pub intensities: Vec<f32>,
 }
 

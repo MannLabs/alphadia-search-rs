@@ -153,7 +153,7 @@ def main():
                        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
                        help="Path to the spectral library file (HDF format)")
     parser.add_argument("--output_folder",
-                       default="./output",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib",
                        help="Path to the output folder")
     args = parser.parse_args()
 

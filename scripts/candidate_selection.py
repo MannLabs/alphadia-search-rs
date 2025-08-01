@@ -146,9 +146,15 @@ def parse_candidates(candidates, ms_data, alpha_base_spec_lib_flat):
 
 def main():
     parser = argparse.ArgumentParser(description="Run candidate selection with alphaRaw MSData_Base and SpecLibFlat")
-    parser.add_argument("ms_data_path", help="Path to the MS data file (HDF format)")
-    parser.add_argument("spec_lib_path", help="Path to the spectral library file (HDF format)")
-    parser.add_argument("output_folder", help="Path to the output folder")
+    parser.add_argument("--ms_data_path",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/CPD_NE_000057_08.hdf",
+                       help="Path to the MS data file (HDF format)")
+    parser.add_argument("--spec_lib_path",
+                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
+                       help="Path to the spectral library file (HDF format)")
+    parser.add_argument("--output_folder",
+                       default="./output",
+                       help="Path to the output folder")
     args = parser.parse_args()
 
     logger = logging.getLogger(__name__)

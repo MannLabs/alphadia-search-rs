@@ -181,4 +181,9 @@ impl CandidateCollection {
     pub fn from_vec(candidates: Vec<Candidate>) -> Self {
         Self { candidates }
     }
+
+    /// Get an iterator over the candidates
+    pub fn iter(&self) -> std::slice::Iter<'_, Candidate> {
+        self.candidates.iter()
+    }
 }

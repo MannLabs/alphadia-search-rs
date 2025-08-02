@@ -3,7 +3,7 @@ use pyo3::types::PyDict;
 
 #[pyclass]
 #[derive(Clone)]
-pub struct ScoringParameters {
+pub struct SelectionParameters {
     #[pyo3(get)]
     pub fwhm_rt: f32,
     #[pyo3(get)]
@@ -19,7 +19,7 @@ pub struct ScoringParameters {
 }
 
 #[pymethods]
-impl ScoringParameters {
+impl SelectionParameters {
     #[new]
     pub fn new() -> Self {
         Self {
@@ -55,7 +55,7 @@ impl ScoringParameters {
     }
 }
 
-impl Default for ScoringParameters {
+impl Default for SelectionParameters {
     fn default() -> Self {
         Self::new()
     }

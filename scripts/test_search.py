@@ -1,4 +1,4 @@
-from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters
+from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters
 import os
 import pandas as pd
 import numpy as np
@@ -72,8 +72,8 @@ if __name__ == "__main__":
         peak_df['intensity'].values.astype(np.float32)
     )
 
-    logger.info("Setting up scoring parameters")
-    scoring_params = ScoringParameters()
+    logger.info("Setting up selection parameters")
+    selection_params = SelectionParameters()
 
     # Update parameters using dictionary
     config_dict = {
@@ -84,7 +84,7 @@ if __name__ == "__main__":
         'rt_tolerance': 1000.0,
         'candidate_count': 3
     }
-    scoring_params.update(config_dict)
+    selection_params.update(config_dict)
 
 
     logger.info(f"Using parameters: {config_dict}")
@@ -113,13 +113,13 @@ if __name__ == "__main__":
     logger.info(f"DIADataNextGen memory footprint: {memory_mb:.2f} MB ({memory_bytes:,} bytes)")
     logger.info(f"DIADataNextGen contains {rs_data_next_gen.num_observations} quadrupole observations")
 
-    # Create peak group scoring
-    peak_group_scoring = PeakGroupScoring(scoring_params)
+    # Create peak group selection
+    peak_group_selection = PeakGroupSelection(selection_params)
 
     # Measure search time
     logger.info("Searching with DIADataNextGen...")
     start_time = time.perf_counter()
-    candidates_next_gen = peak_group_scoring.search_next_gen(rs_data_next_gen, speclib)
+    candidates_next_gen = peak_group_selection.search_next_gen(rs_data_next_gen, speclib)
     end_time = time.perf_counter()
     search_time_next_gen = end_time - start_time
     logger.info(f"DIADataNextGen search time: {search_time_next_gen:.4f} seconds")

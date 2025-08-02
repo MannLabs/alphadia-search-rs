@@ -1,4 +1,4 @@
-use super::parameters::ScoringParameters;
+use super::parameters::SelectionParameters;
 use super::*;
 use numpy::ndarray::arr1;
 use pyo3::types::PyDict;
@@ -47,7 +47,7 @@ fn test_find_local_maxima_flat_regions() {
 
 #[test]
 fn test_parameter_defaults() {
-    let params = ScoringParameters::new();
+    let params = SelectionParameters::new();
 
     // Verify all default values
     assert_eq!(params.fwhm_rt, 3.0);
@@ -60,7 +60,7 @@ fn test_parameter_defaults() {
 
 #[test]
 fn test_parameter_internal_modification() {
-    let mut params = ScoringParameters::new();
+    let mut params = SelectionParameters::new();
 
     // Test that we can still modify parameters internally in Rust
     // (This is for internal Rust usage, not Python)
@@ -83,7 +83,7 @@ fn test_parameter_internal_modification() {
 fn test_update_method_partial() {
     pyo3::prepare_freethreaded_python();
     Python::with_gil(|py| {
-        let mut params = ScoringParameters::new();
+        let mut params = SelectionParameters::new();
 
         // Update only one parameter
         let dict = PyDict::new(py);

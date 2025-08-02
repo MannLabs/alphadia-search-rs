@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters, CandidateCollection
+from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters, CandidateCollection
 import os
 import pandas as pd
 import numpy as np
@@ -43,6 +43,7 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
         candidates_df = candidates_df.nlargest(top_n, 'score')
         logger.info(f"Filtered to top {len(candidates_df)} candidates by score")
 
+    # The function load_candidates_from_parquet returns a DataFrame, not a CandidateCollection
     return candidates_df
 
 def create_dia_data_next_gen(ms_data):
@@ -135,7 +136,31 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
 
-    # scoring will be done in the next step
+    # Convert DataFrame to CandidateCollection
+    candidates = CandidateCollection.from_arrays(
+        candidates_df['precursor_idx'].values.astype(np.uint64),
+        candidates_df['rank'].values.astype(np.uint64),
+        candidates_df['score'].values.astype(np.float32),
+        candidates_df['scan_center'].values.astype(np.uint64),
+        candidates_df['scan_start'].values.astype(np.uint64),
+        candidates_df['scan_stop'].values.astype(np.uint64),
+        candidates_df['frame_center'].values.astype(np.uint64),
+        candidates_df['frame_start'].values.astype(np.uint64),
+        candidates_df['frame_stop'].values.astype(np.uint64),
+    )
+
+    scoring_params = ScoringParameters()
+    scoring_params.update({
+        'top_k_fragments': 99,
+        'mass_tolerance': 7.0,
+    })
+
+    peak_group_scoring = PeakGroupScoring(scoring_params)
+
+    peak_group_scoring.score_next_gen(rs_data_next_gen, spec_lib_flat, candidates)
+
+    # Return the input DataFrame for now, actual scoring will be implemented later
+    return candidates_df
 
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")

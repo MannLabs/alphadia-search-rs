@@ -11,6 +11,7 @@ pub mod dia_data_builder_next_gen;
 mod dia_data_next_gen;
 mod kernel;
 mod mz_index;
+pub mod peak_group_scoring;
 pub mod peak_group_selection;
 mod precursor;
 mod quadrupole_observation;
@@ -29,6 +30,7 @@ use crate::candidate::CandidateCollection;
 use crate::dia_data::DIAData;
 use crate::dia_data_next_gen::DIADataNextGen;
 pub use crate::kernel::GaussianKernel;
+use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;
 
@@ -73,6 +75,8 @@ fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
     m.add_class::<DIADataNextGen>()?;
     m.add_class::<SpecLibFlat>()?;
+    m.add_class::<PeakGroupScoring>()?;
+    m.add_class::<ScoringParameters>()?;
     m.add_class::<PeakGroupSelection>()?;
     m.add_class::<SelectionParameters>()?;
     m.add_class::<CandidateCollection>()?;

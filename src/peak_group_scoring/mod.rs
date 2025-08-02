@@ -155,9 +155,11 @@ impl PeakGroupScoring {
     ) -> Vec<Candidate> {
         let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 
-        let (cycle_start_idx, cycle_stop_idx) = dia_data
-            .rt_index()
-            .get_cycle_idx_limits(precursor.rt, rt_tolerance);
+        let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index().get_cycle_idx_limits(
+            precursor.rt,
+            rt_tolerance,
+            self.params.kernel_size,
+        );
 
         let mut dense_xic: Array2<f32> = Array2::zeros((
             precursor.fragment_mz.len(),

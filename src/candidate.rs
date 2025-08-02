@@ -1,6 +1,7 @@
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
 
+#[derive(Debug)]
 pub struct Candidate {
     /// Identifier linking to precursor
     pub precursor_idx: usize,

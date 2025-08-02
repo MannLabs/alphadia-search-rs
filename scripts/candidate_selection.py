@@ -77,7 +77,7 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     config_dict = {
         'fwhm_rt': 3.0,
         'kernel_size': 20,
-        'peak_length': 5,
+        'peak_length': 3,
         'mass_tolerance': 7.0,
         'rt_tolerance': 200.0,
         'candidate_count': 5

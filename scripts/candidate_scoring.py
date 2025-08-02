@@ -136,6 +136,8 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
 
+    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
+
     # Convert DataFrame to CandidateCollection
     candidates = CandidateCollection.from_arrays(
         candidates_df['precursor_idx'].values.astype(np.uint64),
@@ -144,9 +146,9 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
         candidates_df['scan_center'].values.astype(np.uint64),
         candidates_df['scan_start'].values.astype(np.uint64),
         candidates_df['scan_stop'].values.astype(np.uint64),
-        candidates_df['frame_center'].values.astype(np.uint64),
-        candidates_df['frame_start'].values.astype(np.uint64),
-        candidates_df['frame_stop'].values.astype(np.uint64),
+        candidates_df['frame_center'].values.astype(np.uint64) // cycle_len,
+        candidates_df['frame_start'].values.astype(np.uint64) // cycle_len,
+        candidates_df['frame_stop'].values.astype(np.uint64) // cycle_len,
     )
 
     scoring_params = ScoringParameters()
@@ -178,7 +180,7 @@ def main():
                        help="Path to the output folder")
     parser.add_argument("--top-n",
                        type=int,
-                       default=100000,
+                       default=100,
                        help="Top N candidates to score")
     args = parser.parse_args()
 

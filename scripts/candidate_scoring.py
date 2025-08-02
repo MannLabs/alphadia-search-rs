@@ -171,6 +171,12 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     features_df = pd.DataFrame(features_dict)
 
 
+    features_df = features_df.merge(
+        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'decoy','elution_group_idx','channel']],
+        on='precursor_idx',
+        how='left'
+    )
+
     return features_df
 
 def main():

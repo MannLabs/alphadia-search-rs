@@ -159,7 +159,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
 
     peak_group_scoring = PeakGroupScoring(scoring_params)
 
-    logger.info(f"Scoring {len(candidates)} candidates")
+    logger.info(f"Scoring candidates")
 
     # Get candidate features
     candidate_features = peak_group_scoring.score_next_gen(rs_data_next_gen, spec_lib_flat, candidates)

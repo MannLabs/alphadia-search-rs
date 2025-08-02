@@ -70,6 +70,59 @@ impl CandidateCollection {
         self.candidates.is_empty()
     }
 
+    /// Create a CandidateCollection from separate arrays
+    #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_arrays(
+        precursor_idxs: Vec<u64>,
+        ranks: Vec<u64>,
+        scores: Vec<f32>,
+        scan_center: Vec<u64>,
+        scan_start: Vec<u64>,
+        scan_stop: Vec<u64>,
+        cycle_center: Vec<u64>,
+        cycle_start: Vec<u64>,
+        cycle_stop: Vec<u64>,
+    ) -> PyResult<Self> {
+        let n = precursor_idxs.len();
+
+        // Validate all arrays have the same length
+        if ![
+            ranks.len(),
+            scores.len(),
+            scan_center.len(),
+            scan_start.len(),
+            scan_stop.len(),
+            cycle_center.len(),
+            cycle_start.len(),
+            cycle_stop.len(),
+        ]
+        .iter()
+        .all(|&len| len == n)
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "All input arrays must have the same length",
+            ));
+        }
+
+        let mut candidates = Vec::with_capacity(n);
+        for i in 0..n {
+            candidates.push(Candidate {
+                precursor_idx: precursor_idxs[i] as usize,
+                rank: ranks[i] as usize,
+                score: scores[i],
+                scan_center: scan_center[i] as usize,
+                scan_start: scan_start[i] as usize,
+                scan_stop: scan_stop[i] as usize,
+                cycle_center: cycle_center[i] as usize,
+                cycle_start: cycle_start[i] as usize,
+                cycle_stop: cycle_stop[i] as usize,
+            });
+        }
+
+        Ok(Self { candidates })
+    }
+
     /// Convert the collection to separate arrays for all fields
     #[allow(clippy::type_complexity)]
     pub fn to_arrays(

@@ -131,7 +131,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     Returns
     -------
     pd.DataFrame
-        Scored candidates DataFrame
+        Scored candidates DataFrame with features
     """
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
@@ -159,10 +159,17 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
 
     peak_group_scoring = PeakGroupScoring(scoring_params)
 
-    peak_group_scoring.score_next_gen(rs_data_next_gen, spec_lib_flat, candidates)
+    # Get candidate features
+    candidate_features = peak_group_scoring.score_next_gen(rs_data_next_gen, spec_lib_flat, candidates)
 
-    # Return the input DataFrame for now, actual scoring will be implemented later
-    return candidates_df
+    # Convert features to dictionary of arrays
+    features_dict = candidate_features.to_dict_arrays()
+
+    # Create DataFrame from features
+    features_df = pd.DataFrame(features_dict)
+
+
+    return features_df
 
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
@@ -180,7 +187,7 @@ def main():
                        help="Path to the output folder")
     parser.add_argument("--top-n",
                        type=int,
-                       default=100,
+                       default=10000,
                        help="Top N candidates to score")
     args = parser.parse_args()
 
@@ -196,8 +203,13 @@ def main():
     # Load candidates
     candidates = load_candidates_from_parquet(args.candidates_path, args.top_n)
 
-    # Run scoring
-    run_candidate_scoring(ms_data, spec_lib_flat, candidates)
+    # Run scoring and get features
+    result_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
+
+    # Save results
+    output_path = os.path.join(args.output_folder, "candidate_features.parquet")
+    result_df.to_parquet(output_path)
+    logger.info(f"Saved candidate features to: {output_path}")
 
 if __name__ == "__main__":
     main()

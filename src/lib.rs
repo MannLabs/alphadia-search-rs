@@ -26,7 +26,7 @@ mod xic_slice;
 #[cfg(test)]
 mod integration_tests;
 
-use crate::candidate::CandidateCollection;
+use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
 use crate::dia_data::DIAData;
 use crate::dia_data_next_gen::DIADataNextGen;
 pub use crate::kernel::GaussianKernel;
@@ -80,6 +80,7 @@ fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PeakGroupSelection>()?;
     m.add_class::<SelectionParameters>()?;
     m.add_class::<CandidateCollection>()?;
+    m.add_class::<CandidateFeatureCollection>()?;
     m.add_function(wrap_pyfunction!(benchmark_convolution, m)?)?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;

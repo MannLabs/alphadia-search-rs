@@ -133,8 +133,6 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
         Scored candidates DataFrame
     """
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
-
-
     spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
 
     # scoring will be done in the next step

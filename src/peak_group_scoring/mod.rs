@@ -1,10 +1,7 @@
-use ndarray_npy::NpzWriter;
 use numpy::ndarray::{Array1, Array2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::cmp::{max, min};
-use std::env;
-use std::fs::{self, File};
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
@@ -108,16 +105,6 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
     ) -> CandidateCollection {
         let max_precursor_idx = min(10_000_000, lib.num_precursors());
-
-        // store kernel to tmp file as npz using system temp directory
-        let tmp_dir = env::temp_dir().join("alpha_ng");
-        fs::create_dir_all(&tmp_dir).unwrap();
-        let kernel_path = tmp_dir.join("kernel.npz");
-
-        let file = File::create(kernel_path).unwrap();
-        let mut npz: NpzWriter<File> = NpzWriter::new(file);
-        npz.add_array("kernel", &self.kernel.kernel_array).unwrap();
-        npz.finish().unwrap();
 
         let start_time = Instant::now();
         // Parallel iteration over precursor indices with flat_map to collect candidates

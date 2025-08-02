@@ -161,15 +161,19 @@ impl PeakGroupScoring {
             self.params.kernel_size,
         );
 
-        let mut dense_xic: Array2<f32> = Array2::zeros((
-            precursor.fragment_mz.len(),
-            cycle_stop_idx - cycle_start_idx,
-        ));
+        // Apply fragment filtering based on scoring parameters
+        let (filtered_fragment_mz, filtered_fragment_intensity) = precursor.get_fragments_filtered(
+            true, // Always filter non-zero intensities for scoring
+            self.params.top_k_fragments,
+        );
+
+        let mut dense_xic: Array2<f32> =
+            Array2::zeros((filtered_fragment_mz.len(), cycle_stop_idx - cycle_start_idx));
 
         for obs_idx in valid_obs_idxs {
             let obs = &dia_data.quadrupole_observations()[obs_idx];
 
-            for (f_idx, f_mz) in precursor.fragment_mz.iter().enumerate() {
+            for (f_idx, f_mz) in filtered_fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
                     dia_data.mz_index(),
                     &mut dense_xic.row_mut(f_idx),
@@ -183,7 +187,7 @@ impl PeakGroupScoring {
 
         let convolved_xic = convolution(&self.kernel, &dense_xic);
 
-        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
+        let score = axis_log_dot_product(&convolved_xic, &filtered_fragment_intensity);
 
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);

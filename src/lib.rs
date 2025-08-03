@@ -14,14 +14,12 @@ mod mz_index;
 pub mod peak_group_scoring;
 pub mod peak_group_selection;
 mod precursor;
-mod quadrupole_observation;
 mod quadrupole_observation_next_gen;
 mod rt_index;
 pub mod score;
 mod simd;
 mod speclib_flat;
 pub mod traits;
-mod xic_slice;
 
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
 use crate::dia_data_next_gen::DIADataNextGen;

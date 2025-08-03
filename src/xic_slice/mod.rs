@@ -1,6 +1,7 @@
 use rand::Rng;
 use std::collections::HashSet;
 
+#[allow(dead_code)]
 const MAX_CYCLE_INDEX: usize = 1000;
 
 #[derive(Debug, Clone)]
@@ -9,6 +10,7 @@ pub struct XICSlice {
     pub intensity: Vec<f32>,
 }
 
+#[allow(dead_code)]
 impl XICSlice {
     pub fn new(cycle_index: Vec<u16>, intensity: Vec<f32>) -> Self {
         Self {

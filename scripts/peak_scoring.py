@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import logging
 
-from alphadia_ng import SpecLibFlat, DIAData, PeakGroupSelection
+from alphadia_ng import SpecLibFlat, DIADataNextGen, PeakGroupSelection
 
 class PeakScoring:
     def __init__(
@@ -63,7 +63,7 @@ class PeakScoring:
 
         self.cycle_len = cycle_len
 
-        self.dia_data = DIAData.from_arrays(
+        self.dia_data = DIADataNextGen.from_arrays(
             dia_data.spectrum_df['delta_scan_idx'].values,
             dia_data.spectrum_df['isolation_lower_mz'].values.astype(np.float32),
             dia_data.spectrum_df['isolation_upper_mz'].values.astype(np.float32),

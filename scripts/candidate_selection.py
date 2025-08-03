@@ -92,7 +92,7 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     # Measure search time
     logger.info("Running candidate selection...")
     start_time = time.perf_counter()
-    candidates = peak_group_selection.search_next_gen(rs_data_next_gen, spec_lib_flat)
+    candidates = peak_group_selection.search(rs_data_next_gen, spec_lib_flat)
     end_time = time.perf_counter()
     search_time = end_time - start_time
     logger.info(f"Candidate selection time: {search_time:.4f} seconds")

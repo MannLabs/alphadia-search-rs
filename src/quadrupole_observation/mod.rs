@@ -4,12 +4,14 @@ use crate::mz_index::MZIndex;
 use crate::xic_slice::XICSlice;
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct QuadrupoleObservation {
     pub isolation_window: [f32; 2],
     pub num_cycles: usize,
     pub xic_slices: Vec<XICSlice>,
 }
 
+#[allow(dead_code)]
 impl QuadrupoleObservation {
     pub fn new(mz_index: &MZIndex) -> Self {
         Self {

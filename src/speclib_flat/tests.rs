@@ -1,4 +1,5 @@
 use super::*;
+use numpy::PyArrayMethods;
 
 #[test]
 fn test_filter_fragments_no_filtering() {
@@ -143,4 +144,159 @@ fn test_filter_fragments_top_k_larger_than_available() {
 
     assert_eq!(mz, fragment_mz);
     assert_eq!(intensity, fragment_intensity);
+}
+
+#[test]
+fn test_filter_fragments_invariants() {
+    // Test that all fundamental invariants hold across various parameter combinations
+    let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let fragment_intensity = vec![5.0, 0.0, 15.0, 10.0, 20.0];
+
+    for non_zero in [false, true] {
+        for k in [0, 1, 2, 3, 10] {
+            let (filtered_mz, filtered_intensity) =
+                filter_fragments(&fragment_mz, &fragment_intensity, non_zero, k);
+
+            // Invariant: Output vectors have same length
+            assert_eq!(filtered_mz.len(), filtered_intensity.len());
+
+            // Invariant: All fragments come from original set
+            for (&mz, &intensity) in filtered_mz.iter().zip(filtered_intensity.iter()) {
+                let original_idx = fragment_mz.iter().position(|&x| x == mz).unwrap();
+                assert_eq!(fragment_intensity[original_idx], intensity);
+            }
+
+            // Invariant: Non-zero filtering works correctly
+            if non_zero {
+                assert!(filtered_intensity.iter().all(|&x| x > 0.0));
+            }
+
+            // Invariant: Top-k constraint is respected
+            assert!(filtered_mz.len() <= k);
+
+            // Invariant: Original ordering is preserved
+            if filtered_mz.len() > 1 {
+                for i in 1..filtered_mz.len() {
+                    let idx1 = fragment_mz
+                        .iter()
+                        .position(|&x| x == filtered_mz[i - 1])
+                        .unwrap();
+                    let idx2 = fragment_mz
+                        .iter()
+                        .position(|&x| x == filtered_mz[i])
+                        .unwrap();
+                    assert!(idx1 < idx2);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_speclib_flat_creation_sorting() {
+    use numpy::PyArray1;
+    use pyo3::{prepare_freethreaded_python, Python};
+
+    prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        // Create unsorted test data - precursor_idx intentionally out of order
+        let precursor_idx = PyArray1::from_slice(py, &[3usize, 1, 4, 2]);
+        let precursor_mz = PyArray1::from_slice(py, &[300.0f32, 100.0, 400.0, 200.0]);
+        let precursor_rt = PyArray1::from_slice(py, &[30.0f32, 10.0, 40.0, 20.0]);
+        let precursor_start_idx = PyArray1::from_slice(py, &[6usize, 0, 9, 3]);
+        let precursor_stop_idx = PyArray1::from_slice(py, &[9usize, 3, 12, 6]);
+        let fragment_mz = PyArray1::from_slice(
+            py,
+            &[
+                // Fragments for precursor 1 (idx 0-3)
+                101.0f32, 102.0, 103.0, // Fragments for precursor 3 (idx 3-6)
+                301.0, 302.0, 303.0, // Fragments for precursor 3 (idx 6-9)
+                311.0, 312.0, 313.0, // Fragments for precursor 4 (idx 9-12)
+                401.0, 402.0, 403.0,
+            ],
+        );
+        let fragment_intensity = PyArray1::from_slice(
+            py,
+            &[
+                10.0f32, 11.0, 12.0, // precursor 1
+                30.0, 31.0, 32.0, // precursor 3
+                33.0, 34.0, 35.0, // precursor 3
+                40.0, 41.0, 42.0, // precursor 4
+            ],
+        );
+
+        let speclib = SpecLibFlat::from_arrays(
+            precursor_idx.readonly(),
+            precursor_mz.readonly(),
+            precursor_rt.readonly(),
+            precursor_start_idx.readonly(),
+            precursor_stop_idx.readonly(),
+            fragment_mz.readonly(),
+            fragment_intensity.readonly(),
+        );
+
+        // Verify precursor_idx is now sorted
+        let precursor_1 = speclib.get_precursor(0);
+        let precursor_2 = speclib.get_precursor(1);
+        let precursor_3 = speclib.get_precursor(2);
+        let precursor_4 = speclib.get_precursor(3);
+
+        assert_eq!(precursor_1.idx, 1);
+        assert_eq!(precursor_2.idx, 2);
+        assert_eq!(precursor_3.idx, 3);
+        assert_eq!(precursor_4.idx, 4);
+
+        // Verify corresponding data was reordered correctly
+        assert_eq!(precursor_1.mz, 100.0);
+        assert_eq!(precursor_2.mz, 200.0);
+        assert_eq!(precursor_3.mz, 300.0);
+        assert_eq!(precursor_4.mz, 400.0);
+
+        assert_eq!(precursor_1.rt, 10.0);
+        assert_eq!(precursor_2.rt, 20.0);
+        assert_eq!(precursor_3.rt, 30.0);
+        assert_eq!(precursor_4.rt, 40.0);
+    });
+}
+
+#[test]
+fn test_speclib_flat_binary_search() {
+    use numpy::PyArray1;
+    use pyo3::{prepare_freethreaded_python, Python};
+
+    prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        // Create sorted test data
+        let precursor_idx = PyArray1::from_slice(py, &[10usize, 20, 30]);
+        let precursor_mz = PyArray1::from_slice(py, &[100.0f32, 200.0, 300.0]);
+        let precursor_rt = PyArray1::from_slice(py, &[10.0f32, 20.0, 30.0]);
+        let precursor_start_idx = PyArray1::from_slice(py, &[0usize, 2, 4]);
+        let precursor_stop_idx = PyArray1::from_slice(py, &[2usize, 4, 6]);
+        let fragment_mz = PyArray1::from_slice(py, &[101.0f32, 102.0, 201.0, 202.0, 301.0, 302.0]);
+        let fragment_intensity = PyArray1::from_slice(py, &[10.0f32, 11.0, 20.0, 21.0, 30.0, 31.0]);
+
+        let speclib = SpecLibFlat::from_arrays(
+            precursor_idx.readonly(),
+            precursor_mz.readonly(),
+            precursor_rt.readonly(),
+            precursor_start_idx.readonly(),
+            precursor_stop_idx.readonly(),
+            fragment_mz.readonly(),
+            fragment_intensity.readonly(),
+        );
+
+        // Test binary search functionality
+        assert!(speclib.get_precursor_by_idx(10).is_some());
+        assert!(speclib.get_precursor_by_idx(20).is_some());
+        assert!(speclib.get_precursor_by_idx(30).is_some());
+        assert!(speclib.get_precursor_by_idx(15).is_none());
+        assert!(speclib.get_precursor_by_idx(5).is_none());
+        assert!(speclib.get_precursor_by_idx(35).is_none());
+
+        // Verify correct precursor is returned
+        let precursor_20 = speclib.get_precursor_by_idx(20).unwrap();
+        assert_eq!(precursor_20.idx, 20);
+        assert_eq!(precursor_20.mz, 200.0);
+        assert_eq!(precursor_20.fragment_mz, vec![201.0, 202.0]);
+    });
 }

@@ -61,7 +61,11 @@ impl PeakGroupScoring {
             .take(n)
             .filter_map(|candidate| {
                 // Find precursor by idx (not array position)
-                match lib.get_precursor_by_idx(candidate.precursor_idx) {
+                match lib.get_precursor_by_idx_filtered(
+                    candidate.precursor_idx,
+                    true, // Always filter non-zero intensities for scoring
+                    self.params.top_k_fragments,
+                ) {
                     Some(precursor) => {
                         Some(self.score_candidate_generic(dia_data, &precursor, candidate))
                     }
@@ -98,24 +102,18 @@ impl PeakGroupScoring {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
 
-        // Apply fragment filtering based on scoring parameters
-        let (filtered_fragment_mz, filtered_fragment_intensity) = precursor.get_fragments_filtered(
-            true, // Always filter non-zero intensities for scoring
-            self.params.top_k_fragments,
-        );
-
         let cycle_start_idx = candidate.cycle_start;
         let cycle_stop_idx = candidate.cycle_stop;
         let mass_tolerance = self.params.mass_tolerance;
 
-        // Create dense XIC observation using the new struct
+        // Create dense XIC observation using the filtered precursor fragments
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
             precursor.mz,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
-            &filtered_fragment_mz,
+            &precursor.fragment_mz,
         );
 
         // Normalize the profiles before calculating median
@@ -129,7 +127,7 @@ impl PeakGroupScoring {
 
         let intensity_correlations = calculate_correlation_safe(
             observation_intensities.as_slice().unwrap(),
-            &filtered_fragment_intensity,
+            &precursor.fragment_intensity,
         );
 
         // all of this part is highly experimental and needs to be refined
@@ -171,7 +169,7 @@ impl PeakGroupScoring {
         let num_over_50 = correlations.iter().filter(|&x| *x > 0.50).count();
 
         let intensity_correlation = intensity_correlations;
-        let num_fragments = filtered_fragment_mz.len();
+        let num_fragments = precursor.fragment_mz.len();
         let num_scans = cycle_stop_idx - cycle_start_idx;
 
         // Create and return candidate feature

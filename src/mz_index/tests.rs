@@ -1,9 +1,174 @@
 use super::*;
 
+// Test fixtures for common test parameters
+struct TestParams {
+    resolution_ppm: f32,
+    mz_start: f32,
+    mz_end: f32,
+}
+
+fn standard_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 1.0,
+        mz_start: 100.0,
+        mz_end: 1000.0,
+    }
+}
+
+fn high_resolution_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 0.5,
+        mz_start: 200.0,
+        mz_end: 300.0,
+    }
+}
+
+fn low_resolution_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 2.0,
+        mz_start: 500.0,
+        mz_end: 600.0,
+    }
+}
+
+fn small_range_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 1.0,
+        mz_start: 100.0,
+        mz_end: 101.0,
+    }
+}
+
+fn clamping_test_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 1.0,
+        mz_start: 10.0, // Below 50, should be clamped
+        mz_end: 100.0,
+    }
+}
+
+fn very_high_resolution_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 0.1,
+        mz_start: 500.0,
+        mz_end: 600.0,
+    }
+}
+
+fn very_low_resolution_params() -> TestParams {
+    TestParams {
+        resolution_ppm: 10.0,
+        mz_start: 500.0,
+        mz_end: 600.0,
+    }
+}
+
+// Helper function to verify geometric progression
+fn verify_geometric_progression(result: &Array1<f32>, expected_ratio: f32) {
+    for i in 1..std::cmp::min(10, result.len()) {
+        let actual_ratio = result[i] / result[i - 1];
+        assert!(
+            (actual_ratio - expected_ratio).abs() < 1e-6,
+            "Geometric progression broken at index {}: ratio={}, expected={}",
+            i,
+            actual_ratio,
+            expected_ratio
+        );
+    }
+}
+
 #[test]
 fn test_ppm_index_len() {
     let result = ppm_index(1.0, 100.0, 2000.0);
     assert_eq!(result.len(), 2995974);
+}
+
+#[test]
+fn test_ppm_index_standard_case() {
+    let params = standard_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    // Verify basic properties
+    assert!(!result.is_empty());
+    assert!(result[0] >= params.mz_start);
+    assert!(result[result.len() - 1] <= params.mz_end * 1.01);
+
+    // Verify geometric progression
+    let expected_ratio = 1.0 + (params.resolution_ppm / 1e6);
+    verify_geometric_progression(&result, expected_ratio);
+}
+
+#[test]
+fn test_ppm_index_high_resolution() {
+    let params = high_resolution_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    assert!(!result.is_empty());
+    assert!(result[0] >= params.mz_start);
+    assert!(result[result.len() - 1] <= params.mz_end * 1.01);
+
+    // Should have more points due to smaller step size
+    assert!(result.len() > 100);
+
+    let expected_ratio = 1.0 + (params.resolution_ppm / 1e6);
+    verify_geometric_progression(&result, expected_ratio);
+}
+
+#[test]
+fn test_ppm_index_low_resolution() {
+    let params = low_resolution_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    assert!(!result.is_empty());
+    assert!(result[0] >= params.mz_start);
+    assert!(result[result.len() - 1] <= params.mz_end * 1.01);
+
+    let expected_ratio = 1.0 + (params.resolution_ppm / 1e6);
+    verify_geometric_progression(&result, expected_ratio);
+}
+
+#[test]
+fn test_ppm_index_small_range() {
+    let params = small_range_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    assert!(!result.is_empty());
+    assert!(result[0] >= params.mz_start);
+    // Allow slight overshoot due to geometric progression
+    assert!(result[result.len() - 1] <= params.mz_end + 0.1);
+}
+
+#[test]
+fn test_ppm_index_mz_start_clamping() {
+    let params = clamping_test_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    // Should be clamped to 50.0 even though mz_start is 10.0
+    assert_eq!(result[0], 50.0);
+}
+
+#[test]
+fn test_ppm_index_very_high_resolution() {
+    let params = very_high_resolution_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    assert!(!result.is_empty());
+    assert!(result.len() > 1000); // Should have many points due to very small steps
+
+    let expected_ratio = 1.0 + (params.resolution_ppm / 1e6);
+    verify_geometric_progression(&result, expected_ratio);
+}
+
+#[test]
+fn test_ppm_index_very_low_resolution() {
+    let params = very_low_resolution_params();
+    let result = ppm_index(params.resolution_ppm, params.mz_start, params.mz_end);
+
+    assert!(!result.is_empty());
+    assert!(result.len() > 1);
+
+    let expected_ratio = 1.0 + (params.resolution_ppm / 1e6);
+    verify_geometric_progression(&result, expected_ratio);
 }
 
 mod find_closest_index_tests {

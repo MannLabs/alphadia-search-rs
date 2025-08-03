@@ -51,7 +51,10 @@ impl RTIndex {
     ///
     /// * `alpha_raw_view` - Source view containing spectrum data
     pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> Self {
-        let mut rt = Vec::new();
+        // Estimate capacity: MS1 scans are typically a fraction of total scans
+        // Conservative estimate: assume every 10th scan is MS1 (DIA cycles are usually 5-15 scans)
+        let estimated_capacity = alpha_raw_view.spectrum_delta_scan_idx.len() / 10;
+        let mut rt = Vec::with_capacity(estimated_capacity);
 
         for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {
             if alpha_raw_view.spectrum_delta_scan_idx[i] == 0 {
@@ -107,14 +110,14 @@ impl RTIndex {
             return (self.rt.len(), self.rt.len());
         }
 
-        // Convert to Vec to use binary_search method
-        let rt_vec: Vec<f32> = self.rt.to_vec();
+        // Use slice directly for binary search to avoid allocation
+        let rt_slice = self.rt.as_slice().unwrap();
 
         // Lower bound search - only if needed
         let lower_idx = if lower_rt <= self.rt[0] {
             0
         } else {
-            rt_vec
+            rt_slice
                 .binary_search_by(|&x| x.partial_cmp(&lower_rt).unwrap())
                 .unwrap_or_else(|x| x)
         };
@@ -123,7 +126,7 @@ impl RTIndex {
         let upper_idx = if upper_rt >= self.rt[self.rt.len() - 1] {
             self.rt.len()
         } else {
-            rt_vec
+            rt_slice
                 .binary_search_by(|&x| x.partial_cmp(&upper_rt).unwrap())
                 .unwrap_or_else(|x| x)
         };

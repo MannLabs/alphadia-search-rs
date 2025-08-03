@@ -1,4 +1,4 @@
-use numpy::ndarray::{Array1, Array2};
+use numpy::ndarray::Array1;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::cmp::{max, min};
@@ -6,12 +6,13 @@ use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::convolution::convolution;
+use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data::DIAData;
 use crate::dia_data_next_gen::DIADataNextGen;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
-use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
+use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
 
 pub mod parameters;
@@ -140,8 +141,6 @@ impl PeakGroupSelection {
         rt_tolerance: f32,
         candidate_count: usize,
     ) -> Vec<Candidate> {
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
-
         let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index().get_cycle_idx_limits(
             precursor.rt,
             rt_tolerance,
@@ -154,25 +153,17 @@ impl PeakGroupSelection {
             self.params.top_k_fragments,
         );
 
-        let mut dense_xic: Array2<f32> =
-            Array2::zeros((filtered_fragment_mz.len(), cycle_stop_idx - cycle_start_idx));
+        // Create dense XIC observation using the new struct
+        let dense_xic_obs = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            &filtered_fragment_mz,
+        );
 
-        for obs_idx in valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
-
-            for (f_idx, f_mz) in filtered_fragment_mz.iter().enumerate() {
-                obs.fill_xic_slice(
-                    dia_data.mz_index(),
-                    &mut dense_xic.row_mut(f_idx),
-                    cycle_start_idx,
-                    cycle_stop_idx,
-                    mass_tolerance,
-                    *f_mz,
-                );
-            }
-        }
-
-        let convolved_xic = convolution(&self.kernel, &dense_xic);
+        let convolved_xic = convolution(&self.kernel, &dense_xic_obs.dense_xic);
 
         let score = axis_log_dot_product(&convolved_xic, &filtered_fragment_intensity);
 

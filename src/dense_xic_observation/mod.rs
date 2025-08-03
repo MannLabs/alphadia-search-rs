@@ -2,19 +2,22 @@ use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use numpy::ndarray::Array2;
 
 /// Encapsulates a dense XIC matrix with metadata about its construction
-#[allow(dead_code)] // Will be used after integration
 pub struct DenseXICObservation {
     /// Dense XIC matrix: [fragment_index, cycle_index] -> intensity
     pub dense_xic: Array2<f32>,
 
     /// Indices of observations that contributed to this dense XIC
+    #[allow(dead_code)] // Metadata for debugging/analysis
     pub contributing_obs_indices: Vec<usize>,
 
     /// Cycle range metadata
+    #[allow(dead_code)] // Metadata for debugging/analysis
     pub cycle_start_idx: usize,
+    #[allow(dead_code)] // Metadata for debugging/analysis
     pub cycle_stop_idx: usize,
 
     /// Mass tolerance used for extraction
+    #[allow(dead_code)] // Metadata for debugging/analysis
     pub mass_tolerance: f32,
 }
 
@@ -23,7 +26,6 @@ impl DenseXICObservation {
     ///
     /// This constructor pattern allows for zero-cost abstractions and full
     /// compiler optimization through monomorphization.
-    #[allow(dead_code)] // Will be used after integration
     #[inline]
     pub fn new<T: DIADataTrait>(
         dia_data: &T,

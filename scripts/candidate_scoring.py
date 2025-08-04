@@ -9,6 +9,8 @@ import time
 import argparse
 from alpharaw.ms_data_base import MSData_Base
 from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
+from alphadia.fdr.fdr import perform_fdr
+from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 
 # Configure logging
 logging.basicConfig(
@@ -36,12 +38,12 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
     logger.info(f"Loading candidates from: {candidates_path}")
     candidates_df = pd.read_parquet(candidates_path)
 
-    logger.info(f"Loaded {len(candidates_df)} candidates")
+    logger.info(f"Loaded {len(candidates_df):,} candidates")
 
     # Filter top N candidates by highest score if specified
     if top_n is not None:
         candidates_df = candidates_df.nlargest(top_n, 'score')
-        logger.info(f"Filtered to top {len(candidates_df)} candidates by score")
+        logger.info(f"Filtered to top {len(candidates_df):,} candidates by score")
 
     # The function load_candidates_from_parquet returns a DataFrame, not a CandidateCollection
     return candidates_df
@@ -159,7 +161,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
 
     peak_group_scoring = PeakGroupScoring(scoring_params)
 
-    logger.info(f"Scoring candidates")
+    logger.info(f"Scoring {len(candidates_df):,} candidates")
 
     # Get candidate features
     candidate_features = peak_group_scoring.score(rs_data_next_gen, spec_lib_flat, candidates)
@@ -179,6 +181,55 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
 
     return features_df
 
+def run_fdr_filtering(result_df, output_folder):
+    """
+    Run FDR filtering on scored candidates.
+
+    Parameters
+    ----------
+    result_df : pd.DataFrame
+        DataFrame with scored candidates including decoy column
+    output_folder : str
+        Path to output folder for saving FDR results
+
+    Returns
+    -------
+    pd.DataFrame
+        FDR-filtered PSMs with q-value <= 0.01
+    """
+    logger.info("Running FDR filtering")
+
+    classifier = BinaryClassifierLegacyNewBatching(
+        test_size=0.001,
+        batch_size=5000,
+        learning_rate=0.001,
+        epochs=10,
+        experimental_hyperparameter_tuning=True,
+    )
+
+    available_columns = ['score', 'mean_correlation',
+           'median_correlation', 'correlation_std', 'intensity_correlation',
+           'num_fragments', 'num_scans', 'num_over_95', 'num_over_90',
+           'num_over_80', 'num_over_50']
+
+    psm_df = perform_fdr(
+        classifier,
+        available_columns,
+        result_df[result_df["decoy"] == 0].copy(),
+        result_df[result_df["decoy"] == 1].copy(),
+        competetive=True,
+    )
+
+    psm_df = psm_df[psm_df["qval"] <= 0.01]
+    logger.info(f"After FDR filtering (q-value <= 0.01): {len(psm_df):,} PSMs")
+
+    # Save FDR results
+    fdr_output_path = os.path.join(output_folder, "candidate_features_fdr.parquet")
+    psm_df.to_parquet(fdr_output_path)
+    logger.info(f"Saved FDR-filtered features to: {fdr_output_path}")
+
+    return psm_df
+
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
     parser.add_argument("--ms_data_path",
@@ -197,6 +248,9 @@ def main():
                        type=int,
                        default=10000,
                        help="Top N candidates to score")
+    parser.add_argument("--fdr",
+                       action="store_true",
+                       help="Run FDR filtering on scored candidates")
     args = parser.parse_args()
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
@@ -214,10 +268,14 @@ def main():
     # Run scoring and get features
     result_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
 
+    # Run FDR if requested
+    if args.fdr:
+        result_df = run_fdr_filtering(result_df, args.output_folder)
+
     # Save results
     output_path = os.path.join(args.output_folder, "candidate_features.parquet")
     result_df.to_parquet(output_path)
-    logger.info(f"Saved candidate features to: {output_path}")
+    logger.info(f"Saved {len(result_df):,} candidate features to: {output_path}")
 
 if __name__ == "__main__":
     main()

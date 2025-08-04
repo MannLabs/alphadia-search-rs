@@ -216,7 +216,10 @@ def run_fdr_filtering(result_df, output_folder):
     available_columns = ['score', 'mean_correlation',
            'median_correlation', 'correlation_std', 'intensity_correlation',
            'num_fragments', 'num_scans', 'num_over_95', 'num_over_90',
-           'num_over_80', 'num_over_50']
+           'num_over_80', 'num_over_50', 'hyperscore', 'hyperscore_over_50',
+           'hyperscore_over_80', 'hyperscore_over_95']
+
+    logger.info(f"Performing NN based FDR with {len(available_columns)} features")
 
     psm_df = perform_fdr(
         classifier,

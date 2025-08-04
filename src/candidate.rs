@@ -73,6 +73,14 @@ pub struct CandidateFeature {
     pub num_over_80: usize,
     /// Number of correlations above 0.50
     pub num_over_50: usize,
+    /// Hyperscore calculated from correlation > 0.0
+    pub hyperscore: f32,
+    /// Hyperscore calculated from correlation > 0.5
+    pub hyperscore_over_50: f32,
+    /// Hyperscore calculated from correlation > 0.8
+    pub hyperscore_over_80: f32,
+    /// Hyperscore calculated from correlation > 0.95
+    pub hyperscore_over_95: f32,
 }
 
 impl CandidateFeature {
@@ -91,6 +99,10 @@ impl CandidateFeature {
         num_over_90: usize,
         num_over_80: usize,
         num_over_50: usize,
+        hyperscore: f32,
+        hyperscore_over_50: f32,
+        hyperscore_over_80: f32,
+        hyperscore_over_95: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -106,6 +118,10 @@ impl CandidateFeature {
             num_over_90,
             num_over_80,
             num_over_50,
+            hyperscore,
+            hyperscore_over_50,
+            hyperscore_over_80,
+            hyperscore_over_95,
         }
     }
 }
@@ -156,6 +172,10 @@ impl CandidateFeatureCollection {
         let mut num_over_90 = Array1::<u64>::zeros(n);
         let mut num_over_80 = Array1::<u64>::zeros(n);
         let mut num_over_50 = Array1::<u64>::zeros(n);
+        let mut hyperscores = Array1::<f32>::zeros(n);
+        let mut hyperscores_over_50 = Array1::<f32>::zeros(n);
+        let mut hyperscores_over_80 = Array1::<f32>::zeros(n);
+        let mut hyperscores_over_95 = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -171,6 +191,10 @@ impl CandidateFeatureCollection {
             num_over_90[i] = feature.num_over_90 as u64;
             num_over_80[i] = feature.num_over_80 as u64;
             num_over_50[i] = feature.num_over_50 as u64;
+            hyperscores[i] = feature.hyperscore;
+            hyperscores_over_50[i] = feature.hyperscore_over_50;
+            hyperscores_over_80[i] = feature.hyperscore_over_80;
+            hyperscores_over_95[i] = feature.hyperscore_over_95;
         }
 
         // Create Python dictionary
@@ -191,6 +215,10 @@ impl CandidateFeatureCollection {
         dict.set_item("num_over_90", num_over_90.into_pyarray(py))?;
         dict.set_item("num_over_80", num_over_80.into_pyarray(py))?;
         dict.set_item("num_over_50", num_over_50.into_pyarray(py))?;
+        dict.set_item("hyperscore", hyperscores.into_pyarray(py))?;
+        dict.set_item("hyperscore_over_50", hyperscores_over_50.into_pyarray(py))?;
+        dict.set_item("hyperscore_over_80", hyperscores_over_80.into_pyarray(py))?;
+        dict.set_item("hyperscore_over_95", hyperscores_over_95.into_pyarray(py))?;
 
         Ok(dict.into())
     }

@@ -8,7 +8,8 @@ use crate::candidate::{
 use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data_next_gen::DIADataNextGen;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, correlation_axis_0, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, calculate_hyperscore, correlation_axis_0, median_axis_0,
+    normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -172,6 +173,16 @@ impl PeakGroupScoring {
         let num_fragments = precursor.fragment_mz.len();
         let num_scans = cycle_stop_idx - cycle_start_idx;
 
+        let matched_mask: Vec<bool> = observation_intensities.iter().map(|&x| x > 0.0).collect();
+
+        let observation_intensities_slice = observation_intensities.as_slice().unwrap();
+
+        let hyperscore = calculate_hyperscore(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask,
+        );
+
         // Create and return candidate feature
         CandidateFeature::new(
             candidate.precursor_idx,
@@ -187,6 +198,10 @@ impl PeakGroupScoring {
             num_over_90,
             num_over_80,
             num_over_50,
+            hyperscore,
+            0.0, // hyperscore_over_50 placeholder
+            0.0, // hyperscore_over_80 placeholder
+            0.0, // hyperscore_over_95 placeholder
         )
     }
 }

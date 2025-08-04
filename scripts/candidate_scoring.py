@@ -73,7 +73,7 @@ def create_dia_data_next_gen(ms_data):
         ms_data.spectrum_df['peak_start_idx'].values,
         ms_data.spectrum_df['peak_stop_idx'].values,
         ms_data.spectrum_df['cycle_idx'].values,
-        ms_data.spectrum_df['rt'].values.astype(np.float32),
+        ms_data.spectrum_df['rt'].values.astype(np.float32)*60.0,
     )
     peak_arrays = (
         ms_data.peak_df['mz'].values.astype(np.float32),
@@ -122,10 +122,6 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
         alpha_base_spec_lib_flat.fragment_df['position'].values.astype(np.uint8),
         alpha_base_spec_lib_flat.fragment_df['type'].values.astype(np.uint8)
     )
-
-    plt.hist(alpha_base_spec_lib_flat.precursor_df['rt_calibrated'], bins=100)
-    plt.savefig('rt_calibrated.pdf')
-    plt.close()
 
     return spec_lib_flat
 

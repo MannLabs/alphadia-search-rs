@@ -190,7 +190,7 @@ impl PeakGroupScoring {
         );
 
         // Calculate retention time features
-        let rt_observed = dia_data.rt_index().rt[candidate.cycle_center] * 60.0;
+        let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
         let delta_rt = rt_observed - precursor.rt;
 
         // Create and return candidate feature

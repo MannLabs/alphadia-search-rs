@@ -45,7 +45,7 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
         ms_data.spectrum_df['peak_start_idx'].values,
         ms_data.spectrum_df['peak_stop_idx'].values,
         ms_data.spectrum_df['cycle_idx'].values,
-        ms_data.spectrum_df['rt'].values.astype(np.float32),
+        ms_data.spectrum_df['rt'].values.astype(np.float32)*60.0,
     )
     peak_arrays = (
         ms_data.peak_df['mz'].values.astype(np.float32),
@@ -85,8 +85,8 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
         'kernel_size': 20,
         'peak_length': 3,
         'mass_tolerance': 7.0,
-        'rt_tolerance': 200.0,
-        'candidate_count': 5
+        'rt_tolerance': 1000.0,
+        'candidate_count': 3
     }
     selection_params.update(config_dict)
 

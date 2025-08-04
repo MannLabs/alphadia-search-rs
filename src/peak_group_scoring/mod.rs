@@ -189,6 +189,10 @@ impl PeakGroupScoring {
             &matched_mask_intensity,
         );
 
+        // Calculate retention time features
+        let rt_observed = dia_data.rt_index().rt[candidate.cycle_center] * 60.0;
+        let delta_rt = rt_observed - precursor.rt;
+
         // Create and return candidate feature
         CandidateFeature::new(
             candidate.precursor_idx,
@@ -206,6 +210,8 @@ impl PeakGroupScoring {
             num_over_50,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
+            rt_observed,
+            delta_rt,
         )
     }
 }

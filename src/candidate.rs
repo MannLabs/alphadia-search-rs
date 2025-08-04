@@ -77,6 +77,10 @@ pub struct CandidateFeature {
     pub hyperscore_intensity_observation: f32,
     /// Hyperscore calculated from library intensities
     pub hyperscore_intensity_library: f32,
+    /// Observed retention time in seconds (from cycle center)
+    pub rt_observed: f32,
+    /// Delta retention time (observed - library) in seconds
+    pub delta_rt: f32,
 }
 
 impl CandidateFeature {
@@ -97,6 +101,8 @@ impl CandidateFeature {
         num_over_50: usize,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
+        rt_observed: f32,
+        delta_rt: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -114,6 +120,8 @@ impl CandidateFeature {
             num_over_50,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
+            rt_observed,
+            delta_rt,
         }
     }
 }
@@ -166,6 +174,8 @@ impl CandidateFeatureCollection {
         let mut num_over_50 = Array1::<u64>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
+        let mut rt_observeds = Array1::<f32>::zeros(n);
+        let mut delta_rts = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -183,6 +193,8 @@ impl CandidateFeatureCollection {
             num_over_50[i] = feature.num_over_50 as u64;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
+            rt_observeds[i] = feature.rt_observed;
+            delta_rts[i] = feature.delta_rt;
         }
 
         // Create Python dictionary
@@ -211,6 +223,8 @@ impl CandidateFeatureCollection {
             "hyperscore_intensity_library",
             hyperscore_intensity_libraries.into_pyarray(py),
         )?;
+        dict.set_item("rt_observed", rt_observeds.into_pyarray(py))?;
+        dict.set_item("delta_rt", delta_rts.into_pyarray(py))?;
 
         Ok(dict.into())
     }

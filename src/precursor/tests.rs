@@ -8,15 +8,27 @@ fn test_precursor() -> Precursor {
         rt: 100.0,
         fragment_mz: vec![200.0, 300.0, 400.0, 500.0, 600.0],
         fragment_intensity: vec![0.0, 10.0, 5.0, 20.0, 0.0],
+        fragment_cardinality: vec![1, 1, 1, 1, 1],
+        fragment_charge: vec![1, 1, 1, 1, 1],
+        fragment_loss_type: vec![0, 0, 0, 0, 0],
+        fragment_number: vec![1, 2, 3, 4, 5],
+        fragment_position: vec![1, 2, 3, 4, 5],
+        fragment_type: vec![1, 1, 1, 1, 1],
     }
 }
 
 #[test]
 fn test_no_filtering() {
     let precursor = test_precursor();
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_intensity,
+        &precursor.fragment_cardinality,
+        &precursor.fragment_charge,
+        &precursor.fragment_loss_type,
+        &precursor.fragment_number,
+        &precursor.fragment_position,
+        &precursor.fragment_type,
         false,
         usize::MAX,
     );
@@ -28,9 +40,15 @@ fn test_no_filtering() {
 #[test]
 fn test_non_zero_filtering() {
     let precursor = test_precursor();
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_intensity,
+        &precursor.fragment_cardinality,
+        &precursor.fragment_charge,
+        &precursor.fragment_loss_type,
+        &precursor.fragment_number,
+        &precursor.fragment_position,
+        &precursor.fragment_type,
         true,
         usize::MAX,
     );
@@ -43,9 +61,15 @@ fn test_non_zero_filtering() {
 #[test]
 fn test_top_k_selection() {
     let precursor = test_precursor();
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_intensity,
+        &precursor.fragment_cardinality,
+        &precursor.fragment_charge,
+        &precursor.fragment_loss_type,
+        &precursor.fragment_number,
+        &precursor.fragment_position,
+        &precursor.fragment_type,
         false,
         2,
     );
@@ -59,9 +83,15 @@ fn test_top_k_selection() {
 #[test]
 fn test_combined_filtering() {
     let precursor = test_precursor();
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_intensity,
+        &precursor.fragment_cardinality,
+        &precursor.fragment_charge,
+        &precursor.fragment_loss_type,
+        &precursor.fragment_number,
+        &precursor.fragment_position,
+        &precursor.fragment_type,
         true,
         2,
     );
@@ -81,11 +111,23 @@ fn test_ordering_preservation() {
         rt: 100.0,
         fragment_mz: vec![600.0, 200.0, 800.0, 100.0, 400.0],
         fragment_intensity: vec![15.0, 25.0, 5.0, 30.0, 20.0],
+        fragment_cardinality: vec![1, 1, 1, 1, 1],
+        fragment_charge: vec![1, 1, 1, 1, 1],
+        fragment_loss_type: vec![0, 0, 0, 0, 0],
+        fragment_number: vec![1, 2, 3, 4, 5],
+        fragment_position: vec![1, 2, 3, 4, 5],
+        fragment_type: vec![1, 1, 1, 1, 1],
     };
 
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_intensity,
+        &precursor.fragment_cardinality,
+        &precursor.fragment_charge,
+        &precursor.fragment_loss_type,
+        &precursor.fragment_number,
+        &precursor.fragment_position,
+        &precursor.fragment_type,
         false,
         3,
     );
@@ -108,11 +150,23 @@ fn test_top_k_larger_than_available() {
         rt: 100.0,
         fragment_mz: vec![300.0, 400.0],
         fragment_intensity: vec![10.0, 5.0],
+        fragment_cardinality: vec![1, 1],
+        fragment_charge: vec![1, 1],
+        fragment_loss_type: vec![0, 0],
+        fragment_number: vec![1, 2],
+        fragment_position: vec![1, 2],
+        fragment_type: vec![1, 1],
     };
 
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &small_precursor.fragment_mz,
         &small_precursor.fragment_intensity,
+        &small_precursor.fragment_cardinality,
+        &small_precursor.fragment_charge,
+        &small_precursor.fragment_loss_type,
+        &small_precursor.fragment_number,
+        &small_precursor.fragment_position,
+        &small_precursor.fragment_type,
         false,
         5,
     );
@@ -128,11 +182,23 @@ fn test_all_zero_intensities_filtered() {
         rt: 100.0,
         fragment_mz: vec![300.0, 400.0],
         fragment_intensity: vec![0.0, 0.0],
+        fragment_cardinality: vec![1, 1],
+        fragment_charge: vec![1, 1],
+        fragment_loss_type: vec![0, 0],
+        fragment_number: vec![1, 2],
+        fragment_position: vec![1, 2],
+        fragment_type: vec![1, 1],
     };
 
-    let (mz, intensity) = filter_fragments(
+    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
         &zero_precursor.fragment_mz,
         &zero_precursor.fragment_intensity,
+        &zero_precursor.fragment_cardinality,
+        &zero_precursor.fragment_charge,
+        &zero_precursor.fragment_loss_type,
+        &zero_precursor.fragment_number,
+        &zero_precursor.fragment_position,
+        &zero_precursor.fragment_type,
         true,
         usize::MAX,
     );

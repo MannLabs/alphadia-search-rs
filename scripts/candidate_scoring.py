@@ -111,6 +111,7 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
         alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
         alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
+        alpha_base_spec_lib_flat.precursor_df['nAA'].values.astype(np.uint8),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
@@ -219,7 +220,8 @@ def run_fdr_filtering(result_df, output_folder):
            'median_correlation', 'correlation_std', 'intensity_correlation',
            'num_fragments', 'num_scans', 'num_over_95', 'num_over_90',
            'num_over_80', 'num_over_50', 'hyperscore_intensity_observation',
-           'hyperscore_intensity_library', 'rt_observed', 'delta_rt']
+           'hyperscore_intensity_library', 'rt_observed', 'delta_rt','longest_b_series',
+           'longest_y_series', 'naa']
 
     logger.info(f"Performing NN based FDR with {len(available_columns)} features")
 
@@ -243,7 +245,8 @@ def run_fdr_filtering(result_df, output_folder):
 
 def plot_feature_histograms(result_df, output_folder):
     """
-    Plot histograms of all features colored by decoy and target, and save as PDF.
+    Plot histograms of all features colored by decoy and target using seaborn, and save as PDF.
+    Uses same bins for both target and decoy data.
 
     Parameters
     ----------
@@ -252,7 +255,7 @@ def plot_feature_histograms(result_df, output_folder):
     output_folder : str
         Path to output folder for saving plots
     """
-    logger.info("Creating feature histograms")
+    logger.info("Creating feature histograms using seaborn")
 
     # Set up the plotting style
     plt.style.use('default')
@@ -262,7 +265,8 @@ def plot_feature_histograms(result_df, output_folder):
     feature_columns = ['score', 'mean_correlation', 'median_correlation', 'correlation_std',
                       'intensity_correlation', 'num_fragments', 'num_scans', 'num_over_95',
                       'num_over_90', 'num_over_80', 'num_over_50', 'hyperscore_intensity_observation',
-                      'hyperscore_intensity_library', 'rt_observed', 'delta_rt']
+                      'hyperscore_intensity_library', 'rt_observed', 'delta_rt', 'longest_b_series',
+                      'longest_y_series', 'naa']
 
     # Filter to only include columns that exist in the DataFrame
     available_features = [col for col in feature_columns if col in result_df.columns]
@@ -291,24 +295,38 @@ def plot_feature_histograms(result_df, output_folder):
     for idx, feature in enumerate(available_features):
         ax = axes[idx]
 
-        # Separate target and decoy data
-        target_data = result_df[result_df['decoy'] == 0][feature]
-        decoy_data = result_df[result_df['decoy'] == 1][feature]
+        # Filter data for this feature (remove NaN values)
+        feature_data = result_df[['decoy', feature]].dropna()
 
-        # Plot histograms
-        if len(target_data) > 0:
-            ax.hist(target_data, bins=50, alpha=0.7, label='Target', color='blue', density=True)
-        if len(decoy_data) > 0:
-            ax.hist(decoy_data, bins=50, alpha=0.7, label='Decoy', color='red', density=True)
+        if len(feature_data) == 0:
+            ax.text(0.5, 0.5, 'No data', transform=ax.transAxes,
+                   ha='center', va='center', fontsize=12)
+            ax.set_title(f'{feature}', fontweight='bold')
+            continue
+
+        # Create a long-form DataFrame for seaborn
+        plot_data = feature_data.copy()
+        plot_data['Type'] = plot_data['decoy'].map({0: 'Target', 1: 'Decoy'})
+
+        # Calculate shared bins across all data for this feature
+        all_values = plot_data[feature].values
+        bins = np.linspace(all_values.min(), all_values.max(), 51)  # 50 bins
+
+        # Plot histograms using seaborn with shared bins
+        sns.histplot(data=plot_data, x=feature, hue='Type', bins=bins,
+                    stat='density', alpha=0.7, ax=ax,
+                    palette={'Target': 'blue', 'Decoy': 'red'})
 
         # Customize plot
         ax.set_title(f'{feature}', fontweight='bold')
         ax.set_xlabel(feature)
         ax.set_ylabel('Density')
-        ax.legend()
         ax.grid(True, alpha=0.3)
 
         # Add statistics text
+        target_data = plot_data[plot_data['Type'] == 'Target'][feature]
+        decoy_data = plot_data[plot_data['Type'] == 'Decoy'][feature]
+
         target_mean = target_data.mean() if len(target_data) > 0 else 0
         decoy_mean = decoy_data.mean() if len(decoy_data) > 0 else 0
         stats_text = f'Target mean: {target_mean:.3f}\nDecoy mean: {decoy_mean:.3f}'

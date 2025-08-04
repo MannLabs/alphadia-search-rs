@@ -240,3 +240,58 @@ fn gamma_ln(x: f32) -> f32 {
     let ln_2pi = 1.837_877_f32;
     (x - 0.5) * x.ln() - x + 0.5 * ln_2pi
 }
+
+/// Calculate longest continuous b and y ion series scores
+/// Returns (longest_b_series, longest_y_series) based on increasing fragment_number values
+pub fn calculate_longest_ion_series(
+    fragment_types: &[u8],
+    fragment_numbers: &[u8],
+    matched_mask: &[bool],
+) -> (u8, u8) {
+    if fragment_types.len() != matched_mask.len() || fragment_types.len() != fragment_numbers.len()
+    {
+        return (0, 0);
+    }
+
+    // Collect matched b and y ions with their fragment numbers
+    let mut b_ions: Vec<u8> = Vec::new();
+    let mut y_ions: Vec<u8> = Vec::new();
+
+    for i in 0..fragment_types.len() {
+        if matched_mask[i] {
+            match fragment_types[i] {
+                FragmentType::B => b_ions.push(fragment_numbers[i]),
+                FragmentType::Y => y_ions.push(fragment_numbers[i]),
+                _ => {}
+            }
+        }
+    }
+
+    // Helper function to find longest continuous sequence
+    let find_longest_sequence = |mut ions: Vec<u8>| -> u8 {
+        if ions.is_empty() {
+            return 0;
+        }
+
+        ions.sort_unstable();
+
+        let mut max_length = 1u8;
+        let mut current_length = 1u8;
+
+        for i in 1..ions.len() {
+            if ions[i] == ions[i - 1] + 1 {
+                current_length += 1;
+                max_length = max_length.max(current_length);
+            } else {
+                current_length = 1;
+            }
+        }
+
+        max_length
+    };
+
+    let longest_b = find_longest_sequence(b_ions);
+    let longest_y = find_longest_sequence(y_ions);
+
+    (longest_b, longest_y)
+}

@@ -173,14 +173,20 @@ impl PeakGroupScoring {
         let num_fragments = precursor.fragment_mz.len();
         let num_scans = cycle_stop_idx - cycle_start_idx;
 
-        let matched_mask: Vec<bool> = observation_intensities.iter().map(|&x| x > 0.0).collect();
-
+        let matched_mask_intensity: Vec<bool> =
+            observation_intensities.iter().map(|&x| x > 0.0).collect();
         let observation_intensities_slice = observation_intensities.as_slice().unwrap();
 
-        let hyperscore = calculate_hyperscore(
+        let hyperscore_intensity_observation = calculate_hyperscore(
             &precursor.fragment_type,
             observation_intensities_slice,
-            &matched_mask,
+            &matched_mask_intensity,
+        );
+
+        let hyperscore_intensity_library = calculate_hyperscore(
+            &precursor.fragment_type,
+            &precursor.fragment_intensity,
+            &matched_mask_intensity,
         );
 
         // Create and return candidate feature
@@ -198,10 +204,8 @@ impl PeakGroupScoring {
             num_over_90,
             num_over_80,
             num_over_50,
-            hyperscore,
-            0.0, // hyperscore_over_50 placeholder
-            0.0, // hyperscore_over_80 placeholder
-            0.0, // hyperscore_over_95 placeholder
+            hyperscore_intensity_observation,
+            hyperscore_intensity_library,
         )
     }
 }

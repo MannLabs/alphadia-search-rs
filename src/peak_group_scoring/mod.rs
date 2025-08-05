@@ -5,15 +5,16 @@ use std::time::Instant;
 use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
+use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data::DIAData;
 use crate::dia_data_next_gen::DIADataNextGen;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, correlation_axis_0, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
+use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
-use numpy::ndarray::{Array2, Axis};
+use numpy::ndarray::Axis;
 
 pub mod parameters;
 pub mod tests;
@@ -117,35 +118,24 @@ impl PeakGroupScoring {
         let cycle_stop_idx = candidate.cycle_stop;
         let mass_tolerance = self.params.mass_tolerance;
 
-        let mut dense_xic: Array2<f32> =
-            Array2::zeros((filtered_fragment_mz.len(), cycle_stop_idx - cycle_start_idx));
-
-        // For now, use all observations - this will be refined later
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
-
-        for &obs_idx in &valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
-
-            for (f_idx, f_mz) in filtered_fragment_mz.iter().enumerate() {
-                obs.fill_xic_slice(
-                    dia_data.mz_index(),
-                    &mut dense_xic.row_mut(f_idx),
-                    cycle_start_idx,
-                    cycle_stop_idx,
-                    mass_tolerance,
-                    *f_mz,
-                );
-            }
-        }
+        // Create dense XIC observation using the new struct
+        let dense_xic_obs = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            &filtered_fragment_mz,
+        );
 
         // Normalize the profiles before calculating median
-        let normalized_xic = normalize_profiles(&dense_xic, 1);
+        let normalized_xic = normalize_profiles(&dense_xic_obs.dense_xic, 1);
         let median_profile = median_axis_0(&normalized_xic);
 
         // Calculate correlations of each profile with the median profile
         let correlations = correlation_axis_0(&median_profile, &normalized_xic);
 
-        let observation_intensities = dense_xic.sum_axis(Axis(1));
+        let observation_intensities = dense_xic_obs.dense_xic.sum_axis(Axis(1));
 
         let intensity_correlations = calculate_correlation_safe(
             observation_intensities.as_slice().unwrap(),

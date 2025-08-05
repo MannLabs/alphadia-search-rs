@@ -18,6 +18,18 @@ pub struct SpecLibFlat {
     fragment_mz: Vec<f32>,
     /// Fragment intensity values in original library order (NOT sorted, maintains original order within each precursor)
     fragment_intensity: Vec<f32>,
+    /// Fragment cardinality values
+    fragment_cardinality: Vec<u8>,
+    /// Fragment charge values
+    fragment_charge: Vec<u8>,
+    /// Fragment loss type values
+    fragment_loss_type: Vec<u8>,
+    /// Fragment number values
+    fragment_number: Vec<u8>,
+    /// Fragment position values
+    fragment_position: Vec<u8>,
+    /// Fragment type values
+    fragment_type: Vec<u8>,
 }
 
 #[pymethods]
@@ -32,10 +44,17 @@ impl SpecLibFlat {
             precursor_stop_idx: Vec::new(),
             fragment_mz: Vec::new(),
             fragment_intensity: Vec::new(),
+            fragment_cardinality: Vec::new(),
+            fragment_charge: Vec::new(),
+            fragment_loss_type: Vec::new(),
+            fragment_number: Vec::new(),
+            fragment_position: Vec::new(),
+            fragment_type: Vec::new(),
         }
     }
 
     #[staticmethod]
+    #[allow(clippy::too_many_arguments)]
     fn from_arrays(
         precursor_idx: PyReadonlyArray1<'_, usize>,
         precursor_mz: PyReadonlyArray1<'_, f32>,
@@ -44,6 +63,12 @@ impl SpecLibFlat {
         precursor_stop_idx: PyReadonlyArray1<'_, usize>,
         fragment_mz: PyReadonlyArray1<'_, f32>,
         fragment_intensity: PyReadonlyArray1<'_, f32>,
+        fragment_cardinality: PyReadonlyArray1<'_, u8>,
+        fragment_charge: PyReadonlyArray1<'_, u8>,
+        fragment_loss_type: PyReadonlyArray1<'_, u8>,
+        fragment_number: PyReadonlyArray1<'_, u8>,
+        fragment_position: PyReadonlyArray1<'_, u8>,
+        fragment_type: PyReadonlyArray1<'_, u8>,
     ) -> Self {
         // Convert arrays to vectors
         let precursor_idx_vec = precursor_idx.as_array().to_vec();
@@ -53,6 +78,12 @@ impl SpecLibFlat {
         let precursor_stop_idx_vec = precursor_stop_idx.as_array().to_vec();
         let fragment_mz_vec = fragment_mz.as_array().to_vec();
         let fragment_intensity_vec = fragment_intensity.as_array().to_vec();
+        let fragment_cardinality_vec = fragment_cardinality.as_array().to_vec();
+        let fragment_charge_vec = fragment_charge.as_array().to_vec();
+        let fragment_loss_type_vec = fragment_loss_type.as_array().to_vec();
+        let fragment_number_vec = fragment_number.as_array().to_vec();
+        let fragment_position_vec = fragment_position.as_array().to_vec();
+        let fragment_type_vec = fragment_type.as_array().to_vec();
 
         // Create indices for sorting
         let mut indices: Vec<usize> = (0..precursor_idx_vec.len()).collect();
@@ -80,6 +111,12 @@ impl SpecLibFlat {
             precursor_stop_idx: sorted_precursor_stop_idx,
             fragment_mz: fragment_mz_vec,
             fragment_intensity: fragment_intensity_vec,
+            fragment_cardinality: fragment_cardinality_vec,
+            fragment_charge: fragment_charge_vec,
+            fragment_loss_type: fragment_loss_type_vec,
+            fragment_number: fragment_number_vec,
+            fragment_position: fragment_position_vec,
+            fragment_type: fragment_type_vec,
         }
     }
 
@@ -95,42 +132,95 @@ impl SpecLibFlat {
 }
 
 /// Apply fragment filtering and return filtered fragment vectors
+type FragmentData = (
+    Vec<f32>,
+    Vec<f32>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+    Vec<u8>,
+);
+
+#[allow(clippy::too_many_arguments)]
 pub fn filter_fragments(
     fragment_mz: &[f32],
     fragment_intensity: &[f32],
+    fragment_cardinality: &[u8],
+    fragment_charge: &[u8],
+    fragment_loss_type: &[u8],
+    fragment_number: &[u8],
+    fragment_position: &[u8],
+    fragment_type: &[u8],
     non_zero: bool,
     top_k_fragments: usize,
-) -> (Vec<f32>, Vec<f32>) {
-    let mut fragment_triplets: Vec<(f32, f32, usize)> = fragment_mz
-        .iter()
-        .zip(fragment_intensity.iter())
-        .enumerate()
-        .map(|(idx, (&mz, &intensity))| (mz, intensity, idx))
+) -> FragmentData {
+    let mut fragment_data: Vec<(f32, f32, u8, u8, u8, u8, u8, u8, usize)> = (0..fragment_mz.len())
+        .map(|idx| {
+            (
+                fragment_mz[idx],
+                fragment_intensity[idx],
+                fragment_cardinality[idx],
+                fragment_charge[idx],
+                fragment_loss_type[idx],
+                fragment_number[idx],
+                fragment_position[idx],
+                fragment_type[idx],
+                idx,
+            )
+        })
         .collect();
 
     // Filter non-zero intensities if requested
     if non_zero {
-        fragment_triplets.retain(|(_, intensity, _)| *intensity > 0.0);
+        fragment_data.retain(|(_, intensity, _, _, _, _, _, _, _)| *intensity > 0.0);
     }
 
     // Use partial sorting for top-k selection - much faster than full sort
-    let k = top_k_fragments.min(fragment_triplets.len());
-    if k < fragment_triplets.len() {
+    let k = top_k_fragments.min(fragment_data.len());
+    if k < fragment_data.len() {
         // Partial sort: only sort the k-th element and everything before it
-        fragment_triplets.select_nth_unstable_by(k, |a, b| {
+        fragment_data.select_nth_unstable_by(k, |a, b| {
             b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
         });
-        fragment_triplets.truncate(k);
+        fragment_data.truncate(k);
     }
     // Sort by original index to maintain original m/z ordering
-    fragment_triplets.sort_by_key(|(_, _, idx)| *idx);
+    fragment_data.sort_by_key(|(_, _, _, _, _, _, _, _, idx)| *idx);
 
-    let (fragment_mz, fragment_intensity): (Vec<f32>, Vec<f32>) = fragment_triplets
-        .into_iter()
-        .map(|(mz, intensity, _)| (mz, intensity))
-        .unzip();
+    let mut mz_vec = Vec::new();
+    let mut intensity_vec = Vec::new();
+    let mut cardinality_vec = Vec::new();
+    let mut charge_vec = Vec::new();
+    let mut loss_type_vec = Vec::new();
+    let mut number_vec = Vec::new();
+    let mut position_vec = Vec::new();
+    let mut type_vec = Vec::new();
 
-    (fragment_mz, fragment_intensity)
+    for (mz, intensity, cardinality, charge, loss_type, number, position, frag_type, _) in
+        fragment_data
+    {
+        mz_vec.push(mz);
+        intensity_vec.push(intensity);
+        cardinality_vec.push(cardinality);
+        charge_vec.push(charge);
+        loss_type_vec.push(loss_type);
+        number_vec.push(number);
+        position_vec.push(position);
+        type_vec.push(frag_type);
+    }
+
+    (
+        mz_vec,
+        intensity_vec,
+        cardinality_vec,
+        charge_vec,
+        loss_type_vec,
+        number_vec,
+        position_vec,
+        type_vec,
+    )
 }
 
 // Regular Rust implementation (not exposed to Python)
@@ -144,6 +234,12 @@ impl SpecLibFlat {
 
         let fragment_mz = self.fragment_mz[start_idx..stop_idx].to_vec();
         let fragment_intensity = self.fragment_intensity[start_idx..stop_idx].to_vec();
+        let fragment_cardinality = self.fragment_cardinality[start_idx..stop_idx].to_vec();
+        let fragment_charge = self.fragment_charge[start_idx..stop_idx].to_vec();
+        let fragment_loss_type = self.fragment_loss_type[start_idx..stop_idx].to_vec();
+        let fragment_number = self.fragment_number[start_idx..stop_idx].to_vec();
+        let fragment_position = self.fragment_position[start_idx..stop_idx].to_vec();
+        let fragment_type = self.fragment_type[start_idx..stop_idx].to_vec();
 
         Precursor {
             idx: precursor_idx,
@@ -151,6 +247,12 @@ impl SpecLibFlat {
             rt: precursor_rt,
             fragment_mz,
             fragment_intensity,
+            fragment_cardinality,
+            fragment_charge,
+            fragment_loss_type,
+            fragment_number,
+            fragment_position,
+            fragment_type,
         }
     }
 
@@ -168,10 +270,31 @@ impl SpecLibFlat {
 
         let raw_fragment_mz = &self.fragment_mz[start_idx..stop_idx];
         let raw_fragment_intensity = &self.fragment_intensity[start_idx..stop_idx];
+        let raw_fragment_cardinality = &self.fragment_cardinality[start_idx..stop_idx];
+        let raw_fragment_charge = &self.fragment_charge[start_idx..stop_idx];
+        let raw_fragment_loss_type = &self.fragment_loss_type[start_idx..stop_idx];
+        let raw_fragment_number = &self.fragment_number[start_idx..stop_idx];
+        let raw_fragment_position = &self.fragment_position[start_idx..stop_idx];
+        let raw_fragment_type = &self.fragment_type[start_idx..stop_idx];
 
-        let (fragment_mz, fragment_intensity) = filter_fragments(
+        let (
+            fragment_mz,
+            fragment_intensity,
+            fragment_cardinality,
+            fragment_charge,
+            fragment_loss_type,
+            fragment_number,
+            fragment_position,
+            fragment_type,
+        ) = filter_fragments(
             raw_fragment_mz,
             raw_fragment_intensity,
+            raw_fragment_cardinality,
+            raw_fragment_charge,
+            raw_fragment_loss_type,
+            raw_fragment_number,
+            raw_fragment_position,
+            raw_fragment_type,
             non_zero,
             top_k_fragments,
         );
@@ -182,6 +305,12 @@ impl SpecLibFlat {
             rt: precursor_rt,
             fragment_mz,
             fragment_intensity,
+            fragment_cardinality,
+            fragment_charge,
+            fragment_loss_type,
+            fragment_number,
+            fragment_position,
+            fragment_type,
         }
     }
 

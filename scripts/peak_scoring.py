@@ -84,7 +84,13 @@ class PeakScoring:
             precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
             precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
             fragment_df[fragment_mz_column].values.astype(np.float32),
-            fragment_df['intensity'].values.astype(np.float32)
+            fragment_df['intensity'].values.astype(np.float32),
+            fragment_df['cardinality'].values.astype(np.uint8),
+            fragment_df['charge'].values.astype(np.uint8),
+            fragment_df['loss_type'].values.astype(np.uint8),
+            fragment_df['number'].values.astype(np.uint8),
+            fragment_df['position'].values.astype(np.uint8),
+            fragment_df['type'].values.astype(np.uint8)
         )
 
     def parse_candidates(self, candidates):

@@ -112,7 +112,13 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
         alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32)
+        alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32),
+        alpha_base_spec_lib_flat.fragment_df['cardinality'].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df['charge'].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df['loss_type'].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df['number'].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df['position'].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df['type'].values.astype(np.uint8)
     )
 
     return spec_lib_flat

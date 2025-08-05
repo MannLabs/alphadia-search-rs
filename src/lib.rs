@@ -4,6 +4,7 @@ use pyo3::PyErr;
 
 mod benchmark;
 pub mod candidate;
+pub mod constants;
 mod convolution;
 mod dense_xic_observation;
 pub mod dia_data;

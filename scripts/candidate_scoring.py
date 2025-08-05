@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters, CandidateCollection
+from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIAData, ScoringParameters, CandidateCollection
 import os
 import pandas as pd
 import numpy as np
@@ -52,7 +52,7 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
 
 def create_dia_data_next_gen(ms_data):
     """
-    Create DIADataNextGen from alpharaw MSData_Base object.
+    Create DIAData from alpharaw MSData_Base object.
 
     Parameters
     ----------
@@ -61,10 +61,10 @@ def create_dia_data_next_gen(ms_data):
 
     Returns
     -------
-    DIADataNextGen
-        DIADataNextGen object created from the MS data
+    DIAData
+        DIAData object created from the MS data
     """
-    logger.info("Creating DIADataNextGen from MSData_Base")
+    logger.info("Creating DIAData from MSData_Base")
 
     spectrum_arrays = (
         ms_data.spectrum_df['delta_scan_idx'].values,
@@ -81,13 +81,13 @@ def create_dia_data_next_gen(ms_data):
     )
 
     start_time = time.perf_counter()
-    rs_data_next_gen = DIADataNextGen.from_arrays(
+    rs_data_next_gen = DIAData.from_arrays(
         *spectrum_arrays,
         *peak_arrays
     )
     end_time = time.perf_counter()
     creation_time = end_time - start_time
-    logger.info(f"DIADataNextGen creation time: {creation_time:.4f} seconds")
+    logger.info(f"DIAData creation time: {creation_time:.4f} seconds")
 
     return rs_data_next_gen
 

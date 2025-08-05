@@ -25,7 +25,7 @@ pub mod speclib_flat_quantified;
 pub mod traits;
 
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
-use crate::dia_data_next_gen::DIADataNextGen;
+use crate::dia_data_next_gen::DIAData;
 pub use crate::kernel::GaussianKernel;
 use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
@@ -70,7 +70,7 @@ fn get_current_simd_backend() -> PyResult<String> {
 
 #[pymodule]
 fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<DIADataNextGen>()?;
+    m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<SpecLibFlatQuantified>()?;
     m.add_class::<PeakGroupScoring>()?;

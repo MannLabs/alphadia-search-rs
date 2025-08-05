@@ -6,7 +6,7 @@ use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
 use crate::dense_xic_observation::DenseXICObservation;
-use crate::dia_data_next_gen::DIADataNextGen;
+use crate::dia_data_next_gen::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_hyperscore, calculate_longest_ion_series,
     correlation_axis_0, median_axis_0, normalize_profiles,
@@ -36,7 +36,7 @@ impl PeakGroupScoring {
 
     pub fn score(
         &self,
-        dia_data: &DIADataNextGen,
+        dia_data: &DIAData,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {

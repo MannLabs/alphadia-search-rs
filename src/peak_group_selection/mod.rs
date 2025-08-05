@@ -7,7 +7,7 @@ use std::time::Instant;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::convolution::convolution;
 use crate::dense_xic_observation::DenseXICObservation;
-use crate::dia_data_next_gen::DIADataNextGen;
+use crate::dia_data_next_gen::DIAData;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
@@ -84,7 +84,7 @@ impl PeakGroupSelection {
         }
     }
 
-    pub fn search(&self, dia_data: &DIADataNextGen, lib: &SpecLibFlat) -> CandidateCollection {
+    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
         self.search_generic(dia_data, lib)
     }
 }

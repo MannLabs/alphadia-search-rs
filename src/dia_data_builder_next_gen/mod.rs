@@ -1,14 +1,14 @@
 use crate::dia_data::AlphaRawView;
-use crate::dia_data_next_gen::DIADataNextGen;
+use crate::dia_data_next_gen::DIAData;
 use crate::mz_index::MZIndex;
-use crate::quadrupole_observation_next_gen::QuadrupoleObservationNextGen;
+use crate::quadrupole_observation_next_gen::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 
-/// Optimized DIAData builder with single-pass binning and full parallelization
-pub struct OptimizedDIADataBuilder;
+/// DIAData builder with single-pass binning and full parallelization
+pub struct DIADataBuilder;
 
-impl OptimizedDIADataBuilder {
-    pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> DIADataNextGen {
+impl DIADataBuilder {
+    pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> DIAData {
         let mz_index = MZIndex::new();
         let rt_index = RTIndex::from_alpha_raw(alpha_raw_view);
 
@@ -16,7 +16,7 @@ impl OptimizedDIADataBuilder {
         let quadrupole_observations =
             Self::build_observations_rayon_parallel(alpha_raw_view, &mz_index);
 
-        DIADataNextGen {
+        DIAData {
             mz_index,
             rt_index,
             quadrupole_observations,
@@ -28,7 +28,7 @@ impl OptimizedDIADataBuilder {
     fn build_observations_rayon_parallel(
         alpha_raw_view: &AlphaRawView,
         mz_index: &MZIndex,
-    ) -> Vec<QuadrupoleObservationNextGen> {
+    ) -> Vec<QuadrupoleObservation> {
         use rayon::prelude::*;
 
         // Find the maximum delta_scan_idx (around 300)
@@ -40,7 +40,7 @@ impl OptimizedDIADataBuilder {
             .unwrap_or(0);
 
         // Build observations in parallel for each delta_scan_idx
-        let observations: Vec<QuadrupoleObservationNextGen> = (0..=max_delta_scan_idx)
+        let observations: Vec<QuadrupoleObservation> = (0..=max_delta_scan_idx)
             .into_par_iter()
             .map(|delta_scan_idx| {
                 Self::build_single_observation_rayon(alpha_raw_view, mz_index, delta_scan_idx)
@@ -55,7 +55,7 @@ impl OptimizedDIADataBuilder {
         alpha_raw_view: &AlphaRawView,
         mz_index: &MZIndex,
         target_delta_scan_idx: i64,
-    ) -> QuadrupoleObservationNextGen {
+    ) -> QuadrupoleObservation {
         // 2.1: Get all spectra with this delta_scan_idx and build list with spectra_idx
         let matching_spectra: Vec<usize> = alpha_raw_view
             .spectrum_delta_scan_idx
@@ -73,7 +73,7 @@ impl OptimizedDIADataBuilder {
         if matching_spectra.is_empty() {
             // Return empty observation for missing delta_scan_idx
             let mut empty_obs =
-                QuadrupoleObservationNextGen::new_with_capacity([0.0, 0.0], 0, mz_index.len(), 0);
+                QuadrupoleObservation::new_with_capacity([0.0, 0.0], 0, mz_index.len(), 0);
             // Finalize all slices to ensure slice_starts has correct length
             for _ in 0..mz_index.len() {
                 empty_obs.finalize_slice();
@@ -115,7 +115,7 @@ impl OptimizedDIADataBuilder {
         all_peaks.sort_by_key(|(mz_idx, cycle_idx, _)| (*mz_idx, *cycle_idx));
 
         // Build observation with sorted peaks
-        let mut obs = QuadrupoleObservationNextGen::new_with_capacity(
+        let mut obs = QuadrupoleObservation::new_with_capacity(
             [isolation_lower, isolation_upper],
             num_cycles,
             mz_index.len(),

@@ -1,4 +1,4 @@
-from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters
+from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
 import os
 import pandas as pd
 import numpy as np
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
 
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Run DIADataNextGen benchmark")
+    parser = argparse.ArgumentParser(description="Run DIAData benchmark")
     parser.add_argument("--path", type=str, default="/Users/georgwallmann/Documents/data/alphadia-ng",
                         help="Path to data folder (default: /Users/georgwallmann/Documents/data/alphadia-ng)")
     args = parser.parse_args()
@@ -63,7 +63,7 @@ if __name__ == "__main__":
         fragment_df['type'].values.astype(np.uint8)
     )
 
-    # Prepare arrays for DIADataNextGen
+    # Prepare arrays for DIAData
     spectrum_arrays = (
         spectrum_df['delta_scan_idx'].values,
         spectrum_df['isolation_lower_mz'].values.astype(np.float32),
@@ -96,40 +96,40 @@ if __name__ == "__main__":
     logger.info(f"Using parameters: {config_dict}")
 
     # =============================================================================
-    # BENCHMARK DIADataNextGen
+    # BENCHMARK DIAData
     # =============================================================================
     logger.info("=" * 60)
-    logger.info("BENCHMARKING DIADataNextGen")
+    logger.info("BENCHMARKING DIAData")
     logger.info("=" * 60)
 
     # Measure creation time
-    logger.info("Creating DIADataNextGen...")
+    logger.info("Creating DIAData...")
     start_time = time.perf_counter()
-    rs_data_next_gen = DIADataNextGen.from_arrays(
+    rs_data_next_gen = DIAData.from_arrays(
         *spectrum_arrays,
         *peak_arrays
     )
     end_time = time.perf_counter()
     creation_time_next_gen = end_time - start_time
-    logger.info(f"DIADataNextGen creation time: {creation_time_next_gen:.4f} seconds")
+    logger.info(f"DIAData creation time: {creation_time_next_gen:.4f} seconds")
 
     # Log memory footprint
     memory_mb = rs_data_next_gen.memory_footprint_mb()
     memory_bytes = rs_data_next_gen.memory_footprint_bytes()
-    logger.info(f"DIADataNextGen memory footprint: {memory_mb:.2f} MB ({memory_bytes:,} bytes)")
-    logger.info(f"DIADataNextGen contains {rs_data_next_gen.num_observations} quadrupole observations")
+    logger.info(f"DIAData memory footprint: {memory_mb:.2f} MB ({memory_bytes:,} bytes)")
+    logger.info(f"DIAData contains {rs_data_next_gen.num_observations} quadrupole observations")
 
     # Create peak group selection
     peak_group_selection = PeakGroupSelection(selection_params)
 
     # Measure search time
-    logger.info("Searching with DIADataNextGen...")
+    logger.info("Searching with DIAData...")
     start_time = time.perf_counter()
     candidates_next_gen = peak_group_selection.search(rs_data_next_gen, speclib)
     end_time = time.perf_counter()
     search_time_next_gen = end_time - start_time
-    logger.info(f"DIADataNextGen search time: {search_time_next_gen:.4f} seconds")
-    logger.info(f"Found {candidates_next_gen.len()} candidates with DIADataNextGen")
+    logger.info(f"DIAData search time: {search_time_next_gen:.4f} seconds")
+    logger.info(f"Found {candidates_next_gen.len()} candidates with DIAData")
 
     # =============================================================================
     # PERFORMANCE SUMMARY

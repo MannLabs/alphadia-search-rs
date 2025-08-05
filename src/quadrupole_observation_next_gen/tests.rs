@@ -4,7 +4,7 @@ use numpy::ndarray::Array1;
 
 #[test]
 fn test_optimized_observation_creation() {
-    let obs = QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 10, 1000, 5000);
+    let obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 10, 1000, 5000);
 
     assert_eq!(obs.isolation_window, [100.0, 150.0]);
     assert_eq!(obs.num_cycles, 10);
@@ -15,7 +15,7 @@ fn test_optimized_observation_creation() {
 
 #[test]
 fn test_slice_data_access() {
-    let mut obs = QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 5, 3, 6);
+    let mut obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 5, 3, 6);
 
     // Add data for slice 0
     obs.add_peak_data(1, 100.0);
@@ -47,7 +47,7 @@ fn test_slice_data_access() {
 
 #[test]
 fn test_peak_data_building() {
-    let mut obs = QuadrupoleObservationNextGen::new_with_capacity([200.0, 250.0], 8, 2, 10);
+    let mut obs = QuadrupoleObservation::new_with_capacity([200.0, 250.0], 8, 2, 10);
 
     // Build first slice with multiple peaks
     obs.add_peak_data(0, 1000.0);
@@ -89,8 +89,7 @@ fn test_fill_xic_slice_basic() {
 
     // Create observation with enough slices to match a small subset of mz_index
     let num_slices = 10;
-    let mut obs =
-        QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 5, num_slices, 20);
+    let mut obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 5, num_slices, 20);
 
     // Add data for the first few slices only
     for slice_idx in 0..5 {
@@ -127,8 +126,7 @@ fn test_fill_xic_slice_cycle_range() {
 
     // Create observation with enough slices
     let num_slices = 10;
-    let mut obs =
-        QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 10, num_slices, 50);
+    let mut obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 10, num_slices, 50);
 
     // Add data to first slice only, across all cycles
     for cycle in 0..10 {
@@ -161,7 +159,7 @@ fn test_fill_xic_slice_cycle_range() {
 
 #[test]
 fn test_fill_xic_slice_mass_tolerance() {
-    let mut obs = QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 3, 5, 6);
+    let mut obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 3, 5, 6);
 
     // Add data to different slices
     for i in 0..5 {
@@ -194,14 +192,14 @@ fn test_fill_xic_slice_mass_tolerance() {
 #[test]
 fn test_edge_cases() {
     // Test empty observation
-    let obs = QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 5, 0, 0);
+    let obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 5, 0, 0);
 
     assert_eq!(obs.slice_starts.len(), 1);
     assert_eq!(obs.cycle_indices.len(), 0);
     assert_eq!(obs.intensities.len(), 0);
 
     // Test single slice with no data
-    let mut obs2 = QuadrupoleObservationNextGen::new_with_capacity([200.0, 250.0], 3, 1, 0);
+    let mut obs2 = QuadrupoleObservation::new_with_capacity([200.0, 250.0], 3, 1, 0);
     obs2.finalize_slice();
 
     let (cycles, intensities) = obs2.get_slice_data(0);
@@ -211,14 +209,14 @@ fn test_edge_cases() {
 
 #[test]
 fn test_isolation_window_validation() {
-    let obs1 = QuadrupoleObservationNextGen::new_with_capacity([500.0, 600.0], 15, 100, 1000);
+    let obs1 = QuadrupoleObservation::new_with_capacity([500.0, 600.0], 15, 100, 1000);
 
     assert_eq!(obs1.isolation_window[0], 500.0);
     assert_eq!(obs1.isolation_window[1], 600.0);
     assert_eq!(obs1.num_cycles, 15);
 
     // Test different isolation window
-    let obs2 = QuadrupoleObservationNextGen::new_with_capacity([300.5, 325.8], 8, 50, 200);
+    let obs2 = QuadrupoleObservation::new_with_capacity([300.5, 325.8], 8, 50, 200);
 
     assert_eq!(obs2.isolation_window[0], 300.5);
     assert_eq!(obs2.isolation_window[1], 325.8);
@@ -227,7 +225,7 @@ fn test_isolation_window_validation() {
 
 #[test]
 fn test_large_data_handling() {
-    let mut obs = QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 1000, 100, 10000);
+    let mut obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 1000, 100, 10000);
 
     // Add data to multiple slices with many peaks
     for slice_idx in 0..10 {
@@ -256,7 +254,7 @@ fn test_large_data_handling() {
 
 #[test]
 fn test_memory_footprint() {
-    let obs = QuadrupoleObservationNextGen::new_with_capacity([100.0, 150.0], 10, 100, 1000);
+    let obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 10, 100, 1000);
 
     let memory_bytes = obs.memory_footprint_bytes();
     assert!(memory_bytes > 0);

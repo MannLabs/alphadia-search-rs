@@ -81,6 +81,12 @@ pub struct CandidateFeature {
     pub rt_observed: f32,
     /// Delta retention time (observed - library) in seconds
     pub delta_rt: f32,
+    /// Longest continuous b-ion series length
+    pub longest_b_series: u8,
+    /// Longest continuous y-ion series length
+    pub longest_y_series: u8,
+    /// Number of amino acids in the precursor sequence
+    pub naa: u8,
 }
 
 impl CandidateFeature {
@@ -103,6 +109,9 @@ impl CandidateFeature {
         hyperscore_intensity_library: f32,
         rt_observed: f32,
         delta_rt: f32,
+        longest_b_series: u8,
+        longest_y_series: u8,
+        naa: u8,
     ) -> Self {
         Self {
             precursor_idx,
@@ -122,6 +131,9 @@ impl CandidateFeature {
             hyperscore_intensity_library,
             rt_observed,
             delta_rt,
+            longest_b_series,
+            longest_y_series,
+            naa,
         }
     }
 }
@@ -176,6 +188,9 @@ impl CandidateFeatureCollection {
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
         let mut rt_observeds = Array1::<f32>::zeros(n);
         let mut delta_rts = Array1::<f32>::zeros(n);
+        let mut longest_b_series = Array1::<u64>::zeros(n);
+        let mut longest_y_series = Array1::<u64>::zeros(n);
+        let mut naa = Array1::<u64>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -195,6 +210,9 @@ impl CandidateFeatureCollection {
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
             rt_observeds[i] = feature.rt_observed;
             delta_rts[i] = feature.delta_rt;
+            longest_b_series[i] = feature.longest_b_series as u64;
+            longest_y_series[i] = feature.longest_y_series as u64;
+            naa[i] = feature.naa as u64;
         }
 
         // Create Python dictionary
@@ -225,6 +243,9 @@ impl CandidateFeatureCollection {
         )?;
         dict.set_item("rt_observed", rt_observeds.into_pyarray(py))?;
         dict.set_item("delta_rt", delta_rts.into_pyarray(py))?;
+        dict.set_item("longest_b_series", longest_b_series.into_pyarray(py))?;
+        dict.set_item("longest_y_series", longest_y_series.into_pyarray(py))?;
+        dict.set_item("naa", naa.into_pyarray(py))?;
 
         Ok(dict.into())
     }

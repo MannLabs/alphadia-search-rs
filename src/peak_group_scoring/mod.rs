@@ -8,8 +8,8 @@ use crate::candidate::{
 use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data_next_gen::DIADataNextGen;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_hyperscore, correlation_axis_0, median_axis_0,
-    normalize_profiles,
+    calculate_correlation_safe, calculate_hyperscore, calculate_longest_ion_series,
+    correlation_axis_0, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -189,6 +189,13 @@ impl PeakGroupScoring {
             &matched_mask_intensity,
         );
 
+        // Calculate longest continuous ion series
+        let (longest_b_series, longest_y_series) = calculate_longest_ion_series(
+            &precursor.fragment_type,
+            &precursor.fragment_number,
+            &matched_mask_intensity,
+        );
+
         // Calculate retention time features
         let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
         let delta_rt = rt_observed - precursor.rt;
@@ -212,6 +219,9 @@ impl PeakGroupScoring {
             hyperscore_intensity_library,
             rt_observed,
             delta_rt,
+            longest_b_series,
+            longest_y_series,
+            precursor.naa,
         )
     }
 }

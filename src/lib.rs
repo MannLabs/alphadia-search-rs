@@ -15,11 +15,13 @@ mod mz_index;
 pub mod peak_group_scoring;
 pub mod peak_group_selection;
 mod precursor;
+mod precursor_quantified;
 mod quadrupole_observation_next_gen;
 mod rt_index;
 pub mod score;
 mod simd;
 pub mod speclib_flat;
+pub mod speclib_flat_quantified;
 pub mod traits;
 
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
@@ -28,6 +30,7 @@ pub use crate::kernel::GaussianKernel;
 use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;
+use crate::speclib_flat_quantified::SpecLibFlatQuantified;
 
 #[pyfunction]
 fn benchmark_convolution() -> PyResult<(f64, f64)> {
@@ -69,6 +72,7 @@ fn get_current_simd_backend() -> PyResult<String> {
 fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIADataNextGen>()?;
     m.add_class::<SpecLibFlat>()?;
+    m.add_class::<SpecLibFlatQuantified>()?;
     m.add_class::<PeakGroupScoring>()?;
     m.add_class::<ScoringParameters>()?;
     m.add_class::<PeakGroupSelection>()?;

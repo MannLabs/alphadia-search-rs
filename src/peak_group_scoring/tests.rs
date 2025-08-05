@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use super::utils::{
-    calculate_hyperscore, correlation, correlation_axis_0, median_axis_0, normalize_profiles,
+    calculate_hyperscore, calculate_longest_ion_series, correlation, correlation_axis_0,
+    median_axis_0, normalize_profiles,
 };
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
@@ -339,4 +340,157 @@ fn test_hyperscore_edge_case_single_ion() {
         "Hyperscore {} is outside expected range",
         hyperscore
     );
+}
+
+#[test]
+fn test_longest_ion_series_basic() {
+    // Test with continuous b and y series
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B, // b1, b2, b3
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y, // y1, y2, y3
+    ];
+    let fragment_numbers = vec![1, 2, 3, 1, 2, 3];
+    let matched_mask = vec![true, true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 3); // b1, b2, b3 continuous
+    assert_eq!(longest_y, 3); // y1, y2, y3 continuous
+}
+
+#[test]
+fn test_longest_ion_series_gaps() {
+    // Test with gaps in the series
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B, // b1, b3, b4 (gap at b2)
+        FragmentType::Y,
+        FragmentType::Y, // y1, y3 (gap at y2)
+    ];
+    let fragment_numbers = vec![1, 3, 4, 1, 3];
+    let matched_mask = vec![true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 2); // b3, b4 continuous (longest sequence)
+    assert_eq!(longest_y, 1); // y1 and y3 are not continuous
+}
+
+#[test]
+fn test_longest_ion_series_partial_matches() {
+    // Test with some ions not matched
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B, // b1, b2, b3, b4
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y, // y1, y2, y3
+    ];
+    let fragment_numbers = vec![1, 2, 3, 4, 1, 2, 3];
+    let matched_mask = vec![true, false, true, true, true, true, false]; // b2 and y3 not matched
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 2); // b3, b4 continuous (b2 not matched)
+    assert_eq!(longest_y, 2); // y1, y2 continuous (y3 not matched)
+}
+
+#[test]
+fn test_longest_ion_series_no_matches() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y, FragmentType::B];
+    let fragment_numbers = vec![1, 1, 2];
+    let matched_mask = vec![false, false, false]; // no matches
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 0);
+    assert_eq!(longest_y, 0);
+}
+
+#[test]
+fn test_longest_ion_series_only_b_ions() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B,
+    ];
+    let fragment_numbers = vec![1, 2, 4, 5]; // b1, b2, gap, b4, b5
+    let matched_mask = vec![true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 2); // either b1,b2 or b4,b5
+    assert_eq!(longest_y, 0); // no y ions
+}
+
+#[test]
+fn test_longest_ion_series_only_y_ions() {
+    let fragment_types = vec![FragmentType::Y, FragmentType::Y, FragmentType::Y];
+    let fragment_numbers = vec![2, 3, 4]; // y2, y3, y4 continuous
+    let matched_mask = vec![true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 0); // no b ions
+    assert_eq!(longest_y, 3); // y2, y3, y4 continuous
+}
+
+#[test]
+fn test_longest_ion_series_unordered_input() {
+    // Test with unordered input (function should sort internally)
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::B,
+    ];
+    let fragment_numbers = vec![3, 2, 1, 3, 2]; // b3, y2, b1, y3, b2
+    let matched_mask = vec![true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 3); // b1, b2, b3 continuous when sorted
+    assert_eq!(longest_y, 2); // y2, y3 continuous when sorted
+}
+
+#[test]
+fn test_longest_ion_series_empty() {
+    let fragment_types: Vec<u8> = vec![];
+    let fragment_numbers: Vec<u8> = vec![];
+    let matched_mask: Vec<bool> = vec![];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 0);
+    assert_eq!(longest_y, 0);
+}
+
+#[test]
+fn test_longest_ion_series_mismatched_lengths() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let fragment_numbers = vec![1, 2, 3]; // wrong length
+    let matched_mask = vec![true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 0);
+    assert_eq!(longest_y, 0);
 }

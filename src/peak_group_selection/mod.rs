@@ -103,7 +103,11 @@ impl PeakGroupSelection {
         let candidates: Vec<Candidate> = (0..max_precursor_idx)
             .into_par_iter()
             .flat_map(|i| {
-                let precursor = lib.get_precursor(i);
+                let precursor = lib.get_precursor_filtered(
+                    i,
+                    true, // Always filter non-zero intensities for scoring
+                    self.params.top_k_fragments,
+                );
                 self.search_precursor_generic(
                     dia_data,
                     &precursor,
@@ -138,25 +142,19 @@ impl PeakGroupSelection {
             self.params.kernel_size,
         );
 
-        // Apply fragment filtering based on scoring parameters
-        let (filtered_fragment_mz, filtered_fragment_intensity) = precursor.get_fragments_filtered(
-            true, // Always filter non-zero intensities for scoring
-            self.params.top_k_fragments,
-        );
-
-        // Create dense XIC observation using the new struct
+        // Create dense XIC observation using the filtered precursor fragments
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
             precursor.mz,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
-            &filtered_fragment_mz,
+            &precursor.fragment_mz,
         );
 
         let convolved_xic = convolution(&self.kernel, &dense_xic_obs.dense_xic);
 
-        let score = axis_log_dot_product(&convolved_xic, &filtered_fragment_intensity);
+        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);

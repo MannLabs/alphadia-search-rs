@@ -18,7 +18,7 @@ mod quadrupole_observation_next_gen;
 mod rt_index;
 pub mod score;
 mod simd;
-mod speclib_flat;
+pub mod speclib_flat;
 pub mod traits;
 
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};

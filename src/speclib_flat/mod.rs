@@ -4,12 +4,19 @@ use pyo3::prelude::*;
 
 #[pyclass]
 pub struct SpecLibFlat {
+    /// Precursor indices, MUST be sorted in ascending order for binary search to work correctly
     precursor_idx: Vec<usize>,
+    /// Precursor m/z values, sorted according to precursor_idx order
     precursor_mz: Vec<f32>,
+    /// Precursor retention times, sorted according to precursor_idx order
     precursor_rt: Vec<f32>,
+    /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     precursor_start_idx: Vec<usize>,
+    /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
     precursor_stop_idx: Vec<usize>,
+    /// Fragment m/z values, expected to be sorted in ascending order within each precursor upon creation
     fragment_mz: Vec<f32>,
+    /// Fragment intensity values in original library order (NOT sorted, maintains original order within each precursor)
     fragment_intensity: Vec<f32>,
 }
 
@@ -87,6 +94,45 @@ impl SpecLibFlat {
     }
 }
 
+/// Apply fragment filtering and return filtered fragment vectors
+pub fn filter_fragments(
+    fragment_mz: &[f32],
+    fragment_intensity: &[f32],
+    non_zero: bool,
+    top_k_fragments: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut fragment_triplets: Vec<(f32, f32, usize)> = fragment_mz
+        .iter()
+        .zip(fragment_intensity.iter())
+        .enumerate()
+        .map(|(idx, (&mz, &intensity))| (mz, intensity, idx))
+        .collect();
+
+    // Filter non-zero intensities if requested
+    if non_zero {
+        fragment_triplets.retain(|(_, intensity, _)| *intensity > 0.0);
+    }
+
+    // Use partial sorting for top-k selection - much faster than full sort
+    let k = top_k_fragments.min(fragment_triplets.len());
+    if k < fragment_triplets.len() {
+        // Partial sort: only sort the k-th element and everything before it
+        fragment_triplets.select_nth_unstable_by(k, |a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        fragment_triplets.truncate(k);
+    }
+    // Sort by original index to maintain original m/z ordering
+    fragment_triplets.sort_by_key(|(_, _, idx)| *idx);
+
+    let (fragment_mz, fragment_intensity): (Vec<f32>, Vec<f32>) = fragment_triplets
+        .into_iter()
+        .map(|(mz, intensity, _)| (mz, intensity))
+        .unzip();
+
+    (fragment_mz, fragment_intensity)
+}
+
 // Regular Rust implementation (not exposed to Python)
 impl SpecLibFlat {
     pub fn get_precursor(&self, index: usize) -> Precursor {
@@ -108,6 +154,37 @@ impl SpecLibFlat {
         }
     }
 
+    pub fn get_precursor_filtered(
+        &self,
+        index: usize,
+        non_zero: bool,
+        top_k_fragments: usize,
+    ) -> Precursor {
+        let precursor_idx = self.precursor_idx[index];
+        let precursor_mz = self.precursor_mz[index];
+        let precursor_rt = self.precursor_rt[index];
+        let start_idx = self.precursor_start_idx[index];
+        let stop_idx = self.precursor_stop_idx[index];
+
+        let raw_fragment_mz = &self.fragment_mz[start_idx..stop_idx];
+        let raw_fragment_intensity = &self.fragment_intensity[start_idx..stop_idx];
+
+        let (fragment_mz, fragment_intensity) = filter_fragments(
+            raw_fragment_mz,
+            raw_fragment_intensity,
+            non_zero,
+            top_k_fragments,
+        );
+
+        Precursor {
+            idx: precursor_idx,
+            mz: precursor_mz,
+            rt: precursor_rt,
+            fragment_mz,
+            fragment_intensity,
+        }
+    }
+
     pub fn get_precursor_by_idx(&self, precursor_idx: usize) -> Option<Precursor> {
         // Use binary search since precursor_idx is now sorted
         match self.precursor_idx.binary_search(&precursor_idx) {
@@ -115,4 +192,22 @@ impl SpecLibFlat {
             Err(_) => None,
         }
     }
+
+    pub fn get_precursor_by_idx_filtered(
+        &self,
+        precursor_idx: usize,
+        non_zero: bool,
+        top_k_fragments: usize,
+    ) -> Option<Precursor> {
+        // Use binary search since precursor_idx is now sorted
+        match self.precursor_idx.binary_search(&precursor_idx) {
+            Ok(array_index) => {
+                Some(self.get_precursor_filtered(array_index, non_zero, top_k_fragments))
+            }
+            Err(_) => None,
+        }
+    }
 }
+
+#[cfg(test)]
+mod tests;

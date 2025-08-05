@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters, CandidateCollection
+from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters, CandidateCollection
 import os
 import pandas as pd
 import numpy as np
@@ -43,6 +43,7 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
         candidates_df = candidates_df.nlargest(top_n, 'score')
         logger.info(f"Filtered to top {len(candidates_df)} candidates by score")
 
+    # The function load_candidates_from_parquet returns a DataFrame, not a CandidateCollection
     return candidates_df
 
 def create_dia_data_next_gen(ms_data):
@@ -130,12 +131,53 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     Returns
     -------
     pd.DataFrame
-        Scored candidates DataFrame
+        Scored candidates DataFrame with features
     """
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
 
-    # scoring will be done in the next step
+    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
+
+    # Convert DataFrame to CandidateCollection
+    candidates = CandidateCollection.from_arrays(
+        candidates_df['precursor_idx'].values.astype(np.uint64),
+        candidates_df['rank'].values.astype(np.uint64),
+        candidates_df['score'].values.astype(np.float32),
+        candidates_df['scan_center'].values.astype(np.uint64),
+        candidates_df['scan_start'].values.astype(np.uint64),
+        candidates_df['scan_stop'].values.astype(np.uint64),
+        candidates_df['frame_center'].values.astype(np.uint64) // cycle_len,
+        candidates_df['frame_start'].values.astype(np.uint64) // cycle_len,
+        candidates_df['frame_stop'].values.astype(np.uint64) // cycle_len,
+    )
+
+    scoring_params = ScoringParameters()
+    scoring_params.update({
+        'top_k_fragments': 99,
+        'mass_tolerance': 7.0,
+    })
+
+    peak_group_scoring = PeakGroupScoring(scoring_params)
+
+    logger.info(f"Scoring candidates")
+
+    # Get candidate features
+    candidate_features = peak_group_scoring.score_next_gen(rs_data_next_gen, spec_lib_flat, candidates)
+
+    # Convert features to dictionary of arrays
+    features_dict = candidate_features.to_dict_arrays()
+
+    # Create DataFrame from features
+    features_df = pd.DataFrame(features_dict)
+
+
+    features_df = features_df.merge(
+        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'decoy','elution_group_idx','channel']],
+        on='precursor_idx',
+        how='left'
+    )
+
+    return features_df
 
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
@@ -153,7 +195,7 @@ def main():
                        help="Path to the output folder")
     parser.add_argument("--top-n",
                        type=int,
-                       default=100000,
+                       default=10000,
                        help="Top N candidates to score")
     args = parser.parse_args()
 
@@ -169,8 +211,13 @@ def main():
     # Load candidates
     candidates = load_candidates_from_parquet(args.candidates_path, args.top_n)
 
-    # Run scoring
-    run_candidate_scoring(ms_data, spec_lib_flat, candidates)
+    # Run scoring and get features
+    result_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
+
+    # Save results
+    output_path = os.path.join(args.output_folder, "candidate_features.parquet")
+    result_df.to_parquet(output_path)
+    logger.info(f"Saved candidate features to: {output_path}")
 
 if __name__ == "__main__":
     main()

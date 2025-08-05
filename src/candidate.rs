@@ -1,6 +1,9 @@
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use rayon::prelude::*;
 
+#[derive(Debug)]
 pub struct Candidate {
     /// Identifier linking to precursor
     pub precursor_idx: usize,
@@ -38,6 +41,173 @@ impl Candidate {
             cycle_center,
             cycle_stop,
         }
+    }
+}
+
+/// Features calculated for a candidate during scoring
+#[derive(Debug, Clone)]
+pub struct CandidateFeature {
+    /// Original candidate precursor index
+    pub precursor_idx: usize,
+    /// Original candidate rank
+    pub rank: usize,
+    /// Original candidate score
+    pub score: f32,
+    /// Mean correlation across all fragments
+    pub mean_correlation: f32,
+    /// Median correlation across all fragments
+    pub median_correlation: f32,
+    /// Standard deviation of correlations
+    pub correlation_std: f32,
+    /// Intensity correlation between observed and library intensities
+    pub intensity_correlation: f32,
+    /// Number of fragments used in scoring
+    pub num_fragments: usize,
+    /// Number of scans/cycles used in scoring
+    pub num_scans: usize,
+    /// Number of correlations above 0.95
+    pub num_over_95: usize,
+    /// Number of correlations above 0.90
+    pub num_over_90: usize,
+    /// Number of correlations above 0.80
+    pub num_over_80: usize,
+    /// Number of correlations above 0.50
+    pub num_over_50: usize,
+}
+
+impl CandidateFeature {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        precursor_idx: usize,
+        rank: usize,
+        score: f32,
+        mean_correlation: f32,
+        median_correlation: f32,
+        correlation_std: f32,
+        intensity_correlation: f32,
+        num_fragments: usize,
+        num_scans: usize,
+        num_over_95: usize,
+        num_over_90: usize,
+        num_over_80: usize,
+        num_over_50: usize,
+    ) -> Self {
+        Self {
+            precursor_idx,
+            rank,
+            score,
+            mean_correlation,
+            median_correlation,
+            correlation_std,
+            intensity_correlation,
+            num_fragments,
+            num_scans,
+            num_over_95,
+            num_over_90,
+            num_over_80,
+            num_over_50,
+        }
+    }
+}
+
+/// Collection of candidate features
+#[pyclass]
+pub struct CandidateFeatureCollection {
+    features: Vec<CandidateFeature>,
+}
+
+impl Default for CandidateFeatureCollection {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[pymethods]
+impl CandidateFeatureCollection {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            features: Vec::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.features.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.features.is_empty()
+    }
+
+    /// Convert the collection to a dictionary of arrays for Python
+    pub fn to_dict_arrays(&self, py: Python) -> PyResult<PyObject> {
+        let n = self.features.len();
+
+        let mut precursor_idxs = Array1::<u64>::zeros(n);
+        let mut ranks = Array1::<u64>::zeros(n);
+        let mut scores = Array1::<f32>::zeros(n);
+        let mut mean_correlations = Array1::<f32>::zeros(n);
+        let mut median_correlations = Array1::<f32>::zeros(n);
+        let mut correlation_stds = Array1::<f32>::zeros(n);
+        let mut intensity_correlations = Array1::<f32>::zeros(n);
+        let mut num_fragments = Array1::<u64>::zeros(n);
+        let mut num_scans = Array1::<u64>::zeros(n);
+        let mut num_over_95 = Array1::<u64>::zeros(n);
+        let mut num_over_90 = Array1::<u64>::zeros(n);
+        let mut num_over_80 = Array1::<u64>::zeros(n);
+        let mut num_over_50 = Array1::<u64>::zeros(n);
+
+        for (i, feature) in self.features.iter().enumerate() {
+            precursor_idxs[i] = feature.precursor_idx as u64;
+            ranks[i] = feature.rank as u64;
+            scores[i] = feature.score;
+            mean_correlations[i] = feature.mean_correlation;
+            median_correlations[i] = feature.median_correlation;
+            correlation_stds[i] = feature.correlation_std;
+            intensity_correlations[i] = feature.intensity_correlation;
+            num_fragments[i] = feature.num_fragments as u64;
+            num_scans[i] = feature.num_scans as u64;
+            num_over_95[i] = feature.num_over_95 as u64;
+            num_over_90[i] = feature.num_over_90 as u64;
+            num_over_80[i] = feature.num_over_80 as u64;
+            num_over_50[i] = feature.num_over_50 as u64;
+        }
+
+        // Create Python dictionary
+        let dict = PyDict::new(py);
+        dict.set_item("precursor_idx", precursor_idxs.into_pyarray(py))?;
+        dict.set_item("rank", ranks.into_pyarray(py))?;
+        dict.set_item("score", scores.into_pyarray(py))?;
+        dict.set_item("mean_correlation", mean_correlations.into_pyarray(py))?;
+        dict.set_item("median_correlation", median_correlations.into_pyarray(py))?;
+        dict.set_item("correlation_std", correlation_stds.into_pyarray(py))?;
+        dict.set_item(
+            "intensity_correlation",
+            intensity_correlations.into_pyarray(py),
+        )?;
+        dict.set_item("num_fragments", num_fragments.into_pyarray(py))?;
+        dict.set_item("num_scans", num_scans.into_pyarray(py))?;
+        dict.set_item("num_over_95", num_over_95.into_pyarray(py))?;
+        dict.set_item("num_over_90", num_over_90.into_pyarray(py))?;
+        dict.set_item("num_over_80", num_over_80.into_pyarray(py))?;
+        dict.set_item("num_over_50", num_over_50.into_pyarray(py))?;
+
+        Ok(dict.into())
+    }
+}
+
+impl CandidateFeatureCollection {
+    pub fn from_vec(features: Vec<CandidateFeature>) -> Self {
+        Self { features }
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, CandidateFeature> {
+        self.features.iter()
+    }
+
+    /// Add a feature to the collection (internal use only)
+    pub fn add_feature_internal(&mut self, feature: &CandidateFeature) {
+        self.features.push(feature.clone());
     }
 }
 
@@ -180,5 +350,19 @@ impl CandidateCollection {
 impl CandidateCollection {
     pub fn from_vec(candidates: Vec<Candidate>) -> Self {
         Self { candidates }
+    }
+
+    /// Get an iterator over the candidates
+    pub fn iter(&self) -> std::slice::Iter<'_, Candidate> {
+        self.candidates.iter()
+    }
+}
+
+impl<'a> IntoParallelRefIterator<'a> for CandidateCollection {
+    type Iter = rayon::slice::Iter<'a, Candidate>;
+    type Item = &'a Candidate;
+
+    fn par_iter(&'a self) -> Self::Iter {
+        self.candidates.par_iter()
     }
 }

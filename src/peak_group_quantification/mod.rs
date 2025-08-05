@@ -1,0 +1,151 @@
+use pyo3::prelude::*;
+use rayon::prelude::*;
+use std::time::Instant;
+
+use crate::candidate::{Candidate, CandidateCollection};
+use crate::dense_xic_observation::DenseXICObservation;
+use crate::dia_data::DIAData;
+use crate::peak_group_scoring::utils::{
+    calculate_correlation_safe, median_axis_0, normalize_profiles,
+};
+use crate::precursor_quantified::PrecursorQuantified;
+use crate::traits::DIADataTrait;
+use crate::{SpecLibFlat, SpecLibFlatQuantified};
+
+pub mod parameters;
+pub mod tests;
+pub use parameters::QuantificationParameters;
+
+#[pyclass]
+pub struct PeakGroupQuantification {
+    params: QuantificationParameters,
+}
+
+#[pymethods]
+impl PeakGroupQuantification {
+    #[new]
+    pub fn new(params: QuantificationParameters) -> Self {
+        Self { params }
+    }
+
+    pub fn quantify(
+        &self,
+        dia_data: &DIAData,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> SpecLibFlatQuantified {
+        self.quantify_generic(dia_data, lib, candidates)
+    }
+}
+
+impl PeakGroupQuantification {
+    fn quantify_generic<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> SpecLibFlatQuantified {
+        let start_time = Instant::now();
+
+        let quantified_precursors: Vec<PrecursorQuantified> = candidates
+            .par_iter()
+            .filter_map(|candidate| {
+                match lib.get_precursor_by_idx_filtered(
+                    candidate.precursor_idx,
+                    true,
+                    self.params.top_k_fragments,
+                ) {
+                    Some(precursor) => self.quantify_precursor(dia_data, &precursor, candidate),
+                    None => None,
+                }
+            })
+            .collect();
+
+        let duration = start_time.elapsed();
+        println!(
+            "Peak group quantification completed in {:.2}s for {} precursors",
+            duration.as_secs_f64(),
+            quantified_precursors.len()
+        );
+
+        SpecLibFlatQuantified::from_precursor_quantified_vec(quantified_precursors)
+    }
+
+    fn quantify_precursor<T: DIADataTrait>(
+        &self,
+        dia_data: &T,
+        precursor: &crate::precursor::Precursor,
+        candidate: &Candidate,
+    ) -> Option<PrecursorQuantified> {
+        let cycle_start = candidate.cycle_start;
+        let cycle_stop = candidate.cycle_stop;
+        let cycle_center = candidate.cycle_center;
+
+        if cycle_stop <= cycle_start {
+            return None;
+        }
+
+        let dense_xic_obs = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            cycle_start,
+            cycle_stop,
+            self.params.tolerance_ppm,
+            &precursor.fragment_mz,
+        );
+
+        let num_fragments = precursor.fragment_mz.len();
+        let num_cycles = cycle_stop - cycle_start;
+
+        if num_cycles == 0 || cycle_center < cycle_start || cycle_center >= cycle_stop {
+            return None;
+        }
+
+        let mut fragment_mz_observed = vec![0.0f32; num_fragments];
+        let mut fragment_correlation_observed = vec![0.0f32; num_fragments];
+        let mut fragment_mass_error_observed = vec![0.0f32; num_fragments];
+
+        let _center_cycle_idx = cycle_center - cycle_start;
+
+        for fragment_idx in 0..num_fragments {
+            let expected_mz = precursor.fragment_mz[fragment_idx];
+
+            fragment_mz_observed[fragment_idx] = expected_mz;
+            fragment_mass_error_observed[fragment_idx] = 0.0;
+        }
+
+        let normalized_xic = normalize_profiles(&dense_xic_obs.dense_xic, 1);
+        let median_profile = median_axis_0(&normalized_xic);
+
+        for fragment_idx in 0..num_fragments {
+            let fragment_profile = normalized_xic.row(fragment_idx);
+            let correlation = calculate_correlation_safe(
+                fragment_profile.as_slice().unwrap_or(&[]),
+                &median_profile,
+            );
+            fragment_correlation_observed[fragment_idx] = correlation;
+        }
+
+        let rt_observed = dia_data.rt_index().rt[cycle_center];
+
+        Some(PrecursorQuantified {
+            idx: precursor.idx,
+            mz: precursor.mz,
+            rt: precursor.rt,
+            naa: precursor.naa,
+            rank: candidate.rank,
+            rt_observed,
+            fragment_mz: precursor.fragment_mz.clone(),
+            fragment_intensity: precursor.fragment_intensity.clone(),
+            fragment_cardinality: precursor.fragment_cardinality.clone(),
+            fragment_charge: precursor.fragment_charge.clone(),
+            fragment_loss_type: precursor.fragment_loss_type.clone(),
+            fragment_number: precursor.fragment_number.clone(),
+            fragment_position: precursor.fragment_position.clone(),
+            fragment_type: precursor.fragment_type.clone(),
+            fragment_mz_observed,
+            fragment_correlation_observed,
+            fragment_mass_error_observed,
+        })
+    }
+}

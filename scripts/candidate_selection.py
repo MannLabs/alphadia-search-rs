@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
-import os
 import pandas as pd
 import numpy as np
 import logging

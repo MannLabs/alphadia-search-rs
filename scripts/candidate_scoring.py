@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIAData, ScoringParameters, CandidateCollection
+from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIAData, ScoringParameters, CandidateCollection, PeakGroupQuantification, QuantificationParameters
 import os
 import pandas as pd
 import numpy as np
@@ -190,7 +190,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
 
     return features_df
 
-def run_fdr_filtering(result_df, output_folder):
+def run_fdr_filtering(result_df, candidates_df, output_folder):
     """
     Run FDR filtering on scored candidates.
 
@@ -198,13 +198,15 @@ def run_fdr_filtering(result_df, output_folder):
     ----------
     result_df : pd.DataFrame
         DataFrame with scored candidates including decoy column
+    candidates_df : pd.DataFrame
+        Original candidates DataFrame
     output_folder : str
         Path to output folder for saving FDR results
 
     Returns
     -------
-    pd.DataFrame
-        FDR-filtered PSMs with q-value <= 0.01
+    tuple[pd.DataFrame, pd.DataFrame]
+        FDR-filtered PSMs with q-value <= 0.01 and corresponding candidates_filtered
     """
     logger.info("Running FDR filtering")
 
@@ -225,6 +227,10 @@ def run_fdr_filtering(result_df, output_folder):
 
     logger.info(f"Performing NN based FDR with {len(available_columns)} features")
 
+    # Create composite index for proper matching
+    result_df['precursor_idx_rank'] = result_df['precursor_idx'].astype(str) + '_' + result_df['rank'].astype(str)
+    candidates_df['precursor_idx_rank'] = candidates_df['precursor_idx'].astype(str) + '_' + candidates_df['rank'].astype(str)
+
     psm_df = perform_fdr(
         classifier,
         available_columns,
@@ -236,12 +242,21 @@ def run_fdr_filtering(result_df, output_folder):
     psm_df = psm_df[psm_df["qval"] <= 0.01]
     logger.info(f"After FDR filtering (q-value <= 0.01): {len(psm_df):,} PSMs")
 
+    # Create candidates_filtered using precursor_idx_rank index
+    psm_idx_rank = psm_df['precursor_idx_rank']
+    candidates_filtered = candidates_df[candidates_df['precursor_idx_rank'].isin(psm_idx_rank)].copy()
+    logger.info(f"Created candidates_filtered with {len(candidates_filtered):,} candidates that passed 1% FDR")
+
     # Save FDR results
     fdr_output_path = os.path.join(output_folder, "candidate_features_fdr.parquet")
     psm_df.to_parquet(fdr_output_path)
     logger.info(f"Saved FDR-filtered features to: {fdr_output_path}")
 
-    return psm_df
+    candidates_filtered_path = os.path.join(output_folder, "candidates_filtered.parquet")
+    candidates_filtered.to_parquet(candidates_filtered_path)
+    logger.info(f"Saved candidates_filtered to: {candidates_filtered_path}")
+
+    return psm_df, candidates_filtered
 
 def get_diagnosis_features(result_df, fdr_filtered_df):
     """
@@ -399,6 +414,54 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     # Close the figure to free memory
     plt.close()
 
+def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
+    """
+    Run peak group quantification on FDR-filtered candidates.
+
+    Parameters
+    ----------
+    ms_data : MSData_Base
+        AlphaRaw MSData_Base object containing spectrum data
+    spec_lib_flat : AlphaBaseSpecLibFlat
+        Alphabase spectral library in flat format
+    candidates_filtered : pd.DataFrame
+        FDR-filtered candidates DataFrame
+
+    Returns
+    -------
+    SpecLibFlatQuantified
+        Quantified spectral library
+    """
+    logger.info(f"Running peak group quantification on {len(candidates_filtered):,} FDR-filtered candidates")
+
+    # Create DIAData and SpecLibFlat objects
+    rs_data_next_gen = create_dia_data_next_gen(ms_data)
+    spec_lib_ng = create_spec_lib_flat(spec_lib_flat)
+
+    # Convert DataFrame to CandidateCollection
+    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
+
+    candidates_collection = CandidateCollection.from_arrays(
+        candidates_filtered['precursor_idx'].values.astype(np.uint64),
+        candidates_filtered['rank'].values.astype(np.uint64),
+        candidates_filtered['score'].values.astype(np.float32),
+        candidates_filtered['scan_center'].values.astype(np.uint64),
+        candidates_filtered['scan_start'].values.astype(np.uint64),
+        candidates_filtered['scan_stop'].values.astype(np.uint64),
+        candidates_filtered['frame_center'].values.astype(np.uint64) // cycle_len,
+        candidates_filtered['frame_start'].values.astype(np.uint64) // cycle_len,
+        candidates_filtered['frame_stop'].values.astype(np.uint64) // cycle_len,
+    )
+
+    # Create quantification parameters
+    quant_params = QuantificationParameters()
+
+    # Create and run quantification
+    peak_group_quantification = PeakGroupQuantification(quant_params)
+    quantified_lib = peak_group_quantification.quantify(rs_data_next_gen, spec_lib_ng, candidates_collection)
+
+    return quantified_lib
+
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
     parser.add_argument("--ms_data_path",
@@ -423,6 +486,9 @@ def main():
     parser.add_argument("--diagnosis",
                        action="store_true",
                        help="Generate diagnosis features (best target/decoy per elution group with FDR < 0.01)")
+    parser.add_argument("--quantify",
+                       action="store_true",
+                       help="Run peak group quantification on FDR-filtered candidates")
     args = parser.parse_args()
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
@@ -442,20 +508,25 @@ def main():
 
     # Run FDR filtering
     fdr_filtered_df = None
-    if args.fdr or args.diagnosis:
-        fdr_filtered_df = run_fdr_filtering(result_df, args.output_folder)
+    candidates_filtered = None
+    if args.fdr or args.diagnosis or args.quantify:
+        fdr_filtered_df, candidates_filtered = run_fdr_filtering(result_df, candidates, args.output_folder)
 
     # Generate diagnosis features if requested
     if args.diagnosis and fdr_filtered_df is not None:
-        # Store original result_df before it gets overwritten by FDR-filtered version
-
         diagnosis_features_df = get_diagnosis_features(result_df, fdr_filtered_df)
         plot_diagnosis_feature_histograms(diagnosis_features_df, args.output_folder)
 
+    # Run peak group quantification if requested
+    if args.quantify and candidates_filtered is not None:
+        quantified_lib = run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered)
+        logger.info(f"Peak group quantification completed for {len(candidates_filtered):,} candidates")
+
     # Save results
-    output_path = os.path.join(args.output_folder, "candidate_features.parquet")
-    fdr_filtered_df.to_parquet(output_path)
-    logger.info(f"Saved {len(fdr_filtered_df):,} candidate features to: {output_path}")
+    if fdr_filtered_df is not None:
+        output_path = os.path.join(args.output_folder, "candidate_features.parquet")
+        fdr_filtered_df.to_parquet(output_path)
+        logger.info(f"Saved {len(fdr_filtered_df):,} candidate features to: {output_path}")
 
 if __name__ == "__main__":
     main()

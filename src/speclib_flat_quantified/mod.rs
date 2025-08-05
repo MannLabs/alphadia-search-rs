@@ -1,3 +1,17 @@
+//! # Quantified Spectral Library Module
+//!
+//! This module provides the `SpecLibFlatQuantified` structure for storing spectral libraries
+//! that have been quantified against experimental DIA (Data-Independent Acquisition) data.
+//!
+//! Precursors are being quntified as part of DIA search following the identification of candidates.
+//! Therefore, additional columns are needed on top of the regular SpecLibFlat and some columns are used differently.
+//!
+//! `fragment_intensity` is the intensity of the fragment ion observed in the experimental data.
+//! `fragment_mz_observed` is the m/z value of the fragment ion observed in the experimental data.
+//! `fragment_correlation_observed` is the correlation coefficient between the fragment's elution profile and the median profile of all fragments for that precursor.
+//! `fragment_mass_error_observed` is the mass error in Da between theoretical and observed fragment m/z values.
+//!
+
 use crate::precursor_quantified::PrecursorQuantified;
 use pyo3::prelude::*;
 

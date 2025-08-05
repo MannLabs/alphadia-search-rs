@@ -7,7 +7,12 @@ pub const MZ_END: f32 = 2000.0;
 pub fn ppm_index(resolution_ppm: f32, mz_start: f32, mz_end: f32) -> Array1<f32> {
     let mz_start_safe = mz_start.max(50.0);
 
-    let mut index: Vec<f32> = Vec::from([mz_start_safe]);
+    // Estimate final size based on geometric series: n ≈ ln(mz_end/mz_start) / ln(1 + resolution_ppm/1e6)
+    let growth_factor = 1.0 + (resolution_ppm / 1e6);
+    let estimated_size = ((mz_end / mz_start_safe).ln() / growth_factor.ln()) as usize + 1;
+
+    let mut index: Vec<f32> = Vec::with_capacity(estimated_size);
+    index.push(mz_start_safe);
     let mut current_mz = mz_start_safe;
 
     while current_mz < mz_end {

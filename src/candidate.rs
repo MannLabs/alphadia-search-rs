@@ -1,3 +1,13 @@
+//! Candidate scoring and feature extraction for neural network classification.
+//!
+//! All features are standardized to f32 type for memory efficiency and consistency
+//! in neural network training. While some features like fragment counts are naturally
+//! integer values, using f32 throughout:
+//! - Reduces memory usage compared to mixed u64/usize types
+//! - Eliminates type conversion overhead in ML pipelines
+//! - Provides consistent tensor dimensions for batch processing
+//! - Maintains sufficient precision for all feature ranges
+
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -62,17 +72,17 @@ pub struct CandidateFeature {
     /// Intensity correlation between observed and library intensities
     pub intensity_correlation: f32,
     /// Number of fragments used in scoring
-    pub num_fragments: usize,
+    pub num_fragments: f32,
     /// Number of scans/cycles used in scoring
-    pub num_scans: usize,
+    pub num_scans: f32,
     /// Number of correlations above 0.95
-    pub num_over_95: usize,
+    pub num_over_95: f32,
     /// Number of correlations above 0.90
-    pub num_over_90: usize,
+    pub num_over_90: f32,
     /// Number of correlations above 0.80
-    pub num_over_80: usize,
+    pub num_over_80: f32,
     /// Number of correlations above 0.50
-    pub num_over_50: usize,
+    pub num_over_50: f32,
     /// Hyperscore calculated from observed intensities
     pub hyperscore_intensity_observation: f32,
     /// Hyperscore calculated from library intensities
@@ -82,11 +92,11 @@ pub struct CandidateFeature {
     /// Delta retention time (observed - library) in seconds
     pub delta_rt: f32,
     /// Longest continuous b-ion series length
-    pub longest_b_series: u8,
+    pub longest_b_series: f32,
     /// Longest continuous y-ion series length
-    pub longest_y_series: u8,
+    pub longest_y_series: f32,
     /// Number of amino acids in the precursor sequence
-    pub naa: u8,
+    pub naa: f32,
 }
 
 impl CandidateFeature {
@@ -99,19 +109,19 @@ impl CandidateFeature {
         median_correlation: f32,
         correlation_std: f32,
         intensity_correlation: f32,
-        num_fragments: usize,
-        num_scans: usize,
-        num_over_95: usize,
-        num_over_90: usize,
-        num_over_80: usize,
-        num_over_50: usize,
+        num_fragments: f32,
+        num_scans: f32,
+        num_over_95: f32,
+        num_over_90: f32,
+        num_over_80: f32,
+        num_over_50: f32,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
         rt_observed: f32,
         delta_rt: f32,
-        longest_b_series: u8,
-        longest_y_series: u8,
-        naa: u8,
+        longest_b_series: f32,
+        longest_y_series: f32,
+        naa: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -178,19 +188,19 @@ impl CandidateFeatureCollection {
         let mut median_correlations = Array1::<f32>::zeros(n);
         let mut correlation_stds = Array1::<f32>::zeros(n);
         let mut intensity_correlations = Array1::<f32>::zeros(n);
-        let mut num_fragments = Array1::<u64>::zeros(n);
-        let mut num_scans = Array1::<u64>::zeros(n);
-        let mut num_over_95 = Array1::<u64>::zeros(n);
-        let mut num_over_90 = Array1::<u64>::zeros(n);
-        let mut num_over_80 = Array1::<u64>::zeros(n);
-        let mut num_over_50 = Array1::<u64>::zeros(n);
+        let mut num_fragments = Array1::<f32>::zeros(n);
+        let mut num_scans = Array1::<f32>::zeros(n);
+        let mut num_over_95 = Array1::<f32>::zeros(n);
+        let mut num_over_90 = Array1::<f32>::zeros(n);
+        let mut num_over_80 = Array1::<f32>::zeros(n);
+        let mut num_over_50 = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
         let mut rt_observeds = Array1::<f32>::zeros(n);
         let mut delta_rts = Array1::<f32>::zeros(n);
-        let mut longest_b_series = Array1::<u64>::zeros(n);
-        let mut longest_y_series = Array1::<u64>::zeros(n);
-        let mut naa = Array1::<u64>::zeros(n);
+        let mut longest_b_series = Array1::<f32>::zeros(n);
+        let mut longest_y_series = Array1::<f32>::zeros(n);
+        let mut naa = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -200,19 +210,19 @@ impl CandidateFeatureCollection {
             median_correlations[i] = feature.median_correlation;
             correlation_stds[i] = feature.correlation_std;
             intensity_correlations[i] = feature.intensity_correlation;
-            num_fragments[i] = feature.num_fragments as u64;
-            num_scans[i] = feature.num_scans as u64;
-            num_over_95[i] = feature.num_over_95 as u64;
-            num_over_90[i] = feature.num_over_90 as u64;
-            num_over_80[i] = feature.num_over_80 as u64;
-            num_over_50[i] = feature.num_over_50 as u64;
+            num_fragments[i] = feature.num_fragments;
+            num_scans[i] = feature.num_scans;
+            num_over_95[i] = feature.num_over_95;
+            num_over_90[i] = feature.num_over_90;
+            num_over_80[i] = feature.num_over_80;
+            num_over_50[i] = feature.num_over_50;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
             rt_observeds[i] = feature.rt_observed;
             delta_rts[i] = feature.delta_rt;
-            longest_b_series[i] = feature.longest_b_series as u64;
-            longest_y_series[i] = feature.longest_y_series as u64;
-            naa[i] = feature.naa as u64;
+            longest_b_series[i] = feature.longest_b_series;
+            longest_y_series[i] = feature.longest_y_series;
+            naa[i] = feature.naa;
         }
 
         // Create Python dictionary

@@ -1,3 +1,8 @@
+//! Module for quantified precursor data structures.
+//!
+//! This module contains the `PrecursorQuantified` struct which represents
+//! precursor ions with their associated fragment data and quantification results.
+
 pub struct PrecursorQuantified {
     pub idx: usize,
     pub mz: f32,

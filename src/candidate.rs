@@ -259,6 +259,31 @@ impl CandidateFeatureCollection {
 
         Ok(dict.into())
     }
+
+    /// Get the names of all f32 feature columns
+    #[staticmethod]
+    pub fn get_feature_names() -> Vec<String> {
+        vec![
+            "score".to_string(),
+            "mean_correlation".to_string(),
+            "median_correlation".to_string(),
+            "correlation_std".to_string(),
+            "intensity_correlation".to_string(),
+            "num_fragments".to_string(),
+            "num_scans".to_string(),
+            "num_over_95".to_string(),
+            "num_over_90".to_string(),
+            "num_over_80".to_string(),
+            "num_over_50".to_string(),
+            "hyperscore_intensity_observation".to_string(),
+            "hyperscore_intensity_library".to_string(),
+            "rt_observed".to_string(),
+            "delta_rt".to_string(),
+            "longest_b_series".to_string(),
+            "longest_y_series".to_string(),
+            "naa".to_string(),
+        ]
+    }
 }
 
 impl CandidateFeatureCollection {
@@ -429,5 +454,42 @@ impl<'a> IntoParallelRefIterator<'a> for CandidateCollection {
 
     fn par_iter(&'a self) -> Self::Iter {
         self.candidates.par_iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_feature_names() {
+        let feature_names = CandidateFeatureCollection::get_feature_names();
+
+        // Verify we have the expected number of f32 features
+        assert_eq!(feature_names.len(), 18);
+
+        // Verify some key feature names are present
+        assert!(feature_names.contains(&"score".to_string()));
+        assert!(feature_names.contains(&"mean_correlation".to_string()));
+        assert!(feature_names.contains(&"median_correlation".to_string()));
+        assert!(feature_names.contains(&"correlation_std".to_string()));
+        assert!(feature_names.contains(&"intensity_correlation".to_string()));
+        assert!(feature_names.contains(&"num_fragments".to_string()));
+        assert!(feature_names.contains(&"num_scans".to_string()));
+        assert!(feature_names.contains(&"rt_observed".to_string()));
+        assert!(feature_names.contains(&"delta_rt".to_string()));
+        assert!(feature_names.contains(&"longest_b_series".to_string()));
+        assert!(feature_names.contains(&"longest_y_series".to_string()));
+        assert!(feature_names.contains(&"naa".to_string()));
+
+        // Verify that non-f32 columns are NOT included
+        assert!(!feature_names.contains(&"precursor_idx".to_string()));
+        assert!(!feature_names.contains(&"rank".to_string()));
+
+        // Verify all names are unique
+        let mut sorted_names = feature_names.clone();
+        sorted_names.sort();
+        sorted_names.dedup();
+        assert_eq!(sorted_names.len(), feature_names.len());
     }
 }

@@ -1,3 +1,9 @@
+//! Peak group quantification operates only on candidates scored at 1% FDR.
+//!
+//! Avoids storing memory-intensive fragment-level properties for all possible candidates
+//! (e.g., 3M precursors × 3 candidates × target+decoy = 18M candidates) by quantifying
+//! only the pre-filtered high-confidence subset.
+
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;

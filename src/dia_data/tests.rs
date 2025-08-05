@@ -70,7 +70,7 @@ fn test_from_alpha_raw_view() {
     );
 
     // Test that we can build DIAData from AlphaRawView directly
-    use crate::dia_data_builder_next_gen::DIADataBuilder;
+    use crate::dia_data_builder::DIADataBuilder;
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     assert_eq!(dia_data.num_observations(), 2);
@@ -109,7 +109,7 @@ fn test_get_valid_observations() {
         &peak_intensity,
     );
 
-    use crate::dia_data_builder_next_gen::DIADataBuilder;
+    use crate::dia_data_builder::DIADataBuilder;
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Test valid observations for different m/z values
@@ -166,7 +166,7 @@ fn test_observation_consistency() {
         &peak_intensity,
     );
 
-    use crate::dia_data_builder_next_gen::DIADataBuilder;
+    use crate::dia_data_builder::DIADataBuilder;
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Verify the number of observations matches expected

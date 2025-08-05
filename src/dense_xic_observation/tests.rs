@@ -1,6 +1,6 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
-use crate::dia_data_builder_next_gen::DIADataBuilder;
+use crate::dia_data_builder::DIADataBuilder;
 use numpy::ndarray::ArrayView1;
 
 fn create_simple_alpha_raw() -> AlphaRawView<'static> {

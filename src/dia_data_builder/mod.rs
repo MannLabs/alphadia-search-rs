@@ -1,7 +1,7 @@
 use crate::dia_data::AlphaRawView;
-use crate::dia_data_next_gen::DIAData;
+use crate::dia_data::DIAData;
 use crate::mz_index::MZIndex;
-use crate::quadrupole_observation_next_gen::QuadrupoleObservation;
+use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 
 /// DIAData builder with single-pass binning and full parallelization

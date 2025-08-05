@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters
+from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters
 import os
 import pandas as pd
 import numpy as np
@@ -61,7 +61,7 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     logger.info(f"DIADataNextGen creation time: {creation_time:.4f} seconds")
 
     logger.info("Setting up scoring parameters")
-    scoring_params = ScoringParameters()
+    selection_params = SelectionParameters()
 
     spec_lib_flat = SpecLibFlat.from_arrays(
         alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
@@ -82,17 +82,17 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
         'rt_tolerance': 200.0,
         'candidate_count': 5
     }
-    scoring_params.update(config_dict)
+    selection_params.update(config_dict)
 
     logger.info(f"Using parameters: {config_dict}")
 
-    # Create peak group scoring
-    peak_group_scoring = PeakGroupScoring(scoring_params)
+    # Create peak group selection
+    peak_group_selection = PeakGroupSelection(selection_params)
 
     # Measure search time
     logger.info("Running candidate selection...")
     start_time = time.perf_counter()
-    candidates = peak_group_scoring.search_next_gen(rs_data_next_gen, spec_lib_flat)
+    candidates = peak_group_selection.search_next_gen(rs_data_next_gen, spec_lib_flat)
     end_time = time.perf_counter()
     search_time = end_time - start_time
     logger.info(f"Candidate selection time: {search_time:.4f} seconds")

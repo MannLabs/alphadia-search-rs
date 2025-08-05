@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIADataNextGen, ScoringParameters, CandidateCollection
+from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters, CandidateCollection
 import os
 import pandas as pd
 import numpy as np

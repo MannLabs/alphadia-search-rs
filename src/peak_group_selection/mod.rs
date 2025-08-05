@@ -15,7 +15,7 @@ use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::SpecLibFlat;
 
 pub mod parameters;
-pub use parameters::ScoringParameters;
+pub use parameters::SelectionParameters;
 
 /// Finds local maxima in a 1D array.
 /// A local maximum is defined as a point that is higher than the 2 points to its left and right.
@@ -64,15 +64,15 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
 }
 
 #[pyclass]
-pub struct PeakGroupScoring {
+pub struct PeakGroupSelection {
     kernel: GaussianKernel,
-    params: ScoringParameters,
+    params: SelectionParameters,
 }
 
 #[pymethods]
-impl PeakGroupScoring {
+impl PeakGroupSelection {
     #[new]
-    pub fn new(params: ScoringParameters) -> Self {
+    pub fn new(params: SelectionParameters) -> Self {
         Self {
             kernel: GaussianKernel::new(
                 params.fwhm_rt,
@@ -97,7 +97,7 @@ impl PeakGroupScoring {
     }
 }
 
-impl PeakGroupScoring {
+impl PeakGroupSelection {
     /// Generic search function that works with any type implementing DIADataTrait
     fn search_generic<T: DIADataTrait + Sync>(
         &self,

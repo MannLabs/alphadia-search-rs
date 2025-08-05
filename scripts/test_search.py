@@ -119,7 +119,7 @@ if __name__ == "__main__":
     # Measure search time
     logger.info("Searching with DIADataNextGen...")
     start_time = time.perf_counter()
-    candidates_next_gen = peak_group_selection.search_next_gen(rs_data_next_gen, speclib)
+    candidates_next_gen = peak_group_selection.search(rs_data_next_gen, speclib)
     end_time = time.perf_counter()
     search_time_next_gen = end_time - start_time
     logger.info(f"DIADataNextGen search time: {search_time_next_gen:.4f} seconds")

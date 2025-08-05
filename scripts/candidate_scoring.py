@@ -162,7 +162,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     logger.info(f"Scoring candidates")
 
     # Get candidate features
-    candidate_features = peak_group_scoring.score_next_gen(rs_data_next_gen, spec_lib_flat, candidates)
+    candidate_features = peak_group_scoring.score(rs_data_next_gen, spec_lib_flat, candidates)
 
     # Convert features to dictionary of arrays
     features_dict = candidate_features.to_dict_arrays()

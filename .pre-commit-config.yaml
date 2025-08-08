@@ -20,14 +20,14 @@ repos:
 
       - id: ruff-check-scripts
         name: ruff check scripts
-        entry: bash -c 'source ~/miniconda3/etc/profile.d/conda.sh && conda activate alpha && ruff check scripts/'
+        entry: ruff check scripts/
         language: system
         files: ^scripts/.*\.py$
         pass_filenames: false
 
       - id: ruff-format-scripts
         name: ruff format scripts
-        entry: bash -c 'source ~/miniconda3/etc/profile.d/conda.sh && conda activate alpha && ruff format scripts/'
+        entry: ruff format scripts/
         language: system
         files: ^scripts/.*\.py$
         pass_filenames: false

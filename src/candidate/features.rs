@@ -2,6 +2,28 @@ use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+// Single source of truth for feature names (f32 features)
+pub const FEATURE_NAMES: &[&str] = &[
+    "score",
+    "mean_correlation",
+    "median_correlation",
+    "correlation_std",
+    "intensity_correlation",
+    "num_fragments",
+    "num_scans",
+    "num_over_95",
+    "num_over_90",
+    "num_over_80",
+    "num_over_50",
+    "hyperscore_intensity_observation",
+    "hyperscore_intensity_library",
+    "rt_observed",
+    "delta_rt",
+    "longest_b_series",
+    "longest_y_series",
+    "naa",
+];
+
 #[derive(Debug, Clone)]
 pub struct CandidateFeature {
     pub precursor_idx: usize,
@@ -186,26 +208,7 @@ impl CandidateFeatureCollection {
 
     #[staticmethod]
     pub fn get_feature_names() -> Vec<String> {
-        vec![
-            "score".to_string(),
-            "mean_correlation".to_string(),
-            "median_correlation".to_string(),
-            "correlation_std".to_string(),
-            "intensity_correlation".to_string(),
-            "num_fragments".to_string(),
-            "num_scans".to_string(),
-            "num_over_95".to_string(),
-            "num_over_90".to_string(),
-            "num_over_80".to_string(),
-            "num_over_50".to_string(),
-            "hyperscore_intensity_observation".to_string(),
-            "hyperscore_intensity_library".to_string(),
-            "rt_observed".to_string(),
-            "delta_rt".to_string(),
-            "longest_b_series".to_string(),
-            "longest_y_series".to_string(),
-            "naa".to_string(),
-        ]
+        FEATURE_NAMES.iter().map(|s| s.to_string()).collect()
     }
 }
 

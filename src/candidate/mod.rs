@@ -1,6 +1,3 @@
-//! Candidate scoring and feature extraction for neural network classification.
-//!
-
 mod entry;
 mod features;
 

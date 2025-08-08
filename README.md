@@ -67,6 +67,28 @@ The script will automatically:
 - Processing speed: ~200k+ precursors per second
 - Results: ~11M candidates found
 
+## Scripts
+
+The `scripts/` directory contains analysis pipelines for processing DIA-MS data:
+
+
+### Key Scripts
+
+
+1. **Candidate Selection**: Takes a calibrated speclib as an input and an AlphaRaw hdf. Performs candidate selection and saves the candidates.
+   ```bash
+   python scripts/candidate_selection.py --ms_data_path data.hdf --spec_lib_path lib.hdf --output_folder ./output
+   ```
+
+2. **Candidate Scoring**: Performs scoring following selection. Takes input from previous step and save precursor at 1% FDR.
+   ```bash
+   python scripts/candidate_scoring.py --ms_data_path data.hdf --spec_lib_path lib.hdf --candidates_path candidates.parquet --fdr --quantify
+   ```
+   - option to perform quantification with `--quantify`
+   - option to perform FDR adn filter @1% with `--fdr`
+   - option to add diagnosis plot for all features with `--diagnosis`
+
+
 ## CLI Benchmarking
 
 ### Score Benchmark Tool

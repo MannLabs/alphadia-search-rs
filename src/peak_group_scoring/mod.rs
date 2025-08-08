@@ -8,7 +8,8 @@ use crate::candidate::{
 use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data_next_gen::DIADataNextGen;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, correlation_axis_0, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, calculate_hyperscore, calculate_longest_ion_series,
+    correlation_axis_0, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -172,6 +173,33 @@ impl PeakGroupScoring {
         let num_fragments = precursor.fragment_mz.len();
         let num_scans = cycle_stop_idx - cycle_start_idx;
 
+        let matched_mask_intensity: Vec<bool> =
+            observation_intensities.iter().map(|&x| x > 0.0).collect();
+        let observation_intensities_slice = observation_intensities.as_slice().unwrap();
+
+        let hyperscore_intensity_observation = calculate_hyperscore(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+        );
+
+        let hyperscore_intensity_library = calculate_hyperscore(
+            &precursor.fragment_type,
+            &precursor.fragment_intensity,
+            &matched_mask_intensity,
+        );
+
+        // Calculate longest continuous ion series
+        let (longest_b_series, longest_y_series) = calculate_longest_ion_series(
+            &precursor.fragment_type,
+            &precursor.fragment_number,
+            &matched_mask_intensity,
+        );
+
+        // Calculate retention time features
+        let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
+        let delta_rt = rt_observed - precursor.rt;
+
         // Create and return candidate feature
         CandidateFeature::new(
             candidate.precursor_idx,
@@ -187,6 +215,13 @@ impl PeakGroupScoring {
             num_over_90,
             num_over_80,
             num_over_50,
+            hyperscore_intensity_observation,
+            hyperscore_intensity_library,
+            rt_observed,
+            delta_rt,
+            longest_b_series,
+            longest_y_series,
+            precursor.naa,
         )
     }
 }

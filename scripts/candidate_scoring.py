@@ -7,6 +7,8 @@ import numpy as np
 import logging
 import time
 import argparse
+import matplotlib.pyplot as plt
+import seaborn as sns
 from alpharaw.ms_data_base import MSData_Base
 from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
@@ -71,7 +73,7 @@ def create_dia_data_next_gen(ms_data):
         ms_data.spectrum_df['peak_start_idx'].values,
         ms_data.spectrum_df['peak_stop_idx'].values,
         ms_data.spectrum_df['cycle_idx'].values,
-        ms_data.spectrum_df['rt'].values.astype(np.float32),
+        ms_data.spectrum_df['rt'].values.astype(np.float32)*60.0,
     )
     peak_arrays = (
         ms_data.peak_df['mz'].values.astype(np.float32),
@@ -109,6 +111,7 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
         alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
         alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
+        alpha_base_spec_lib_flat.precursor_df['nAA'].values.astype(np.uint8),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
@@ -180,7 +183,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
 
 
     features_df = features_df.merge(
-        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'decoy','elution_group_idx','channel']],
+        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'decoy','elution_group_idx','channel','proteins']],
         on='precursor_idx',
         how='left'
     )
@@ -216,7 +219,11 @@ def run_fdr_filtering(result_df, output_folder):
     available_columns = ['score', 'mean_correlation',
            'median_correlation', 'correlation_std', 'intensity_correlation',
            'num_fragments', 'num_scans', 'num_over_95', 'num_over_90',
-           'num_over_80', 'num_over_50']
+           'num_over_80', 'num_over_50', 'hyperscore_intensity_observation',
+           'hyperscore_intensity_library', 'rt_observed', 'delta_rt','longest_b_series',
+           'longest_y_series', 'naa']
+
+    logger.info(f"Performing NN based FDR with {len(available_columns)} features")
 
     psm_df = perform_fdr(
         classifier,
@@ -235,6 +242,162 @@ def run_fdr_filtering(result_df, output_folder):
     logger.info(f"Saved FDR-filtered features to: {fdr_output_path}")
 
     return psm_df
+
+def get_diagnosis_features(result_df, fdr_filtered_df):
+    """
+    Get best scoring target and decoy for each unique elution group from FDR-filtered results.
+    Uses the original result_df to get paired decoys, not just FDR-filtered decoys.
+
+    Parameters
+    ----------
+    result_df : pd.DataFrame
+        DataFrame with scored candidates including decoy column and elution_group_idx
+    fdr_filtered_df : pd.DataFrame
+        DataFrame with FDR-filtered results (q-value <= 0.01)
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with best scoring target and decoy for each unique elution group
+    """
+    logger.info("Getting diagnosis features for unique elution groups")
+
+    # Get unique elution groups from FDR-filtered results
+    unique_elution_groups = fdr_filtered_df['elution_group_idx'].unique()
+    logger.info(f"Found {len(unique_elution_groups):,} unique elution groups with FDR < 0.01")
+
+    # For each unique elution group, get the best scoring target and decoy
+    diagnosis_features_list = []
+
+    for elution_group_idx in unique_elution_groups:
+        # Get all candidates for this elution group from the original result_df (not FDR-filtered)
+        group_candidates = result_df[result_df['elution_group_idx'] == elution_group_idx]
+
+        # Get best scoring target
+        target_candidates = group_candidates[group_candidates['decoy'] == 0]
+        if len(target_candidates) > 0:
+            best_target = target_candidates.loc[target_candidates['score'].idxmax()]
+            diagnosis_features_list.append(best_target)
+
+        # Get best scoring decoy from the original result_df (paired decoy)
+        decoy_candidates = group_candidates[group_candidates['decoy'] == 1]
+        if len(decoy_candidates) > 0:
+            best_decoy = decoy_candidates.loc[decoy_candidates['score'].idxmax()]
+            diagnosis_features_list.append(best_decoy)
+
+    diagnosis_features_df = pd.DataFrame(diagnosis_features_list)
+
+    logger.info(f"Created diagnosis features DataFrame with {len(diagnosis_features_df):,} rows")
+    logger.info(f"Target candidates: {len(diagnosis_features_df[diagnosis_features_df['decoy'] == 0]):,}")
+    logger.info(f"Decoy candidates: {len(diagnosis_features_df[diagnosis_features_df['decoy'] == 1]):,}")
+
+    return diagnosis_features_df
+
+def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
+    """
+    Plot histograms of all features from diagnosis features DataFrame colored by decoy and target using seaborn.
+
+    Parameters
+    ----------
+    diagnosis_features_df : pd.DataFrame
+        DataFrame with best scoring target and decoy for each unique elution group
+    output_folder : str
+        Path to output folder for saving plots
+    """
+    logger.info("Creating diagnosis feature histograms using seaborn")
+
+    # Set up the plotting style
+    plt.style.use('default')
+    sns.set_palette("husl")
+
+    # Define features to plot (excluding non-numeric columns)
+    feature_columns = ['score', 'mean_correlation', 'median_correlation', 'correlation_std',
+                      'intensity_correlation', 'num_fragments', 'num_scans', 'num_over_95',
+                      'num_over_90', 'num_over_80', 'num_over_50', 'hyperscore_intensity_observation',
+                      'hyperscore_intensity_library', 'rt_observed', 'delta_rt', 'longest_b_series',
+                      'longest_y_series', 'naa']
+
+    # Filter to only include columns that exist in the DataFrame
+    available_features = [col for col in feature_columns if col in diagnosis_features_df.columns]
+
+    if not available_features:
+        logger.warning("No feature columns found in DataFrame")
+        return
+
+    logger.info(f"Plotting histograms for {len(available_features)} features")
+
+    # Calculate number of rows and columns for subplot layout
+    n_features = len(available_features)
+    n_cols = 4  # 4 columns
+    n_rows = (n_features + n_cols - 1) // n_cols  # Ceiling division
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 5 * n_rows))
+    fig.suptitle('Diagnosis Feature Distributions: Target vs Decoy (Best per Elution Group)', fontsize=16, fontweight='bold')
+
+    # Flatten axes array for easier indexing
+    if n_rows == 1:
+        axes = axes.reshape(1, -1)
+    axes = axes.flatten()
+
+    # Plot each feature
+    for idx, feature in enumerate(available_features):
+        ax = axes[idx]
+
+        # Filter data for this feature (remove NaN values)
+        feature_data = diagnosis_features_df[['decoy', feature]].dropna()
+
+        if len(feature_data) == 0:
+            ax.text(0.5, 0.5, 'No data', transform=ax.transAxes,
+                   ha='center', va='center', fontsize=12)
+            ax.set_title(f'{feature}', fontweight='bold')
+            continue
+
+        # Create a long-form DataFrame for seaborn
+        plot_data = feature_data.copy()
+        plot_data['Type'] = plot_data['decoy'].map({0: 'Target', 1: 'Decoy'})
+
+        # Calculate shared bins across all data for this feature
+        all_values = plot_data[feature].values
+        bins = np.linspace(all_values.min(), all_values.max(), 51)  # 50 bins
+
+        # Plot histograms using seaborn with shared bins
+        sns.histplot(data=plot_data, x=feature, hue='Type', bins=bins,
+                    stat='density', alpha=0.7, ax=ax,
+                    palette={'Target': 'blue', 'Decoy': 'red'})
+
+        # Customize plot
+        ax.set_title(f'{feature}', fontweight='bold')
+        ax.set_xlabel(feature)
+        ax.set_ylabel('Density')
+        ax.grid(True, alpha=0.3)
+
+        # Add statistics text
+        target_data = plot_data[plot_data['Type'] == 'Target'][feature]
+        decoy_data = plot_data[plot_data['Type'] == 'Decoy'][feature]
+
+        target_mean = target_data.mean() if len(target_data) > 0 else 0
+        decoy_mean = decoy_data.mean() if len(decoy_data) > 0 else 0
+        target_count = len(target_data)
+        decoy_count = len(decoy_data)
+        stats_text = f'Target: {target_count} (mean: {target_mean:.3f})\nDecoy: {decoy_count} (mean: {decoy_mean:.3f})'
+        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=8)
+
+    # Hide empty subplots
+    for idx in range(len(available_features), len(axes)):
+        axes[idx].set_visible(False)
+
+    # Adjust layout
+    plt.tight_layout()
+
+    # Save the plot
+    plot_path = os.path.join(output_folder, "diagnosis_feature_histograms.pdf")
+    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    logger.info(f"Saved diagnosis feature histograms to: {plot_path}")
+
+    # Close the figure to free memory
+    plt.close()
 
 def main():
     parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
@@ -257,6 +420,9 @@ def main():
     parser.add_argument("--fdr",
                        action="store_true",
                        help="Run FDR filtering on scored candidates")
+    parser.add_argument("--diagnosis",
+                       action="store_true",
+                       help="Generate diagnosis features (best target/decoy per elution group with FDR < 0.01)")
     args = parser.parse_args()
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
@@ -274,14 +440,22 @@ def main():
     # Run scoring and get features
     result_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
 
-    # Run FDR if requested
-    if args.fdr:
-        result_df = run_fdr_filtering(result_df, args.output_folder)
+    # Run FDR filtering
+    fdr_filtered_df = None
+    if args.fdr or args.diagnosis:
+        fdr_filtered_df = run_fdr_filtering(result_df, args.output_folder)
+
+    # Generate diagnosis features if requested
+    if args.diagnosis and fdr_filtered_df is not None:
+        # Store original result_df before it gets overwritten by FDR-filtered version
+
+        diagnosis_features_df = get_diagnosis_features(result_df, fdr_filtered_df)
+        plot_diagnosis_feature_histograms(diagnosis_features_df, args.output_folder)
 
     # Save results
     output_path = os.path.join(args.output_folder, "candidate_features.parquet")
-    result_df.to_parquet(output_path)
-    logger.info(f"Saved {len(result_df):,} candidate features to: {output_path}")
+    fdr_filtered_df.to_parquet(output_path)
+    logger.info(f"Saved {len(fdr_filtered_df):,} candidate features to: {output_path}")
 
 if __name__ == "__main__":
     main()

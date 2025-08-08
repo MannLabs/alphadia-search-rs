@@ -1,3 +1,4 @@
+use crate::constants::FragmentType;
 use numpy::ndarray::Array2;
 use std::f32;
 
@@ -139,4 +140,158 @@ pub fn calculate_correlation_safe(x: &[f32], y: &[f32]) -> f32 {
 /// Returns 0.0 if correlation cannot be calculated safely
 pub fn correlation(x: &[f32], y: &[f32]) -> f32 {
     calculate_correlation_safe(x, y)
+}
+
+/// Calculate hyperscore similar to X! Tandem and MSFragger
+///
+/// hyperscore = log(Nb! * Ny! * sum(Ib,i) * sum(Iy,i))
+/// where:
+/// - Nb = number of matched b-ions
+/// - Ny = number of matched y-ions
+/// - Ib,i = intensities of matched b-ions
+/// - Iy,i = intensities of matched y-ions
+///
+/// Fragment types are encoded as ASCII values:
+/// - b-ion = 98 (ASCII 'b')
+/// - y-ion = 121 (ASCII 'y')
+///   (other fragment types exist but are not used in hyperscore)
+pub fn calculate_hyperscore(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+    {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b_intensity = 0.0f32;
+    let mut sum_y_intensity = 0.0f32;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 {
+            continue;
+        }
+
+        match fragment_types[i] {
+            FragmentType::B => {
+                // b-ion
+                n_b += 1;
+                sum_b_intensity += fragment_intensities[i];
+            }
+            FragmentType::Y => {
+                // y-ion
+                n_y += 1;
+                sum_y_intensity += fragment_intensities[i];
+            }
+            _ => {
+                // Other fragment types not used in hyperscore
+            }
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    // Calculate factorial using gamma function: n! = Γ(n+1)
+    let factorial_b = if n_b > 0 {
+        gamma_ln(n_b as f32 + 1.0)
+    } else {
+        0.0
+    };
+    let factorial_y = if n_y > 0 {
+        gamma_ln(n_y as f32 + 1.0)
+    } else {
+        0.0
+    };
+
+    // Calculate hyperscore: log(Nb! * Ny! * sum(Ib) * sum(Iy))
+    let hyperscore =
+        factorial_b + factorial_y + sum_b_intensity.ln().max(0.0) + sum_y_intensity.ln().max(0.0);
+
+    if hyperscore.is_finite() && hyperscore > 0.0 {
+        hyperscore
+    } else {
+        0.0
+    }
+}
+
+/// Natural logarithm of gamma function using Stirling's approximation
+/// For factorial calculation: ln(n!) = ln(Γ(n+1))
+/// Always uses approximation as requested, except for special cases
+fn gamma_ln(x: f32) -> f32 {
+    if x <= 0.0 {
+        return 0.0;
+    }
+
+    if (x - 1.0).abs() < 1e-6 {
+        return 0.0; // ln(Γ(1)) = ln(0!) = ln(1) = 0
+    }
+
+    if (x - 2.0).abs() < 1e-6 {
+        return 0.0; // ln(Γ(2)) = ln(1!) = ln(1) = 0
+    }
+
+    // Stirling's approximation: ln(Γ(x)) ≈ (x-0.5)*ln(x) - x + 0.5*ln(2π)
+    let ln_2pi = 1.837_877_f32;
+    (x - 0.5) * x.ln() - x + 0.5 * ln_2pi
+}
+
+/// Calculate longest continuous b and y ion series scores
+/// Returns (longest_b_series, longest_y_series) based on increasing fragment_number values
+pub fn calculate_longest_ion_series(
+    fragment_types: &[u8],
+    fragment_numbers: &[u8],
+    matched_mask: &[bool],
+) -> (u8, u8) {
+    if fragment_types.len() != matched_mask.len() || fragment_types.len() != fragment_numbers.len()
+    {
+        return (0, 0);
+    }
+
+    // Collect matched b and y ions with their fragment numbers
+    let mut b_ions: Vec<u8> = Vec::new();
+    let mut y_ions: Vec<u8> = Vec::new();
+
+    for i in 0..fragment_types.len() {
+        if matched_mask[i] {
+            match fragment_types[i] {
+                FragmentType::B => b_ions.push(fragment_numbers[i]),
+                FragmentType::Y => y_ions.push(fragment_numbers[i]),
+                _ => {}
+            }
+        }
+    }
+
+    // Helper function to find longest continuous sequence
+    let find_longest_sequence = |mut ions: Vec<u8>| -> u8 {
+        if ions.is_empty() {
+            return 0;
+        }
+
+        ions.sort_unstable();
+
+        let mut max_length = 1u8;
+        let mut current_length = 1u8;
+
+        for i in 1..ions.len() {
+            if ions[i] == ions[i - 1] + 1 {
+                current_length += 1;
+                max_length = max_length.max(current_length);
+            } else {
+                current_length = 1;
+            }
+        }
+
+        max_length
+    };
+
+    let longest_b = find_longest_sequence(b_ions);
+    let longest_y = find_longest_sequence(y_ions);
+
+    (longest_b, longest_y)
 }

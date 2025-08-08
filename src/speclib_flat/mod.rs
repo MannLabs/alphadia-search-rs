@@ -10,6 +10,8 @@ pub struct SpecLibFlat {
     precursor_mz: Vec<f32>,
     /// Precursor retention times, sorted according to precursor_idx order
     precursor_rt: Vec<f32>,
+    /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
+    precursor_naa: Vec<u8>,
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     precursor_start_idx: Vec<usize>,
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
@@ -40,6 +42,7 @@ impl SpecLibFlat {
             precursor_idx: Vec::new(),
             precursor_mz: Vec::new(),
             precursor_rt: Vec::new(),
+            precursor_naa: Vec::new(),
             precursor_start_idx: Vec::new(),
             precursor_stop_idx: Vec::new(),
             fragment_mz: Vec::new(),
@@ -59,6 +62,7 @@ impl SpecLibFlat {
         precursor_idx: PyReadonlyArray1<'_, usize>,
         precursor_mz: PyReadonlyArray1<'_, f32>,
         precursor_rt: PyReadonlyArray1<'_, f32>,
+        precursor_naa: PyReadonlyArray1<'_, u8>,
         precursor_start_idx: PyReadonlyArray1<'_, usize>,
         precursor_stop_idx: PyReadonlyArray1<'_, usize>,
         fragment_mz: PyReadonlyArray1<'_, f32>,
@@ -74,6 +78,7 @@ impl SpecLibFlat {
         let precursor_idx_vec = precursor_idx.as_array().to_vec();
         let precursor_mz_vec = precursor_mz.as_array().to_vec();
         let precursor_rt_vec = precursor_rt.as_array().to_vec();
+        let precursor_naa_vec = precursor_naa.as_array().to_vec();
         let precursor_start_idx_vec = precursor_start_idx.as_array().to_vec();
         let precursor_stop_idx_vec = precursor_stop_idx.as_array().to_vec();
         let fragment_mz_vec = fragment_mz.as_array().to_vec();
@@ -96,6 +101,7 @@ impl SpecLibFlat {
             indices.iter().map(|&i| precursor_idx_vec[i]).collect();
         let sorted_precursor_mz: Vec<f32> = indices.iter().map(|&i| precursor_mz_vec[i]).collect();
         let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt_vec[i]).collect();
+        let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa_vec[i]).collect();
         let sorted_precursor_start_idx: Vec<usize> = indices
             .iter()
             .map(|&i| precursor_start_idx_vec[i])
@@ -107,6 +113,7 @@ impl SpecLibFlat {
             precursor_idx: sorted_precursor_idx,
             precursor_mz: sorted_precursor_mz,
             precursor_rt: sorted_precursor_rt,
+            precursor_naa: sorted_precursor_naa,
             precursor_start_idx: sorted_precursor_start_idx,
             precursor_stop_idx: sorted_precursor_stop_idx,
             fragment_mz: fragment_mz_vec,
@@ -229,6 +236,7 @@ impl SpecLibFlat {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];
         let precursor_rt = self.precursor_rt[index];
+        let precursor_naa = self.precursor_naa[index];
         let start_idx = self.precursor_start_idx[index];
         let stop_idx = self.precursor_stop_idx[index];
 
@@ -245,6 +253,7 @@ impl SpecLibFlat {
             idx: precursor_idx,
             mz: precursor_mz,
             rt: precursor_rt,
+            naa: precursor_naa,
             fragment_mz,
             fragment_intensity,
             fragment_cardinality,
@@ -265,6 +274,7 @@ impl SpecLibFlat {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];
         let precursor_rt = self.precursor_rt[index];
+        let precursor_naa = self.precursor_naa[index];
         let start_idx = self.precursor_start_idx[index];
         let stop_idx = self.precursor_stop_idx[index];
 
@@ -303,6 +313,7 @@ impl SpecLibFlat {
             idx: precursor_idx,
             mz: precursor_mz,
             rt: precursor_rt,
+            naa: precursor_naa,
             fragment_mz,
             fragment_intensity,
             fragment_cardinality,

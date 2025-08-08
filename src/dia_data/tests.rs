@@ -27,15 +27,15 @@ fn create_mock_alpha_raw_view<'a>(
 }
 
 #[test]
-fn test_dia_data_next_gen_creation() {
-    let dia_data = DIADataNextGen::new();
+fn test_dia_data_creation() {
+    let dia_data = DIAData::new();
     assert_eq!(dia_data.num_observations(), 0);
     assert!(dia_data.mz_index.len() > 0); // Should have some default mz index
 }
 
 #[test]
 fn test_default_implementation() {
-    let dia_data = DIADataNextGen::default();
+    let dia_data = DIAData::default();
     assert_eq!(dia_data.num_observations(), 0);
     assert!(dia_data.mz_index.len() > 0);
     assert!(dia_data.rt_index.rt.len() == 0); // RT index should be empty for new instance
@@ -69,9 +69,9 @@ fn test_from_alpha_raw_view() {
         &peak_intensity,
     );
 
-    // Test that we can build DIADataNextGen from AlphaRawView directly
-    use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    // Test that we can build DIAData from AlphaRawView directly
+    use crate::dia_data_builder::DIADataBuilder;
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     assert_eq!(dia_data.num_observations(), 2);
     assert!(dia_data.mz_index.len() > 0);
@@ -109,8 +109,8 @@ fn test_get_valid_observations() {
         &peak_intensity,
     );
 
-    use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    use crate::dia_data_builder::DIADataBuilder;
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Test valid observations for different m/z values
     let valid_for_112 = dia_data.get_valid_observations(112.0);
@@ -166,8 +166,8 @@ fn test_observation_consistency() {
         &peak_intensity,
     );
 
-    use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    use crate::dia_data_builder::DIADataBuilder;
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Verify the number of observations matches expected
     assert_eq!(dia_data.num_observations(), 3);
@@ -203,7 +203,7 @@ fn test_observation_consistency() {
 
 #[test]
 fn test_empty_data_handling() {
-    let dia_data = DIADataNextGen::new();
+    let dia_data = DIAData::new();
 
     // Test empty data behavior
     assert_eq!(dia_data.num_observations(), 0);

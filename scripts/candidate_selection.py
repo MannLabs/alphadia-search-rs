@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIADataNextGen, SelectionParameters
+from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
 import os
 import pandas as pd
 import numpy as np
@@ -35,9 +35,9 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     """
     logger = logging.getLogger(__name__)
 
-    logger.info("Creating DIADataNextGen from MSData_Base")
+    logger.info("Creating DIAData from MSData_Base")
 
-    # Prepare arrays for DIADataNextGen
+    # Prepare arrays for DIAData
     spectrum_arrays = (
         ms_data.spectrum_df['delta_scan_idx'].values,
         ms_data.spectrum_df['isolation_lower_mz'].values.astype(np.float32),
@@ -52,13 +52,13 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
         ms_data.peak_df['intensity'].values.astype(np.float32)
     )
     start_time = time.perf_counter()
-    rs_data_next_gen = DIADataNextGen.from_arrays(
+    rs_data_next_gen = DIAData.from_arrays(
         *spectrum_arrays,
         *peak_arrays
     )
     end_time = time.perf_counter()
     creation_time = end_time - start_time
-    logger.info(f"DIADataNextGen creation time: {creation_time:.4f} seconds")
+    logger.info(f"DIAData creation time: {creation_time:.4f} seconds")
 
     logger.info("Setting up scoring parameters")
     selection_params = SelectionParameters()

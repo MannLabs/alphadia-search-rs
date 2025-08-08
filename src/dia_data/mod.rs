@@ -1,31 +1,31 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
-
-use crate::dia_data::AlphaRawView;
-use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
+mod alpha_raw_view;
+use crate::dia_data_builder::DIADataBuilder;
 use crate::mz_index::MZIndex;
-use crate::quadrupole_observation_next_gen::QuadrupoleObservationNextGen;
+use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
+pub use alpha_raw_view::AlphaRawView;
 
-/// Next generation DIAData structure using optimized memory layout
+/// DIAData structure using optimized memory layout
 ///
 /// This structure achieves >99.9% memory overhead reduction compared to the original
 /// by using consolidated arrays instead of millions of individual allocations.
 #[pyclass]
-pub struct DIADataNextGen {
+pub struct DIAData {
     pub mz_index: MZIndex,
     pub rt_index: RTIndex,
-    pub quadrupole_observations: Vec<QuadrupoleObservationNextGen>,
+    pub quadrupole_observations: Vec<QuadrupoleObservation>,
 }
 
-impl Default for DIADataNextGen {
+impl Default for DIAData {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[pymethods]
-impl DIADataNextGen {
+impl DIAData {
     #[new]
     pub fn new() -> Self {
         Self {
@@ -62,7 +62,7 @@ impl DIADataNextGen {
         );
 
         // Use optimized builder
-        let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+        let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
         Ok(dia_data)
     }
 
@@ -90,7 +90,7 @@ impl DIADataNextGen {
         total_size += self.rt_index.rt.len() * std::mem::size_of::<f32>();
 
         // Size of quadrupole_observations Vec overhead
-        total_size += std::mem::size_of::<Vec<QuadrupoleObservationNextGen>>();
+        total_size += std::mem::size_of::<Vec<QuadrupoleObservation>>();
 
         // Size of each optimized QuadrupoleObservation
         for obs in &self.quadrupole_observations {
@@ -106,10 +106,9 @@ impl DIADataNextGen {
     }
 }
 
-// Implement the DIADataTrait for DIADataNextGen
-impl crate::traits::DIADataTrait for DIADataNextGen {
-    type QuadrupoleObservation =
-        crate::quadrupole_observation_next_gen::QuadrupoleObservationNextGen;
+// Implement the DIADataTrait for DIAData
+impl crate::traits::DIADataTrait for DIAData {
+    type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
 
     fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
         self.get_valid_observations(precursor_mz)

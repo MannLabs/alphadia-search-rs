@@ -1,6 +1,6 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
-use crate::dia_data_builder_next_gen::OptimizedDIADataBuilder;
+use crate::dia_data_builder::DIADataBuilder;
 use numpy::ndarray::ArrayView1;
 
 fn create_simple_alpha_raw() -> AlphaRawView<'static> {
@@ -30,7 +30,7 @@ fn create_simple_alpha_raw() -> AlphaRawView<'static> {
 #[test]
 fn test_basic_creation() {
     let alpha_raw = create_simple_alpha_raw();
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
     let fragment_mz = vec![125.0];
 
     let obs = DenseXICObservation::new(&dia_data, 125.0, 10, 12, 20.0, &fragment_mz);
@@ -42,7 +42,7 @@ fn test_basic_creation() {
 #[test]
 fn test_optimized_data_creation() {
     let alpha_raw = create_simple_alpha_raw();
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
     let fragment_mz = vec![125.0];
 
     let obs = DenseXICObservation::new(&dia_data, 125.0, 10, 11, 20.0, &fragment_mz);
@@ -54,7 +54,7 @@ fn test_optimized_data_creation() {
 #[test]
 fn test_empty_fragments() {
     let alpha_raw = create_simple_alpha_raw();
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
     let fragment_mz: Vec<f32> = vec![];
 
     let obs = DenseXICObservation::new(&dia_data, 125.0, 10, 12, 20.0, &fragment_mz);
@@ -66,7 +66,7 @@ fn test_empty_fragments() {
 #[test]
 fn test_metadata_storage() {
     let alpha_raw = create_simple_alpha_raw();
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
     let fragment_mz = vec![125.0];
 
     let obs = DenseXICObservation::new(&dia_data, 125.0, 10, 15, 50.0, &fragment_mz);
@@ -80,7 +80,7 @@ fn test_metadata_storage() {
 #[test]
 fn test_multiple_fragments() {
     let alpha_raw = create_simple_alpha_raw();
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
     let fragment_mz = vec![125.0, 125.1, 130.0];
 
     let obs = DenseXICObservation::new(&dia_data, 125.0, 10, 12, 20.0, &fragment_mz);

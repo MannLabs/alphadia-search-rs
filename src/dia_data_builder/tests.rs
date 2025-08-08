@@ -67,7 +67,7 @@ fn test_optimized_builder_basic_functionality() {
         &peak_intensity,
     );
 
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Should have 3 observations (delta_scan_idx 0, 1, 2)
     assert_eq!(dia_data.num_observations(), 3);
@@ -106,7 +106,7 @@ fn test_observation_isolation_windows() {
         &peak_intensity,
     );
 
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Test isolation windows for each observation
     let obs0 = &dia_data.quadrupole_observations[0];
@@ -151,7 +151,7 @@ fn test_valid_observations() {
         &peak_intensity,
     );
 
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Test precursor matching
     let valid_for_112 = dia_data.get_valid_observations(112.0);
@@ -194,8 +194,8 @@ fn test_parallel_building_deterministic() {
     );
 
     // Build multiple times to ensure deterministic results
-    let dia_data1 = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
-    let dia_data2 = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    let dia_data1 = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    let dia_data2 = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Results should be identical
     assert_eq!(dia_data1.num_observations(), dia_data2.num_observations());
@@ -236,7 +236,7 @@ fn test_cycle_ordering_preservation() {
         &peak_intensity,
     );
 
-    let dia_data = OptimizedDIADataBuilder::from_alpha_raw(&alpha_raw_view);
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Find the mz_idx for our test m/z
     let mz_idx = dia_data.mz_index.find_closest_index(120.0);

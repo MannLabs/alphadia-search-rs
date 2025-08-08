@@ -1,5 +1,12 @@
+//! AlphaRawView: zero-copy view over AlphaRaw spectrum and peak arrays
+//!
+//! This module provides the `AlphaRawView` struct, a lightweight view over
+//! NumPy-backed arrays passed from Python via PyO3 and the `numpy` crate.
+//! It is designed to interoperate with Python code and provides a zero-copy view over the data.
+
 use numpy::ndarray::{ArrayBase, Dim, ViewRepr};
 
+/// Zero-copy view over AlphaRaw arrays borrowed from Python
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
     pub isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,

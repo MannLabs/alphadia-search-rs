@@ -4,12 +4,12 @@ use numpy::ndarray::ArrayViewMut1;
 #[cfg(test)]
 mod tests;
 
-/// Optimized QuadrupoleObservation structure that achieves >99.9% memory overhead reduction
+/// QuadrupoleObservation structure that achieves >99.9% memory overhead reduction
 ///
 /// Instead of millions of XICSlice objects with individual Vec allocations,
 /// this uses consolidated arrays with index-based slicing.
 #[derive(Debug, Clone)]
-pub struct QuadrupoleObservationNextGen {
+pub struct QuadrupoleObservation {
     pub isolation_window: [f32; 2],
     pub num_cycles: usize,
 
@@ -24,7 +24,7 @@ pub struct QuadrupoleObservationNextGen {
     pub intensities: Vec<f32>,
 }
 
-impl QuadrupoleObservationNextGen {
+impl QuadrupoleObservation {
     /// Create a new empty observation with exact pre-allocation
     pub fn new_with_capacity(
         isolation_window: [f32; 2],
@@ -128,8 +128,8 @@ impl QuadrupoleObservationNextGen {
     }
 }
 
-// Implement the QuadrupoleObservationTrait for QuadrupoleObservationNextGen
-impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservationNextGen {
+// Implement the QuadrupoleObservationTrait for QuadrupoleObservation
+impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,

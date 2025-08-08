@@ -220,13 +220,13 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     return features_df
 
 
-def run_fdr_filtering(result_df, candidates_df, output_folder):
+def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
     """
     Run FDR filtering on scored candidates.
 
     Parameters
     ----------
-    result_df : pd.DataFrame
+    psm_scored_df : pd.DataFrame
         DataFrame with scored candidates including decoy column
     candidates_df : pd.DataFrame
         Original candidates DataFrame
@@ -236,7 +236,7 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
     Returns
     -------
     tuple[pd.DataFrame, pd.DataFrame]
-        FDR-filtered PSMs with q-value <= 0.01 and corresponding candidates_filtered
+        FDR-filtered PSMs with q-value <= 0.01 and corresponding candidates_filtered_df
     """
     logger.info("Running FDR filtering")
 
@@ -272,8 +272,10 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
     logger.info(f"Performing NN based FDR with {len(available_columns)} features")
 
     # Create composite index for proper matching
-    result_df["precursor_idx_rank"] = (
-        result_df["precursor_idx"].astype(str) + "_" + result_df["rank"].astype(str)
+    psm_scored_df["precursor_idx_rank"] = (
+        psm_scored_df["precursor_idx"].astype(str)
+        + "_"
+        + psm_scored_df["rank"].astype(str)
     )
     candidates_df["precursor_idx_rank"] = (
         candidates_df["precursor_idx"].astype(str)
@@ -284,20 +286,20 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
     psm_df = perform_fdr(
         classifier,
         available_columns,
-        result_df[result_df["decoy"] == 0].copy(),
-        result_df[result_df["decoy"] == 1].copy(),
+        psm_scored_df[psm_scored_df["decoy"] == 0].copy(),
+        psm_scored_df[psm_scored_df["decoy"] == 1].copy(),
         competetive=True,
     )
 
     psm_df = psm_df[psm_df["qval"] <= 0.01]
     logger.info(f"After FDR filtering (q-value <= 0.01): {len(psm_df):,} PSMs")
 
-    # Create candidates_filtered using precursor_idx_rank index
-    candidates_filtered = candidates_df[
+    # Create candidates_filtered_df using precursor_idx_rank index
+    candidates_filtered_df = candidates_df[
         candidates_df["precursor_idx_rank"].isin(psm_df["precursor_idx_rank"])
     ].copy()
     logger.info(
-        f"Created candidates_filtered with {len(candidates_filtered):,} candidates that passed 1% FDR"
+        f"Created candidates_filtered_df with {len(candidates_filtered_df):,} candidates that passed 1% FDR"
     )
 
     # Save FDR results
@@ -308,22 +310,22 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
     candidates_filtered_path = os.path.join(
         output_folder, "candidates_filtered.parquet"
     )
-    candidates_filtered.to_parquet(candidates_filtered_path)
-    logger.info(f"Saved candidates_filtered to: {candidates_filtered_path}")
+    candidates_filtered_df.to_parquet(candidates_filtered_path)
+    logger.info(f"Saved candidates_filtered_df to: {candidates_filtered_path}")
 
-    return psm_df, candidates_filtered
+    return psm_df, candidates_filtered_df
 
 
-def get_diagnosis_features(result_df, fdr_filtered_df):
+def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
     """
     Get best scoring target and decoy for each unique elution group from FDR-filtered results.
-    Uses the original result_df to get paired decoys, not just FDR-filtered decoys.
+    Uses the original psm_scored_df to get paired decoys, not just FDR-filtered decoys.
 
     Parameters
     ----------
-    result_df : pd.DataFrame
+    psm_scored_df : pd.DataFrame
         DataFrame with scored candidates including decoy column and elution_group_idx
-    fdr_filtered_df : pd.DataFrame
+    psm_fdr_passed_df : pd.DataFrame
         DataFrame with FDR-filtered results (q-value <= 0.01)
 
     Returns
@@ -334,7 +336,7 @@ def get_diagnosis_features(result_df, fdr_filtered_df):
     logger.info("Getting diagnosis features for unique elution groups")
 
     # Get unique elution groups from FDR-filtered results
-    unique_elution_groups = fdr_filtered_df["elution_group_idx"].unique()
+    unique_elution_groups = psm_fdr_passed_df["elution_group_idx"].unique()
     logger.info(
         f"Found {len(unique_elution_groups):,} unique elution groups with FDR < 0.01"
     )
@@ -343,9 +345,9 @@ def get_diagnosis_features(result_df, fdr_filtered_df):
     diagnosis_features_list = []
 
     for elution_group_idx in unique_elution_groups:
-        # Get all candidates for this elution group from the original result_df (not FDR-filtered)
-        group_candidates = result_df[
-            result_df["elution_group_idx"] == elution_group_idx
+        # Get all candidates for this elution group from the original psm_scored_df (not FDR-filtered)
+        group_candidates = psm_scored_df[
+            psm_scored_df["elution_group_idx"] == elution_group_idx
         ]
 
         # Get best scoring target
@@ -354,7 +356,7 @@ def get_diagnosis_features(result_df, fdr_filtered_df):
             best_target = target_candidates.loc[target_candidates["score"].idxmax()]
             diagnosis_features_list.append(best_target)
 
-        # Get best scoring decoy from the original result_df (paired decoy)
+        # Get best scoring decoy from the original psm_scored_df (paired decoy)
         decoy_candidates = group_candidates[group_candidates["decoy"] == 1]
         if len(decoy_candidates) > 0:
             best_decoy = decoy_candidates.loc[decoy_candidates["score"].idxmax()]
@@ -524,7 +526,7 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     plt.close()
 
 
-def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
+def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered_df):
     """
     Run peak group quantification on FDR-filtered candidates.
 
@@ -534,7 +536,7 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
         AlphaRaw MSData_Base object containing spectrum data
     spec_lib_flat : AlphaBaseSpecLibFlat
         Alphabase spectral library in flat format
-    candidates_filtered : pd.DataFrame
+    candidates_filtered_df : pd.DataFrame
         FDR-filtered candidates DataFrame
 
     Returns
@@ -543,7 +545,7 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
         Quantified spectral library
     """
     logger.info(
-        f"Running peak group quantification on {len(candidates_filtered):,} FDR-filtered candidates"
+        f"Running peak group quantification on {len(candidates_filtered_df):,} FDR-filtered candidates"
     )
 
     # Create DIAData and SpecLibFlat objects
@@ -554,15 +556,15 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
     cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
 
     candidates_collection = CandidateCollection.from_arrays(
-        candidates_filtered["precursor_idx"].values.astype(np.uint64),
-        candidates_filtered["rank"].values.astype(np.uint64),
-        candidates_filtered["score"].values.astype(np.float32),
-        candidates_filtered["scan_center"].values.astype(np.uint64),
-        candidates_filtered["scan_start"].values.astype(np.uint64),
-        candidates_filtered["scan_stop"].values.astype(np.uint64),
-        candidates_filtered["frame_center"].values.astype(np.uint64) // cycle_len,
-        candidates_filtered["frame_start"].values.astype(np.uint64) // cycle_len,
-        candidates_filtered["frame_stop"].values.astype(np.uint64) // cycle_len,
+        candidates_filtered_df["precursor_idx"].values.astype(np.uint64),
+        candidates_filtered_df["rank"].values.astype(np.uint64),
+        candidates_filtered_df["score"].values.astype(np.float32),
+        candidates_filtered_df["scan_center"].values.astype(np.uint64),
+        candidates_filtered_df["scan_start"].values.astype(np.uint64),
+        candidates_filtered_df["scan_stop"].values.astype(np.uint64),
+        candidates_filtered_df["frame_center"].values.astype(np.uint64) // cycle_len,
+        candidates_filtered_df["frame_start"].values.astype(np.uint64) // cycle_len,
+        candidates_filtered_df["frame_stop"].values.astype(np.uint64) // cycle_len,
     )
 
     # Create quantification parameters
@@ -632,34 +634,36 @@ def main():
     candidates = load_candidates_from_parquet(args.candidates_path, args.top_n)
 
     # Run scoring and get features
-    result_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
+    psm_scored_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)
 
     # Run FDR filtering
-    fdr_filtered_df = None
-    candidates_filtered = None
+    psm_fdr_passed_df = None
+    candidates_filtered_df = None
     if args.fdr or args.diagnosis or args.quantify:
-        fdr_filtered_df, candidates_filtered = run_fdr_filtering(
-            result_df, candidates, args.output_folder
+        psm_fdr_passed_df, candidates_filtered_df = run_fdr_filtering(
+            psm_scored_df, candidates, args.output_folder
         )
 
     # Generate diagnosis features if requested
-    if args.diagnosis and fdr_filtered_df is not None:
-        diagnosis_features_df = get_diagnosis_features(result_df, fdr_filtered_df)
+    if args.diagnosis and psm_fdr_passed_df is not None:
+        diagnosis_features_df = get_diagnosis_features(psm_scored_df, psm_fdr_passed_df)
         plot_diagnosis_feature_histograms(diagnosis_features_df, args.output_folder)
 
     # Run peak group quantification if requested
-    if args.quantify and candidates_filtered is not None:
-        _ = run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered)
+    if args.quantify and candidates_filtered_df is not None:
+        _ = run_peak_group_quantification(
+            ms_data, spec_lib_flat, candidates_filtered_df
+        )
         logger.info(
-            f"Peak group quantification completed for {len(candidates_filtered):,} candidates"
+            f"Peak group quantification completed for {len(candidates_filtered_df):,} candidates"
         )
 
     # Save results
-    if fdr_filtered_df is not None:
+    if psm_fdr_passed_df is not None:
         output_path = os.path.join(args.output_folder, "candidate_features.parquet")
-        fdr_filtered_df.to_parquet(output_path)
+        psm_fdr_passed_df.to_parquet(output_path)
         logger.info(
-            f"Saved {len(fdr_filtered_df):,} candidate features to: {output_path}"
+            f"Saved {len(psm_fdr_passed_df):,} candidate features to: {output_path}"
         )
 
 

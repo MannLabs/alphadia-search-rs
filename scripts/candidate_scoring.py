@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 
-from alphadia_ng import SpecLibFlat, PeakGroupScoring, DIAData, ScoringParameters, CandidateCollection, PeakGroupQuantification, QuantificationParameters
+from alphadia_ng import (
+    SpecLibFlat,
+    PeakGroupScoring,
+    DIAData,
+    ScoringParameters,
+    CandidateCollection,
+    PeakGroupQuantification,
+    QuantificationParameters,
+)
 import os
 import pandas as pd
 import numpy as np
@@ -16,10 +24,10 @@ from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
+
 
 def load_candidates_from_parquet(candidates_path, top_n=None):
     """
@@ -44,11 +52,12 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
 
     # Filter top N candidates by highest score if specified
     if top_n is not None:
-        candidates_df = candidates_df.nlargest(top_n, 'score')
+        candidates_df = candidates_df.nlargest(top_n, "score")
         logger.info(f"Filtered to top {len(candidates_df):,} candidates by score")
 
     # The function load_candidates_from_parquet returns a DataFrame, not a CandidateCollection
     return candidates_df
+
 
 def create_dia_data_next_gen(ms_data):
     """
@@ -67,29 +76,27 @@ def create_dia_data_next_gen(ms_data):
     logger.info("Creating DIAData from MSData_Base")
 
     spectrum_arrays = (
-        ms_data.spectrum_df['delta_scan_idx'].values,
-        ms_data.spectrum_df['isolation_lower_mz'].values.astype(np.float32),
-        ms_data.spectrum_df['isolation_upper_mz'].values.astype(np.float32),
-        ms_data.spectrum_df['peak_start_idx'].values,
-        ms_data.spectrum_df['peak_stop_idx'].values,
-        ms_data.spectrum_df['cycle_idx'].values,
-        ms_data.spectrum_df['rt'].values.astype(np.float32)*60.0,
+        ms_data.spectrum_df["delta_scan_idx"].values,
+        ms_data.spectrum_df["isolation_lower_mz"].values.astype(np.float32),
+        ms_data.spectrum_df["isolation_upper_mz"].values.astype(np.float32),
+        ms_data.spectrum_df["peak_start_idx"].values,
+        ms_data.spectrum_df["peak_stop_idx"].values,
+        ms_data.spectrum_df["cycle_idx"].values,
+        ms_data.spectrum_df["rt"].values.astype(np.float32) * 60.0,
     )
     peak_arrays = (
-        ms_data.peak_df['mz'].values.astype(np.float32),
-        ms_data.peak_df['intensity'].values.astype(np.float32)
+        ms_data.peak_df["mz"].values.astype(np.float32),
+        ms_data.peak_df["intensity"].values.astype(np.float32),
     )
 
     start_time = time.perf_counter()
-    rs_data_next_gen = DIAData.from_arrays(
-        *spectrum_arrays,
-        *peak_arrays
-    )
+    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays)
     end_time = time.perf_counter()
     creation_time = end_time - start_time
     logger.info(f"DIAData creation time: {creation_time:.4f} seconds")
 
     return rs_data_next_gen
+
 
 def create_spec_lib_flat(alpha_base_spec_lib_flat):
     """
@@ -108,23 +115,32 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
     logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 
     spec_lib_flat = SpecLibFlat.from_arrays(
-        alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['nAA'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['cardinality'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['charge'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['loss_type'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['number'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['position'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['type'].values.astype(np.uint8)
+        alpha_base_spec_lib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
+        alpha_base_spec_lib_flat.precursor_df["mz_calibrated"].values.astype(
+            np.float32
+        ),
+        alpha_base_spec_lib_flat.precursor_df["rt_calibrated"].values.astype(
+            np.float32
+        ),
+        alpha_base_spec_lib_flat.precursor_df["nAA"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.precursor_df["flat_frag_start_idx"].values.astype(
+            np.uint64
+        ),
+        alpha_base_spec_lib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
+            np.uint64
+        ),
+        alpha_base_spec_lib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
+        alpha_base_spec_lib_flat.fragment_df["intensity"].values.astype(np.float32),
+        alpha_base_spec_lib_flat.fragment_df["cardinality"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["charge"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["loss_type"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["number"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["position"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["type"].values.astype(np.uint8),
     )
 
     return spec_lib_flat
+
 
 def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     """
@@ -147,33 +163,37 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
 
-    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
+    cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
 
     # Convert DataFrame to CandidateCollection
     candidates = CandidateCollection.from_arrays(
-        candidates_df['precursor_idx'].values.astype(np.uint64),
-        candidates_df['rank'].values.astype(np.uint64),
-        candidates_df['score'].values.astype(np.float32),
-        candidates_df['scan_center'].values.astype(np.uint64),
-        candidates_df['scan_start'].values.astype(np.uint64),
-        candidates_df['scan_stop'].values.astype(np.uint64),
-        candidates_df['frame_center'].values.astype(np.uint64) // cycle_len,
-        candidates_df['frame_start'].values.astype(np.uint64) // cycle_len,
-        candidates_df['frame_stop'].values.astype(np.uint64) // cycle_len,
+        candidates_df["precursor_idx"].values.astype(np.uint64),
+        candidates_df["rank"].values.astype(np.uint64),
+        candidates_df["score"].values.astype(np.float32),
+        candidates_df["scan_center"].values.astype(np.uint64),
+        candidates_df["scan_start"].values.astype(np.uint64),
+        candidates_df["scan_stop"].values.astype(np.uint64),
+        candidates_df["frame_center"].values.astype(np.uint64) // cycle_len,
+        candidates_df["frame_start"].values.astype(np.uint64) // cycle_len,
+        candidates_df["frame_stop"].values.astype(np.uint64) // cycle_len,
     )
 
     scoring_params = ScoringParameters()
-    scoring_params.update({
-        'top_k_fragments': 99,
-        'mass_tolerance': 7.0,
-    })
+    scoring_params.update(
+        {
+            "top_k_fragments": 99,
+            "mass_tolerance": 7.0,
+        }
+    )
 
     peak_group_scoring = PeakGroupScoring(scoring_params)
 
     logger.info(f"Scoring {len(candidates_df):,} candidates")
 
     # Get candidate features
-    candidate_features = peak_group_scoring.score(rs_data_next_gen, spec_lib_flat, candidates)
+    candidate_features = peak_group_scoring.score(
+        rs_data_next_gen, spec_lib_flat, candidates
+    )
 
     # Convert features to dictionary of arrays
     features_dict = candidate_features.to_dict_arrays()
@@ -181,14 +201,24 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     # Create DataFrame from features
     features_df = pd.DataFrame(features_dict)
 
-
     features_df = features_df.merge(
-        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'decoy','elution_group_idx','channel','proteins','rt_calibrated','rt_library']],
-        on='precursor_idx',
-        how='left'
+        alpha_base_spec_lib_flat.precursor_df[
+            [
+                "precursor_idx",
+                "decoy",
+                "elution_group_idx",
+                "channel",
+                "proteins",
+                "rt_calibrated",
+                "rt_library",
+            ]
+        ],
+        on="precursor_idx",
+        how="left",
     )
 
     return features_df
+
 
 def run_fdr_filtering(result_df, candidates_df, output_folder):
     """
@@ -218,18 +248,38 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
         experimental_hyperparameter_tuning=True,
     )
 
-    available_columns = ['score', 'mean_correlation',
-           'median_correlation', 'correlation_std', 'intensity_correlation',
-           'num_fragments', 'num_scans', 'num_over_95', 'num_over_90',
-           'num_over_80', 'num_over_50', 'hyperscore_intensity_observation',
-           'hyperscore_intensity_library', 'rt_observed', 'delta_rt','longest_b_series',
-           'longest_y_series', 'naa']
+    available_columns = [
+        "score",
+        "mean_correlation",
+        "median_correlation",
+        "correlation_std",
+        "intensity_correlation",
+        "num_fragments",
+        "num_scans",
+        "num_over_95",
+        "num_over_90",
+        "num_over_80",
+        "num_over_50",
+        "hyperscore_intensity_observation",
+        "hyperscore_intensity_library",
+        "rt_observed",
+        "delta_rt",
+        "longest_b_series",
+        "longest_y_series",
+        "naa",
+    ]
 
     logger.info(f"Performing NN based FDR with {len(available_columns)} features")
 
     # Create composite index for proper matching
-    result_df['precursor_idx_rank'] = result_df['precursor_idx'].astype(str) + '_' + result_df['rank'].astype(str)
-    candidates_df['precursor_idx_rank'] = candidates_df['precursor_idx'].astype(str) + '_' + candidates_df['rank'].astype(str)
+    result_df["precursor_idx_rank"] = (
+        result_df["precursor_idx"].astype(str) + "_" + result_df["rank"].astype(str)
+    )
+    candidates_df["precursor_idx_rank"] = (
+        candidates_df["precursor_idx"].astype(str)
+        + "_"
+        + candidates_df["rank"].astype(str)
+    )
 
     psm_df = perform_fdr(
         classifier,
@@ -243,20 +293,27 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
     logger.info(f"After FDR filtering (q-value <= 0.01): {len(psm_df):,} PSMs")
 
     # Create candidates_filtered using precursor_idx_rank index
-    psm_idx_rank = psm_df['precursor_idx_rank']
-    candidates_filtered = candidates_df[candidates_df['precursor_idx_rank'].isin(psm_idx_rank)].copy()
-    logger.info(f"Created candidates_filtered with {len(candidates_filtered):,} candidates that passed 1% FDR")
+    psm_idx_rank = psm_df["precursor_idx_rank"]
+    candidates_filtered = candidates_df[
+        candidates_df["precursor_idx_rank"].isin(psm_idx_rank)
+    ].copy()
+    logger.info(
+        f"Created candidates_filtered with {len(candidates_filtered):,} candidates that passed 1% FDR"
+    )
 
     # Save FDR results
     fdr_output_path = os.path.join(output_folder, "candidate_features_fdr.parquet")
     psm_df.to_parquet(fdr_output_path)
     logger.info(f"Saved FDR-filtered features to: {fdr_output_path}")
 
-    candidates_filtered_path = os.path.join(output_folder, "candidates_filtered.parquet")
+    candidates_filtered_path = os.path.join(
+        output_folder, "candidates_filtered.parquet"
+    )
     candidates_filtered.to_parquet(candidates_filtered_path)
     logger.info(f"Saved candidates_filtered to: {candidates_filtered_path}")
 
     return psm_df, candidates_filtered
+
 
 def get_diagnosis_features(result_df, fdr_filtered_df):
     """
@@ -278,35 +335,46 @@ def get_diagnosis_features(result_df, fdr_filtered_df):
     logger.info("Getting diagnosis features for unique elution groups")
 
     # Get unique elution groups from FDR-filtered results
-    unique_elution_groups = fdr_filtered_df['elution_group_idx'].unique()
-    logger.info(f"Found {len(unique_elution_groups):,} unique elution groups with FDR < 0.01")
+    unique_elution_groups = fdr_filtered_df["elution_group_idx"].unique()
+    logger.info(
+        f"Found {len(unique_elution_groups):,} unique elution groups with FDR < 0.01"
+    )
 
     # For each unique elution group, get the best scoring target and decoy
     diagnosis_features_list = []
 
     for elution_group_idx in unique_elution_groups:
         # Get all candidates for this elution group from the original result_df (not FDR-filtered)
-        group_candidates = result_df[result_df['elution_group_idx'] == elution_group_idx]
+        group_candidates = result_df[
+            result_df["elution_group_idx"] == elution_group_idx
+        ]
 
         # Get best scoring target
-        target_candidates = group_candidates[group_candidates['decoy'] == 0]
+        target_candidates = group_candidates[group_candidates["decoy"] == 0]
         if len(target_candidates) > 0:
-            best_target = target_candidates.loc[target_candidates['score'].idxmax()]
+            best_target = target_candidates.loc[target_candidates["score"].idxmax()]
             diagnosis_features_list.append(best_target)
 
         # Get best scoring decoy from the original result_df (paired decoy)
-        decoy_candidates = group_candidates[group_candidates['decoy'] == 1]
+        decoy_candidates = group_candidates[group_candidates["decoy"] == 1]
         if len(decoy_candidates) > 0:
-            best_decoy = decoy_candidates.loc[decoy_candidates['score'].idxmax()]
+            best_decoy = decoy_candidates.loc[decoy_candidates["score"].idxmax()]
             diagnosis_features_list.append(best_decoy)
 
     diagnosis_features_df = pd.DataFrame(diagnosis_features_list)
 
-    logger.info(f"Created diagnosis features DataFrame with {len(diagnosis_features_df):,} rows")
-    logger.info(f"Target candidates: {len(diagnosis_features_df[diagnosis_features_df['decoy'] == 0]):,}")
-    logger.info(f"Decoy candidates: {len(diagnosis_features_df[diagnosis_features_df['decoy'] == 1]):,}")
+    logger.info(
+        f"Created diagnosis features DataFrame with {len(diagnosis_features_df):,} rows"
+    )
+    logger.info(
+        f"Target candidates: {len(diagnosis_features_df[diagnosis_features_df['decoy'] == 0]):,}"
+    )
+    logger.info(
+        f"Decoy candidates: {len(diagnosis_features_df[diagnosis_features_df['decoy'] == 1]):,}"
+    )
 
     return diagnosis_features_df
+
 
 def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     """
@@ -322,18 +390,35 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     logger.info("Creating diagnosis feature histograms using seaborn")
 
     # Set up the plotting style
-    plt.style.use('default')
+    plt.style.use("default")
     sns.set_palette("husl")
 
     # Define features to plot (excluding non-numeric columns)
-    feature_columns = ['score', 'mean_correlation', 'median_correlation', 'correlation_std',
-                      'intensity_correlation', 'num_fragments', 'num_scans', 'num_over_95',
-                      'num_over_90', 'num_over_80', 'num_over_50', 'hyperscore_intensity_observation',
-                      'hyperscore_intensity_library', 'rt_observed', 'delta_rt', 'longest_b_series',
-                      'longest_y_series', 'naa']
+    feature_columns = [
+        "score",
+        "mean_correlation",
+        "median_correlation",
+        "correlation_std",
+        "intensity_correlation",
+        "num_fragments",
+        "num_scans",
+        "num_over_95",
+        "num_over_90",
+        "num_over_80",
+        "num_over_50",
+        "hyperscore_intensity_observation",
+        "hyperscore_intensity_library",
+        "rt_observed",
+        "delta_rt",
+        "longest_b_series",
+        "longest_y_series",
+        "naa",
+    ]
 
     # Filter to only include columns that exist in the DataFrame
-    available_features = [col for col in feature_columns if col in diagnosis_features_df.columns]
+    available_features = [
+        col for col in feature_columns if col in diagnosis_features_df.columns
+    ]
 
     if not available_features:
         logger.warning("No feature columns found in DataFrame")
@@ -348,7 +433,11 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
 
     # Create figure with subplots
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 5 * n_rows))
-    fig.suptitle('Diagnosis Feature Distributions: Target vs Decoy (Best per Elution Group)', fontsize=16, fontweight='bold')
+    fig.suptitle(
+        "Diagnosis Feature Distributions: Target vs Decoy (Best per Elution Group)",
+        fontsize=16,
+        fontweight="bold",
+    )
 
     # Flatten axes array for easier indexing
     if n_rows == 1:
@@ -360,44 +449,65 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         ax = axes[idx]
 
         # Filter data for this feature (remove NaN values)
-        feature_data = diagnosis_features_df[['decoy', feature]].dropna()
+        feature_data = diagnosis_features_df[["decoy", feature]].dropna()
 
         if len(feature_data) == 0:
-            ax.text(0.5, 0.5, 'No data', transform=ax.transAxes,
-                   ha='center', va='center', fontsize=12)
-            ax.set_title(f'{feature}', fontweight='bold')
+            ax.text(
+                0.5,
+                0.5,
+                "No data",
+                transform=ax.transAxes,
+                ha="center",
+                va="center",
+                fontsize=12,
+            )
+            ax.set_title(f"{feature}", fontweight="bold")
             continue
 
         # Create a long-form DataFrame for seaborn
         plot_data = feature_data.copy()
-        plot_data['Type'] = plot_data['decoy'].map({0: 'Target', 1: 'Decoy'})
+        plot_data["Type"] = plot_data["decoy"].map({0: "Target", 1: "Decoy"})
 
         # Calculate shared bins across all data for this feature
         all_values = plot_data[feature].values
         bins = np.linspace(all_values.min(), all_values.max(), 51)  # 50 bins
 
         # Plot histograms using seaborn with shared bins
-        sns.histplot(data=plot_data, x=feature, hue='Type', bins=bins,
-                    stat='density', alpha=0.7, ax=ax,
-                    palette={'Target': 'blue', 'Decoy': 'red'})
+        sns.histplot(
+            data=plot_data,
+            x=feature,
+            hue="Type",
+            bins=bins,
+            stat="density",
+            alpha=0.7,
+            ax=ax,
+            palette={"Target": "blue", "Decoy": "red"},
+        )
 
         # Customize plot
-        ax.set_title(f'{feature}', fontweight='bold')
+        ax.set_title(f"{feature}", fontweight="bold")
         ax.set_xlabel(feature)
-        ax.set_ylabel('Density')
+        ax.set_ylabel("Density")
         ax.grid(True, alpha=0.3)
 
         # Add statistics text
-        target_data = plot_data[plot_data['Type'] == 'Target'][feature]
-        decoy_data = plot_data[plot_data['Type'] == 'Decoy'][feature]
+        target_data = plot_data[plot_data["Type"] == "Target"][feature]
+        decoy_data = plot_data[plot_data["Type"] == "Decoy"][feature]
 
         target_mean = target_data.mean() if len(target_data) > 0 else 0
         decoy_mean = decoy_data.mean() if len(decoy_data) > 0 else 0
         target_count = len(target_data)
         decoy_count = len(decoy_data)
-        stats_text = f'Target: {target_count} (mean: {target_mean:.3f})\nDecoy: {decoy_count} (mean: {decoy_mean:.3f})'
-        ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, verticalalignment='top',
-                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8), fontsize=8)
+        stats_text = f"Target: {target_count} (mean: {target_mean:.3f})\nDecoy: {decoy_count} (mean: {decoy_mean:.3f})"
+        ax.text(
+            0.02,
+            0.98,
+            stats_text,
+            transform=ax.transAxes,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8),
+            fontsize=8,
+        )
 
     # Hide empty subplots
     for idx in range(len(available_features), len(axes)):
@@ -408,11 +518,12 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
 
     # Save the plot
     plot_path = os.path.join(output_folder, "diagnosis_feature_histograms.pdf")
-    plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+    plt.savefig(plot_path, dpi=300, bbox_inches="tight")
     logger.info(f"Saved diagnosis feature histograms to: {plot_path}")
 
     # Close the figure to free memory
     plt.close()
+
 
 def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
     """
@@ -432,25 +543,27 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
     SpecLibFlatQuantified
         Quantified spectral library
     """
-    logger.info(f"Running peak group quantification on {len(candidates_filtered):,} FDR-filtered candidates")
+    logger.info(
+        f"Running peak group quantification on {len(candidates_filtered):,} FDR-filtered candidates"
+    )
 
     # Create DIAData and SpecLibFlat objects
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_ng = create_spec_lib_flat(spec_lib_flat)
 
     # Convert DataFrame to CandidateCollection
-    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
+    cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
 
     candidates_collection = CandidateCollection.from_arrays(
-        candidates_filtered['precursor_idx'].values.astype(np.uint64),
-        candidates_filtered['rank'].values.astype(np.uint64),
-        candidates_filtered['score'].values.astype(np.float32),
-        candidates_filtered['scan_center'].values.astype(np.uint64),
-        candidates_filtered['scan_start'].values.astype(np.uint64),
-        candidates_filtered['scan_stop'].values.astype(np.uint64),
-        candidates_filtered['frame_center'].values.astype(np.uint64) // cycle_len,
-        candidates_filtered['frame_start'].values.astype(np.uint64) // cycle_len,
-        candidates_filtered['frame_stop'].values.astype(np.uint64) // cycle_len,
+        candidates_filtered["precursor_idx"].values.astype(np.uint64),
+        candidates_filtered["rank"].values.astype(np.uint64),
+        candidates_filtered["score"].values.astype(np.float32),
+        candidates_filtered["scan_center"].values.astype(np.uint64),
+        candidates_filtered["scan_start"].values.astype(np.uint64),
+        candidates_filtered["scan_stop"].values.astype(np.uint64),
+        candidates_filtered["frame_center"].values.astype(np.uint64) // cycle_len,
+        candidates_filtered["frame_start"].values.astype(np.uint64) // cycle_len,
+        candidates_filtered["frame_stop"].values.astype(np.uint64) // cycle_len,
     )
 
     # Create quantification parameters
@@ -458,37 +571,53 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered):
 
     # Create and run quantification
     peak_group_quantification = PeakGroupQuantification(quant_params)
-    quantified_lib = peak_group_quantification.quantify(rs_data_next_gen, spec_lib_ng, candidates_collection)
+    quantified_lib = peak_group_quantification.quantify(
+        rs_data_next_gen, spec_lib_ng, candidates_collection
+    )
 
     return quantified_lib
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Run candidate scoring with MS data, spectral library, and candidates")
-    parser.add_argument("--ms_data_path",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/CPD_NE_000057_08.hdf",
-                       help="Path to the MS data file (HDF format)")
-    parser.add_argument("--spec_lib_path",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
-                       help="Path to the spectral library file (HDF format)")
-    parser.add_argument("--candidates_path",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/candidates.parquet",
-                       help="Path to the candidates file (parquet format)")
-    parser.add_argument("--output_folder",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib",
-                       help="Path to the output folder")
-    parser.add_argument("--top-n",
-                       type=int,
-                       default=10000,
-                       help="Top N candidates to score")
-    parser.add_argument("--fdr",
-                       action="store_true",
-                       help="Run FDR filtering on scored candidates")
-    parser.add_argument("--diagnosis",
-                       action="store_true",
-                       help="Generate diagnosis features (best target/decoy per elution group with FDR < 0.01)")
-    parser.add_argument("--quantify",
-                       action="store_true",
-                       help="Run peak group quantification on FDR-filtered candidates")
+    parser = argparse.ArgumentParser(
+        description="Run candidate scoring with MS data, spectral library, and candidates"
+    )
+    parser.add_argument(
+        "--ms_data_path",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/CPD_NE_000057_08.hdf",
+        help="Path to the MS data file (HDF format)",
+    )
+    parser.add_argument(
+        "--spec_lib_path",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
+        help="Path to the spectral library file (HDF format)",
+    )
+    parser.add_argument(
+        "--candidates_path",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/candidates.parquet",
+        help="Path to the candidates file (parquet format)",
+    )
+    parser.add_argument(
+        "--output_folder",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib",
+        help="Path to the output folder",
+    )
+    parser.add_argument(
+        "--top-n", type=int, default=10000, help="Top N candidates to score"
+    )
+    parser.add_argument(
+        "--fdr", action="store_true", help="Run FDR filtering on scored candidates"
+    )
+    parser.add_argument(
+        "--diagnosis",
+        action="store_true",
+        help="Generate diagnosis features (best target/decoy per elution group with FDR < 0.01)",
+    )
+    parser.add_argument(
+        "--quantify",
+        action="store_true",
+        help="Run peak group quantification on FDR-filtered candidates",
+    )
     args = parser.parse_args()
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
@@ -510,7 +639,9 @@ def main():
     fdr_filtered_df = None
     candidates_filtered = None
     if args.fdr or args.diagnosis or args.quantify:
-        fdr_filtered_df, candidates_filtered = run_fdr_filtering(result_df, candidates, args.output_folder)
+        fdr_filtered_df, candidates_filtered = run_fdr_filtering(
+            result_df, candidates, args.output_folder
+        )
 
     # Generate diagnosis features if requested
     if args.diagnosis and fdr_filtered_df is not None:
@@ -519,14 +650,19 @@ def main():
 
     # Run peak group quantification if requested
     if args.quantify and candidates_filtered is not None:
-        quantified_lib = run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered)
-        logger.info(f"Peak group quantification completed for {len(candidates_filtered):,} candidates")
+        _ = run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered)
+        logger.info(
+            f"Peak group quantification completed for {len(candidates_filtered):,} candidates"
+        )
 
     # Save results
     if fdr_filtered_df is not None:
         output_path = os.path.join(args.output_folder, "candidate_features.parquet")
         fdr_filtered_df.to_parquet(output_path)
-        logger.info(f"Saved {len(fdr_filtered_df):,} candidate features to: {output_path}")
+        logger.info(
+            f"Saved {len(fdr_filtered_df):,} candidate features to: {output_path}"
+        )
+
 
 if __name__ == "__main__":
     main()

@@ -25,12 +25,19 @@ impl SelectionParameters {
     #[new]
     pub fn new() -> Self {
         Self {
+            // FWHM of the RT gaussian kernel in seconds.
             fwhm_rt: 3.0,
+            // dimensionality of the dense gaussian kernel in number of cycles. Does not need to be changed.
             kernel_size: 20,
+            // Length of the peak in number of dia_cycles from the apex. similar to window parameter in DIA-NN. A peak length of 5 means center plus/minus 5 cycles.
             peak_length: 5,
+            // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
             mass_tolerance: 7.0,
+            // maximum retention time error expected for fragment matching in seconds.
             rt_tolerance: 200.0,
+            // maximum number of peak group candidates to select per precursor.
             candidate_count: 3,
+            // maximum number of fragments to use for selecting precursors from a DIAData object.
             top_k_fragments: 12,
         }
     }

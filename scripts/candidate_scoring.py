@@ -293,9 +293,8 @@ def run_fdr_filtering(result_df, candidates_df, output_folder):
     logger.info(f"After FDR filtering (q-value <= 0.01): {len(psm_df):,} PSMs")
 
     # Create candidates_filtered using precursor_idx_rank index
-    psm_idx_rank = psm_df["precursor_idx_rank"]
     candidates_filtered = candidates_df[
-        candidates_df["precursor_idx_rank"].isin(psm_idx_rank)
+        candidates_df["precursor_idx_rank"].isin(psm_df["precursor_idx_rank"])
     ].copy()
     logger.info(
         f"Created candidates_filtered with {len(candidates_filtered):,} candidates that passed 1% FDR"

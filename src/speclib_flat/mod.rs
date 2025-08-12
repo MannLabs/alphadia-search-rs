@@ -6,30 +6,60 @@ use pyo3::prelude::*;
 pub struct SpecLibFlat {
     /// Precursor indices, MUST be sorted in ascending order for binary search to work correctly
     precursor_idx: Vec<usize>,
+
+    /// Precursor m/z values, as originally stored in the library
+    /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
+    precursor_mz_library: Vec<f32>,
+
     /// Precursor m/z values, sorted according to precursor_idx order
+    /// Used for extraction of precursor XICs and selection of quadrupole windows
+    /// It's left to the caller if these are mz_library or mz_calibrated values
     precursor_mz: Vec<f32>,
+
+    /// Precursor retention times, as originally stored in the library
+    /// Needed for downstream optimizations where a calibration model learns rt_observed as function of rt_library
+    precursor_rt_library: Vec<f32>,
+
     /// Precursor retention times, sorted according to precursor_idx order
     precursor_rt: Vec<f32>,
+
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
     precursor_naa: Vec<u8>,
+
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     precursor_start_idx: Vec<usize>,
+
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
     precursor_stop_idx: Vec<usize>,
+
+    /// Fragment m/z values, as originally stored in the library
+    /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
+    fragment_mz_library: Vec<f32>,
+
     /// Fragment m/z values, expected to be sorted in ascending order within each precursor upon creation
+    /// These mz values are used for extraction of the fragment XIC
+    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// Mass errors etc. will be calculated against these values
     fragment_mz: Vec<f32>,
+
     /// Fragment intensity values in original library order (NOT sorted, maintains original order within each precursor)
     fragment_intensity: Vec<f32>,
+
     /// Fragment cardinality values
     fragment_cardinality: Vec<u8>,
+
     /// Fragment charge values
     fragment_charge: Vec<u8>,
+
     /// Fragment loss type values
     fragment_loss_type: Vec<u8>,
+
     /// Fragment number values
     fragment_number: Vec<u8>,
+
     /// Fragment position values
     fragment_position: Vec<u8>,
+
     /// Fragment type values
     fragment_type: Vec<u8>,
 }
@@ -40,11 +70,14 @@ impl SpecLibFlat {
     fn new() -> Self {
         Self {
             precursor_idx: Vec::new(),
+            precursor_mz_library: Vec::new(),
             precursor_mz: Vec::new(),
+            precursor_rt_library: Vec::new(),
             precursor_rt: Vec::new(),
             precursor_naa: Vec::new(),
             precursor_start_idx: Vec::new(),
             precursor_stop_idx: Vec::new(),
+            fragment_mz_library: Vec::new(),
             fragment_mz: Vec::new(),
             fragment_intensity: Vec::new(),
             fragment_cardinality: Vec::new(),
@@ -60,11 +93,14 @@ impl SpecLibFlat {
     #[allow(clippy::too_many_arguments)]
     fn from_arrays(
         precursor_idx: PyReadonlyArray1<'_, usize>,
+        precursor_mz_library: PyReadonlyArray1<'_, f32>,
         precursor_mz: PyReadonlyArray1<'_, f32>,
+        precursor_rt_library: PyReadonlyArray1<'_, f32>,
         precursor_rt: PyReadonlyArray1<'_, f32>,
         precursor_naa: PyReadonlyArray1<'_, u8>,
         precursor_start_idx: PyReadonlyArray1<'_, usize>,
         precursor_stop_idx: PyReadonlyArray1<'_, usize>,
+        fragment_mz_library: PyReadonlyArray1<'_, f32>,
         fragment_mz: PyReadonlyArray1<'_, f32>,
         fragment_intensity: PyReadonlyArray1<'_, f32>,
         fragment_cardinality: PyReadonlyArray1<'_, u8>,
@@ -76,11 +112,14 @@ impl SpecLibFlat {
     ) -> Self {
         // Convert arrays to vectors
         let precursor_idx_vec = precursor_idx.as_array().to_vec();
+        let precursor_mz_library_vec = precursor_mz_library.as_array().to_vec();
         let precursor_mz_vec = precursor_mz.as_array().to_vec();
+        let precursor_rt_library_vec = precursor_rt_library.as_array().to_vec();
         let precursor_rt_vec = precursor_rt.as_array().to_vec();
         let precursor_naa_vec = precursor_naa.as_array().to_vec();
         let precursor_start_idx_vec = precursor_start_idx.as_array().to_vec();
         let precursor_stop_idx_vec = precursor_stop_idx.as_array().to_vec();
+        let fragment_mz_library_vec = fragment_mz_library.as_array().to_vec();
         let fragment_mz_vec = fragment_mz.as_array().to_vec();
         let fragment_intensity_vec = fragment_intensity.as_array().to_vec();
         let fragment_cardinality_vec = fragment_cardinality.as_array().to_vec();
@@ -99,7 +138,15 @@ impl SpecLibFlat {
         // Reorder all precursor arrays according to sorted indices
         let sorted_precursor_idx: Vec<usize> =
             indices.iter().map(|&i| precursor_idx_vec[i]).collect();
+        let sorted_precursor_mz_library: Vec<f32> = indices
+            .iter()
+            .map(|&i| precursor_mz_library_vec[i])
+            .collect();
         let sorted_precursor_mz: Vec<f32> = indices.iter().map(|&i| precursor_mz_vec[i]).collect();
+        let sorted_precursor_rt_library: Vec<f32> = indices
+            .iter()
+            .map(|&i| precursor_rt_library_vec[i])
+            .collect();
         let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt_vec[i]).collect();
         let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa_vec[i]).collect();
         let sorted_precursor_start_idx: Vec<usize> = indices
@@ -111,11 +158,14 @@ impl SpecLibFlat {
 
         Self {
             precursor_idx: sorted_precursor_idx,
+            precursor_mz_library: sorted_precursor_mz_library,
             precursor_mz: sorted_precursor_mz,
+            precursor_rt_library: sorted_precursor_rt_library,
             precursor_rt: sorted_precursor_rt,
             precursor_naa: sorted_precursor_naa,
             precursor_start_idx: sorted_precursor_start_idx,
             precursor_stop_idx: sorted_precursor_stop_idx,
+            fragment_mz_library: fragment_mz_library_vec,
             fragment_mz: fragment_mz_vec,
             fragment_intensity: fragment_intensity_vec,
             fragment_cardinality: fragment_cardinality_vec,
@@ -142,6 +192,7 @@ impl SpecLibFlat {
 type FragmentData = (
     Vec<f32>,
     Vec<f32>,
+    Vec<f32>,
     Vec<u8>,
     Vec<u8>,
     Vec<u8>,
@@ -151,8 +202,10 @@ type FragmentData = (
 );
 
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub fn filter_fragments(
     fragment_mz: &[f32],
+    fragment_mz_library: &[f32],
     fragment_intensity: &[f32],
     fragment_cardinality: &[u8],
     fragment_charge: &[u8],
@@ -163,10 +216,12 @@ pub fn filter_fragments(
     non_zero: bool,
     top_k_fragments: usize,
 ) -> FragmentData {
-    let mut fragment_data: Vec<(f32, f32, u8, u8, u8, u8, u8, u8, usize)> = (0..fragment_mz.len())
+    let mut fragment_data: Vec<(f32, f32, f32, u8, u8, u8, u8, u8, u8, usize)> = (0..fragment_mz
+        .len())
         .map(|idx| {
             (
                 fragment_mz[idx],
+                fragment_mz_library[idx],
                 fragment_intensity[idx],
                 fragment_cardinality[idx],
                 fragment_charge[idx],
@@ -181,7 +236,7 @@ pub fn filter_fragments(
 
     // Filter non-zero intensities if requested
     if non_zero {
-        fragment_data.retain(|(_, intensity, _, _, _, _, _, _, _)| *intensity > 0.0);
+        fragment_data.retain(|(_, _, intensity, _, _, _, _, _, _, _)| *intensity > 0.0);
     }
 
     // Use partial sorting for top-k selection - much faster than full sort
@@ -189,14 +244,15 @@ pub fn filter_fragments(
     if k < fragment_data.len() {
         // Partial sort: only sort the k-th element and everything before it
         fragment_data.select_nth_unstable_by(k, |a, b| {
-            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal)
         });
         fragment_data.truncate(k);
     }
     // Sort by original index to maintain original m/z ordering
-    fragment_data.sort_by_key(|(_, _, _, _, _, _, _, _, idx)| *idx);
+    fragment_data.sort_by_key(|(_, _, _, _, _, _, _, _, _, idx)| *idx);
 
     let mut mz_vec = Vec::new();
+    let mut mz_library_vec = Vec::new();
     let mut intensity_vec = Vec::new();
     let mut cardinality_vec = Vec::new();
     let mut charge_vec = Vec::new();
@@ -205,10 +261,21 @@ pub fn filter_fragments(
     let mut position_vec = Vec::new();
     let mut type_vec = Vec::new();
 
-    for (mz, intensity, cardinality, charge, loss_type, number, position, frag_type, _) in
-        fragment_data
+    for (
+        mz,
+        mz_library,
+        intensity,
+        cardinality,
+        charge,
+        loss_type,
+        number,
+        position,
+        frag_type,
+        _,
+    ) in fragment_data
     {
         mz_vec.push(mz);
+        mz_library_vec.push(mz_library);
         intensity_vec.push(intensity);
         cardinality_vec.push(cardinality);
         charge_vec.push(charge);
@@ -220,6 +287,7 @@ pub fn filter_fragments(
 
     (
         mz_vec,
+        mz_library_vec,
         intensity_vec,
         cardinality_vec,
         charge_vec,
@@ -235,12 +303,15 @@ impl SpecLibFlat {
     pub fn get_precursor(&self, index: usize) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];
+        let precursor_mz_library = self.precursor_mz_library[index];
         let precursor_rt = self.precursor_rt[index];
+        let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
         let start_idx = self.precursor_start_idx[index];
         let stop_idx = self.precursor_stop_idx[index];
 
         let fragment_mz = self.fragment_mz[start_idx..stop_idx].to_vec();
+        let fragment_mz_library = self.fragment_mz_library[start_idx..stop_idx].to_vec();
         let fragment_intensity = self.fragment_intensity[start_idx..stop_idx].to_vec();
         let fragment_cardinality = self.fragment_cardinality[start_idx..stop_idx].to_vec();
         let fragment_charge = self.fragment_charge[start_idx..stop_idx].to_vec();
@@ -252,9 +323,12 @@ impl SpecLibFlat {
         Precursor {
             idx: precursor_idx,
             mz: precursor_mz,
+            mz_library: precursor_mz_library,
             rt: precursor_rt,
+            rt_library: precursor_rt_library,
             naa: precursor_naa,
             fragment_mz,
+            fragment_mz_library,
             fragment_intensity,
             fragment_cardinality,
             fragment_charge,
@@ -273,12 +347,15 @@ impl SpecLibFlat {
     ) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];
+        let precursor_mz_library = self.precursor_mz_library[index];
         let precursor_rt = self.precursor_rt[index];
+        let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
         let start_idx = self.precursor_start_idx[index];
         let stop_idx = self.precursor_stop_idx[index];
 
         let raw_fragment_mz = &self.fragment_mz[start_idx..stop_idx];
+        let raw_fragment_mz_library = &self.fragment_mz_library[start_idx..stop_idx];
         let raw_fragment_intensity = &self.fragment_intensity[start_idx..stop_idx];
         let raw_fragment_cardinality = &self.fragment_cardinality[start_idx..stop_idx];
         let raw_fragment_charge = &self.fragment_charge[start_idx..stop_idx];
@@ -289,6 +366,7 @@ impl SpecLibFlat {
 
         let (
             fragment_mz,
+            fragment_mz_library,
             fragment_intensity,
             fragment_cardinality,
             fragment_charge,
@@ -298,6 +376,7 @@ impl SpecLibFlat {
             fragment_type,
         ) = filter_fragments(
             raw_fragment_mz,
+            raw_fragment_mz_library,
             raw_fragment_intensity,
             raw_fragment_cardinality,
             raw_fragment_charge,
@@ -312,9 +391,12 @@ impl SpecLibFlat {
         Precursor {
             idx: precursor_idx,
             mz: precursor_mz,
+            mz_library: precursor_mz_library,
             rt: precursor_rt,
+            rt_library: precursor_rt_library,
             naa: precursor_naa,
             fragment_mz,
+            fragment_mz_library,
             fragment_intensity,
             fragment_cardinality,
             fragment_charge,

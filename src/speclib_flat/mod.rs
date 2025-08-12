@@ -201,9 +201,33 @@ type FragmentData = (
     Vec<u8>,
 );
 
+/// Filters and sorts fragments based on intensity and fragment m/z.
+///
+/// This function performs the following operations:
+/// 1. Optionally filters out fragments with zero intensity (if `non_zero` is true)
+/// 2. Selects the top-k fragments by intensity using partial sorting
+/// 3. Sorts the selected fragments by fragment_mz in ascending order
+///
+/// # Arguments
+///
+/// * `fragment_mz` - Fragment m/z values
+/// * `fragment_mz_library` - Library fragment m/z values
+/// * `fragment_intensity` - Fragment intensities
+/// * `fragment_cardinality` - Fragment cardinality values
+/// * `fragment_charge` - Fragment charge states
+/// * `fragment_loss_type` - Fragment loss type annotations
+/// * `fragment_number` - Fragment number annotations
+/// * `fragment_position` - Fragment position annotations
+/// * `fragment_type` - Fragment type annotations
+/// * `non_zero` - If true, filters out fragments with zero intensity
+/// * `top_k_fragments` - Maximum number of fragments to return (top-k by intensity)
+///
+/// # Returns
+///
+/// Returns a tuple of filtered and sorted fragment data vectors, ordered by fragment_mz ascending
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
-pub fn filter_fragments(
+pub fn filter_sort_fragments(
     fragment_mz: &[f32],
     fragment_mz_library: &[f32],
     fragment_intensity: &[f32],
@@ -248,8 +272,12 @@ pub fn filter_fragments(
         });
         fragment_data.truncate(k);
     }
-    // Sort by original index to maintain original m/z ordering
-    fragment_data.sort_by_key(|(_, _, _, _, _, _, _, _, _, idx)| *idx);
+    // Sort by fragment_mz in ascending order
+    fragment_data.sort_by(
+        |(a, _, _, _, _, _, _, _, _, _), (b, _, _, _, _, _, _, _, _, _)| {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        },
+    );
 
     let mut mz_vec = Vec::new();
     let mut mz_library_vec = Vec::new();
@@ -374,7 +402,7 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
-        ) = filter_fragments(
+        ) = filter_sort_fragments(
             raw_fragment_mz,
             raw_fragment_mz_library,
             raw_fragment_intensity,

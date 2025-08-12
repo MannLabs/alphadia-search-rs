@@ -118,87 +118,91 @@ impl SpecLibFlatQuantified {
 
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<pyo3::PyObject> {
         use numpy::IntoPyArray;
-        use pyo3::types::PyDict;
+        use pyo3::types::{PyDict, PyTuple};
 
-        let dict = PyDict::new(py);
+        let precursor_dict = PyDict::new(py);
+        let fragment_dict = PyDict::new(py);
 
         // Precursor arrays
-        dict.set_item("precursor_idx", self.precursor_idx.clone().into_pyarray(py))?;
-        dict.set_item(
+        precursor_dict.set_item("precursor_idx", self.precursor_idx.clone().into_pyarray(py))?;
+        precursor_dict.set_item(
             "precursor_mz_library",
             self.precursor_mz_library.clone().into_pyarray(py),
         )?;
-        dict.set_item("precursor_mz", self.precursor_mz.clone().into_pyarray(py))?;
-        dict.set_item(
+        precursor_dict.set_item("precursor_mz", self.precursor_mz.clone().into_pyarray(py))?;
+        precursor_dict.set_item(
             "precursor_rt_library",
             self.precursor_rt_library.clone().into_pyarray(py),
         )?;
-        dict.set_item("precursor_rt", self.precursor_rt.clone().into_pyarray(py))?;
-        dict.set_item("precursor_naa", self.precursor_naa.clone().into_pyarray(py))?;
-        dict.set_item(
+        precursor_dict.set_item("precursor_rt", self.precursor_rt.clone().into_pyarray(py))?;
+        precursor_dict.set_item("precursor_naa", self.precursor_naa.clone().into_pyarray(py))?;
+        precursor_dict.set_item(
             "precursor_rank",
             self.precursor_rank.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        precursor_dict.set_item(
             "precursor_rt_observed",
             self.precursor_rt_observed.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        precursor_dict.set_item(
             "precursor_start_idx",
             self.precursor_start_idx.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        precursor_dict.set_item(
             "precursor_stop_idx",
             self.precursor_stop_idx.clone().into_pyarray(py),
         )?;
 
         // Fragment arrays (library data)
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_mz_library",
             self.fragment_mz_library.clone().into_pyarray(py),
         )?;
-        dict.set_item("fragment_mz", self.fragment_mz.clone().into_pyarray(py))?;
-        dict.set_item(
+        fragment_dict.set_item("fragment_mz", self.fragment_mz.clone().into_pyarray(py))?;
+        fragment_dict.set_item(
             "fragment_intensity",
             self.fragment_intensity.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_cardinality",
             self.fragment_cardinality.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_charge",
             self.fragment_charge.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_loss_type",
             self.fragment_loss_type.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_number",
             self.fragment_number.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_position",
             self.fragment_position.clone().into_pyarray(py),
         )?;
-        dict.set_item("fragment_type", self.fragment_type.clone().into_pyarray(py))?;
+        fragment_dict.set_item("fragment_type", self.fragment_type.clone().into_pyarray(py))?;
 
         // Fragment arrays (quantified data)
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_mz_observed",
             self.fragment_mz_observed.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_correlation_observed",
             self.fragment_correlation_observed.clone().into_pyarray(py),
         )?;
-        dict.set_item(
+        fragment_dict.set_item(
             "fragment_mass_error_observed",
             self.fragment_mass_error_observed.clone().into_pyarray(py),
         )?;
 
-        Ok(dict.into())
+        let precursor_obj: pyo3::PyObject = precursor_dict.into();
+        let fragment_obj: pyo3::PyObject = fragment_dict.into();
+        let result_tuple = PyTuple::new(py, &[precursor_obj, fragment_obj])?;
+        Ok(result_tuple.into())
     }
 }
 

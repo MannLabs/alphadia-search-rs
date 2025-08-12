@@ -576,6 +576,15 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered_df
         rs_data_next_gen, spec_lib_ng, candidates_collection
     )
 
+    # Convert quantified library to DataFrames using the new tuple structure
+    precursor_dict, fragment_dict = quantified_lib.to_dict_arrays()
+    precursor_df = pd.DataFrame(precursor_dict)
+    fragment_df = pd.DataFrame(fragment_dict)
+
+    logger.info(
+        f"Created precursor_df with {len(precursor_df):,} rows and fragment_df with {len(fragment_df):,} rows"
+    )
+
     return quantified_lib
 
 

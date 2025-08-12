@@ -148,11 +148,11 @@ impl SpecLibFlatQuantified {
             self.precursor_rt_observed.clone().into_pyarray(py),
         )?;
         precursor_dict.set_item(
-            "frag_start_idx",
+            "flat_frag_start_idx",
             self.precursor_start_idx.clone().into_pyarray(py),
         )?;
         precursor_dict.set_item(
-            "frag_stop_idx",
+            "flat_frag_start_idx",
             self.precursor_stop_idx.clone().into_pyarray(py),
         )?;
 

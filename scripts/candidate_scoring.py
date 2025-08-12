@@ -585,7 +585,7 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered_df
         f"Created precursor_df with {len(precursor_df):,} rows and fragment_df with {len(fragment_df):,} rows"
     )
 
-    return quantified_lib
+    return precursor_df, fragment_df
 
 
 def main():
@@ -660,12 +660,22 @@ def main():
 
     # Run peak group quantification if requested
     if args.quantify and candidates_filtered_df is not None:
-        _ = run_peak_group_quantification(
+        precursor_quantified_df, fragment_quantified_df = run_peak_group_quantification(
             ms_data, spec_lib_flat, candidates_filtered_df
         )
         logger.info(
             f"Peak group quantification completed for {len(candidates_filtered_df):,} candidates"
         )
+
+        precursor_quantified_path = os.path.join(
+            args.output_folder, "precursor_quantified_df.parquet"
+        )
+        fragment_quantified_path = os.path.join(
+            args.output_folder, "fragment_quantified_df.parquet"
+        )
+
+        precursor_quantified_df.to_parquet(precursor_quantified_path)
+        fragment_quantified_df.to_parquet(fragment_quantified_path)
 
     # Save results
     if psm_fdr_passed_df is not None:

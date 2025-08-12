@@ -98,13 +98,13 @@ def create_dia_data_next_gen(ms_data):
     return rs_data_next_gen
 
 
-def create_spec_lib_flat(alpha_base_spec_lib_flat):
+def create_spec_lib_flat(alphabase_speclib_flat):
     """
     Create SpecLibFlat from alphabase SpecLibFlat object.
 
     Parameters
     ----------
-    alpha_base_spec_lib_flat : AlphaBaseSpecLibFlat
+    alphabase_speclib_flat : AlphaBaseSpecLibFlat
         Alphabase spectral library in flat format
 
     Returns
@@ -115,34 +115,30 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
     logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 
     spec_lib_flat = SpecLibFlat.from_arrays(
-        alpha_base_spec_lib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df["mz_calibrated"].values.astype(
-            np.float32
-        ),
-        alpha_base_spec_lib_flat.precursor_df["rt_calibrated"].values.astype(
-            np.float32
-        ),
-        alpha_base_spec_lib_flat.precursor_df["nAA"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.precursor_df["flat_frag_start_idx"].values.astype(
+        alphabase_speclib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
+        alphabase_speclib_flat.precursor_df["mz_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.precursor_df["rt_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.precursor_df["nAA"].values.astype(np.uint8),
+        alphabase_speclib_flat.precursor_df["flat_frag_start_idx"].values.astype(
             np.uint64
         ),
-        alpha_base_spec_lib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
+        alphabase_speclib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
             np.uint64
         ),
-        alpha_base_spec_lib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df["intensity"].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df["cardinality"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["charge"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["loss_type"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["number"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["position"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["type"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.fragment_df["intensity"].values.astype(np.float32),
+        alphabase_speclib_flat.fragment_df["cardinality"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["charge"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["loss_type"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["number"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["position"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["type"].values.astype(np.uint8),
     )
 
     return spec_lib_flat
 
 
-def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
+def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
     """
     Run candidate scoring using alphaRaw MSData_Base object, SpecLibFlat, and candidates.
 
@@ -150,7 +146,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     ----------
     ms_data : MSData_Base
         AlphaRaw MSData_Base object containing spectrum data
-    alpha_base_spec_lib_flat : SpecLibFlat
+    alphabase_speclib_flat : SpecLibFlat
         Spectral library in flat format
     candidates_df : pd.DataFrame
         Candidates DataFrame to score
@@ -161,7 +157,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
         Scored candidates DataFrame with features
     """
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
-    spec_lib_flat = create_spec_lib_flat(alpha_base_spec_lib_flat)
+    spec_lib_flat = create_spec_lib_flat(alphabase_speclib_flat)
 
     cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
 
@@ -202,7 +198,7 @@ def run_candidate_scoring(ms_data, alpha_base_spec_lib_flat, candidates_df):
     features_df = pd.DataFrame(features_dict)
 
     features_df = features_df.merge(
-        alpha_base_spec_lib_flat.precursor_df[
+        alphabase_speclib_flat.precursor_df[
             [
                 "precursor_idx",
                 "decoy",

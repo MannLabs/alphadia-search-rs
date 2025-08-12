@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
-import os
 import pandas as pd
 import numpy as np
 import logging
@@ -63,10 +62,13 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     logger.info("Setting up scoring parameters")
     selection_params = SelectionParameters()
 
+    logger.info(f"Creating SpecLibFlat with {alpha_base_spec_lib_flat.precursor_df.shape[0]} precursors")
+
     spec_lib_flat = SpecLibFlat.from_arrays(
         alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
         alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
+        alpha_base_spec_lib_flat.precursor_df['nAA'].values.astype(np.uint8),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
         alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
@@ -85,7 +87,7 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
         'kernel_size': 20,
         'peak_length': 3,
         'mass_tolerance': 7.0,
-        'rt_tolerance': 1000.0,
+        'rt_tolerance': 500.0,
         'candidate_count': 3
     }
     selection_params.update(config_dict)

@@ -3,8 +3,6 @@
 import numpy as np
 import argparse
 import os
-from alpharaw.ms_data_base import MSData_Base
-import alphadia_ng
 from alphadia.raw_data.alpharaw_wrapper import Thermo
 import logging
 

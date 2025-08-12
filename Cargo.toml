@@ -24,3 +24,7 @@ path = "cli/score_benchmark.rs"
 [dev-dependencies]
 approx = "0.4.0"
 serial_test = "3.0"
+
+[lints.clippy]
+# Disable needless_range_loop for clearer indexing in scientific computing
+needless_range_loop = "allow"

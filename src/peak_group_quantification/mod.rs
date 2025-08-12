@@ -137,7 +137,9 @@ impl PeakGroupQuantification {
 
         Some(PrecursorQuantified {
             idx: precursor.idx,
+            mz_library: precursor.mz_library,
             mz: precursor.mz,
+            rt_library: precursor.rt_library,
             rt: precursor.rt,
             naa: precursor.naa,
             rank: candidate.rank,
@@ -145,6 +147,7 @@ impl PeakGroupQuantification {
             // Clone is necessary because we only have a borrowed reference (&Precursor) to the precursor,
             // but PrecursorQuantified needs to own its Vec<T> data. Since Vec<T> contains heap-allocated
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
+            fragment_mz_library: precursor.fragment_mz_library.clone(),
             fragment_mz: precursor.fragment_mz.clone(),
             fragment_intensity: observation_intensities.to_vec(),
             fragment_cardinality: precursor.fragment_cardinality.clone(),

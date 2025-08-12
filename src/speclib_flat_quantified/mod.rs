@@ -19,8 +19,20 @@ use pyo3::prelude::*;
 pub struct SpecLibFlatQuantified {
     /// Precursor indices, MUST be sorted in ascending order for binary search to work correctly
     precursor_idx: Vec<usize>,
+
+    /// Precursor m/z values, as originally stored in the library
+    /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
+    precursor_mz_library: Vec<f32>,
+
     /// Precursor m/z values, sorted according to precursor_idx order
+    /// Used for extraction of precursor XICs and selection of quadrupole windows
+    /// It's left to the caller if these are mz_library or mz_calibrated values
     precursor_mz: Vec<f32>,
+
+    /// Precursor retention times, as originally stored in the library
+    /// Needed for downstream optimizations where a calibration model learns rt_observed as function of rt_library
+    precursor_rt_library: Vec<f32>,
+
     /// Precursor retention times, sorted according to precursor_idx order
     precursor_rt: Vec<f32>,
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
@@ -33,7 +45,14 @@ pub struct SpecLibFlatQuantified {
     precursor_start_idx: Vec<usize>,
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
     precursor_stop_idx: Vec<usize>,
+    /// Fragment m/z values, as originally stored in the library
+    /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
+    fragment_mz_library: Vec<f32>,
+
     /// Fragment m/z values, expected to be sorted in ascending order within each precursor upon creation
+    /// These mz values are used for extraction of the fragment XIC
+    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// Mass errors etc. will be calculated against these values
     fragment_mz: Vec<f32>,
     /// Fragment intensity values in original library order (NOT sorted, maintains original order within each precursor)
     fragment_intensity: Vec<f32>,
@@ -63,13 +82,16 @@ impl SpecLibFlatQuantified {
     fn new() -> Self {
         Self {
             precursor_idx: Vec::new(),
+            precursor_mz_library: Vec::new(),
             precursor_mz: Vec::new(),
+            precursor_rt_library: Vec::new(),
             precursor_rt: Vec::new(),
             precursor_naa: Vec::new(),
             precursor_rank: Vec::new(),
             precursor_rt_observed: Vec::new(),
             precursor_start_idx: Vec::new(),
             precursor_stop_idx: Vec::new(),
+            fragment_mz_library: Vec::new(),
             fragment_mz: Vec::new(),
             fragment_intensity: Vec::new(),
             fragment_cardinality: Vec::new(),
@@ -102,7 +124,15 @@ impl SpecLibFlatQuantified {
 
         // Precursor arrays
         dict.set_item("precursor_idx", self.precursor_idx.clone().into_pyarray(py))?;
+        dict.set_item(
+            "precursor_mz_library",
+            self.precursor_mz_library.clone().into_pyarray(py),
+        )?;
         dict.set_item("precursor_mz", self.precursor_mz.clone().into_pyarray(py))?;
+        dict.set_item(
+            "precursor_rt_library",
+            self.precursor_rt_library.clone().into_pyarray(py),
+        )?;
         dict.set_item("precursor_rt", self.precursor_rt.clone().into_pyarray(py))?;
         dict.set_item("precursor_naa", self.precursor_naa.clone().into_pyarray(py))?;
         dict.set_item(
@@ -123,6 +153,10 @@ impl SpecLibFlatQuantified {
         )?;
 
         // Fragment arrays (library data)
+        dict.set_item(
+            "fragment_mz_library",
+            self.fragment_mz_library.clone().into_pyarray(py),
+        )?;
         dict.set_item("fragment_mz", self.fragment_mz.clone().into_pyarray(py))?;
         dict.set_item(
             "fragment_intensity",
@@ -175,13 +209,16 @@ impl SpecLibFlatQuantified {
         }
 
         let mut precursor_idx = Vec::new();
+        let mut precursor_mz_library = Vec::new();
         let mut precursor_mz = Vec::new();
+        let mut precursor_rt_library = Vec::new();
         let mut precursor_rt = Vec::new();
         let mut precursor_naa = Vec::new();
         let mut precursor_rank = Vec::new();
         let mut precursor_rt_observed = Vec::new();
         let mut precursor_start_idx = Vec::new();
         let mut precursor_stop_idx = Vec::new();
+        let mut fragment_mz_library = Vec::new();
         let mut fragment_mz = Vec::new();
         let mut fragment_intensity = Vec::new();
         let mut fragment_cardinality = Vec::new();
@@ -198,7 +235,9 @@ impl SpecLibFlatQuantified {
 
         for precursor in precursors {
             precursor_idx.push(precursor.idx);
+            precursor_mz_library.push(precursor.mz_library);
             precursor_mz.push(precursor.mz);
+            precursor_rt_library.push(precursor.rt_library);
             precursor_rt.push(precursor.rt);
             precursor_naa.push(precursor.naa);
             precursor_rank.push(precursor.rank);
@@ -211,6 +250,7 @@ impl SpecLibFlatQuantified {
             precursor_start_idx.push(start_idx);
             precursor_stop_idx.push(stop_idx);
 
+            fragment_mz_library.extend(precursor.fragment_mz_library);
             fragment_mz.extend(precursor.fragment_mz);
             fragment_intensity.extend(precursor.fragment_intensity);
             fragment_cardinality.extend(precursor.fragment_cardinality);
@@ -232,7 +272,11 @@ impl SpecLibFlatQuantified {
 
         // Reorder all precursor arrays according to sorted indices
         let sorted_precursor_idx: Vec<usize> = indices.iter().map(|&i| precursor_idx[i]).collect();
+        let sorted_precursor_mz_library: Vec<f32> =
+            indices.iter().map(|&i| precursor_mz_library[i]).collect();
         let sorted_precursor_mz: Vec<f32> = indices.iter().map(|&i| precursor_mz[i]).collect();
+        let sorted_precursor_rt_library: Vec<f32> =
+            indices.iter().map(|&i| precursor_rt_library[i]).collect();
         let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt[i]).collect();
         let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa[i]).collect();
         let sorted_precursor_rank: Vec<usize> =
@@ -246,13 +290,16 @@ impl SpecLibFlatQuantified {
 
         Self {
             precursor_idx: sorted_precursor_idx,
+            precursor_mz_library: sorted_precursor_mz_library,
             precursor_mz: sorted_precursor_mz,
+            precursor_rt_library: sorted_precursor_rt_library,
             precursor_rt: sorted_precursor_rt,
             precursor_naa: sorted_precursor_naa,
             precursor_rank: sorted_precursor_rank,
             precursor_rt_observed: sorted_precursor_rt_observed,
             precursor_start_idx: sorted_precursor_start_idx,
             precursor_stop_idx: sorted_precursor_stop_idx,
+            fragment_mz_library,
             fragment_mz,
             fragment_intensity,
             fragment_cardinality,

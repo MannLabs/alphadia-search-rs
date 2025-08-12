@@ -4,11 +4,14 @@ use super::*;
 fn test_precursor_quantified_creation() {
     let precursor = PrecursorQuantified {
         idx: 1,
+        mz_library: 500.3,
         mz: 500.5,
+        rt_library: 119.8,
         rt: 120.0,
         naa: 12,
         rank: 1,
         rt_observed: 121.5,
+        fragment_mz_library: vec![199.8, 299.9],
         fragment_mz: vec![200.0, 300.0],
         fragment_intensity: vec![100.0, 150.0],
         fragment_cardinality: vec![1, 1],
@@ -36,11 +39,14 @@ fn test_precursor_quantified_creation() {
 fn test_precursor_quantified_data_consistency() {
     let precursor = PrecursorQuantified {
         idx: 0,
+        mz_library: 399.8,
         mz: 400.0,
+        rt_library: 79.5,
         rt: 80.0,
         naa: 8,
         rank: 2,
         rt_observed: 82.3,
+        fragment_mz_library: vec![149.9, 249.8, 349.9],
         fragment_mz: vec![150.0, 250.0, 350.0],
         fragment_intensity: vec![50.0, 75.0, 100.0],
         fragment_cardinality: vec![1, 1, 1],

@@ -36,7 +36,7 @@ pub struct SpecLibFlat {
     /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
     fragment_mz_library: Vec<f32>,
 
-    /// Fragment m/z values, expected to be sorted in ascending order within each precursor upon creation
+    /// Fragment m/z values, sorted as originally stored in the library
     /// These mz values are used for extraction of the fragment XIC
     /// It's left to the caller if these are mz_library or mz_calibrated values
     /// Mass errors etc. will be calculated against these values
@@ -432,14 +432,6 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
-        }
-    }
-
-    pub fn get_precursor_by_idx(&self, precursor_idx: usize) -> Option<Precursor> {
-        // Use binary search since precursor_idx is now sorted
-        match self.precursor_idx.binary_search(&precursor_idx) {
-            Ok(array_index) => Some(self.get_precursor(array_index)),
-            Err(_) => None,
         }
     }
 

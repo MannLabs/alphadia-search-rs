@@ -484,65 +484,6 @@ fn test_speclib_flat_creation_sorting() {
 }
 
 #[test]
-fn test_speclib_flat_binary_search() {
-    use numpy::PyArray1;
-    use pyo3::{prepare_freethreaded_python, Python};
-
-    prepare_freethreaded_python();
-    Python::with_gil(|py| {
-        // Create sorted test data
-        let precursor_idx = PyArray1::from_slice(py, &[10usize, 20, 30]);
-        let precursor_mz = PyArray1::from_slice(py, &[100.0f32, 200.0, 300.0]);
-        let precursor_rt = PyArray1::from_slice(py, &[10.0f32, 20.0, 30.0]);
-        let precursor_naa = PyArray1::from_slice(py, &[8u8, 12, 16]);
-        let precursor_start_idx = PyArray1::from_slice(py, &[0usize, 2, 4]);
-        let precursor_stop_idx = PyArray1::from_slice(py, &[2usize, 4, 6]);
-        let fragment_mz = PyArray1::from_slice(py, &[101.0f32, 102.0, 201.0, 202.0, 301.0, 302.0]);
-        let fragment_intensity = PyArray1::from_slice(py, &[10.0f32, 11.0, 20.0, 21.0, 30.0, 31.0]);
-        let fragment_cardinality = PyArray1::from_slice(py, &[1u8; 6]);
-        let fragment_charge = PyArray1::from_slice(py, &[1u8; 6]);
-        let fragment_loss_type = PyArray1::from_slice(py, &[Loss::NONE; 6]);
-        let fragment_number = PyArray1::from_slice(py, &[1u8; 6]);
-        let fragment_position = PyArray1::from_slice(py, &[1u8; 6]);
-        let fragment_type = PyArray1::from_slice(py, &[FragmentType::B; 6]);
-
-        let speclib = SpecLibFlat::from_arrays(
-            precursor_idx.readonly(),
-            precursor_mz.readonly(), // library
-            precursor_mz.readonly(), // observed
-            precursor_rt.readonly(), // library
-            precursor_rt.readonly(), // observed
-            precursor_naa.readonly(),
-            precursor_start_idx.readonly(),
-            precursor_stop_idx.readonly(),
-            fragment_mz.readonly(), // library
-            fragment_mz.readonly(), // observed
-            fragment_intensity.readonly(),
-            fragment_cardinality.readonly(),
-            fragment_charge.readonly(),
-            fragment_loss_type.readonly(),
-            fragment_number.readonly(),
-            fragment_position.readonly(),
-            fragment_type.readonly(),
-        );
-
-        // Test binary search functionality
-        assert!(speclib.get_precursor_by_idx(10).is_some());
-        assert!(speclib.get_precursor_by_idx(20).is_some());
-        assert!(speclib.get_precursor_by_idx(30).is_some());
-        assert!(speclib.get_precursor_by_idx(15).is_none());
-        assert!(speclib.get_precursor_by_idx(5).is_none());
-        assert!(speclib.get_precursor_by_idx(35).is_none());
-
-        // Verify correct precursor is returned
-        let precursor_20 = speclib.get_precursor_by_idx(20).unwrap();
-        assert_eq!(precursor_20.idx, 20);
-        assert_eq!(precursor_20.mz, 200.0);
-        assert_eq!(precursor_20.fragment_mz, vec![201.0, 202.0]);
-    });
-}
-
-#[test]
 fn test_speclib_flat_fragment_mz_sorting() {
     // Test that SpecLibFlat sorts fragments by fragment_mz in ascending order
     // when using filter_sort_fragments during construction
@@ -612,7 +553,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
             fragment_type_arr.readonly(),
         );
 
-        let precursor = speclib.get_precursor_by_idx(0).unwrap();
+        let precursor = speclib.get_precursor_filtered(0, false, usize::MAX);
 
         // Verify that fragments are sorted by fragment_mz in ascending order
         assert_eq!(
@@ -628,5 +569,31 @@ fn test_speclib_flat_fragment_mz_sorting() {
 
         // Verify ascending order
         assert!(precursor.fragment_mz.windows(2).all(|w| w[0] <= w[1]));
+
+        // Test filtering with non_zero = true
+        let precursor_filtered = speclib.get_precursor_filtered(0, true, usize::MAX);
+        assert!(precursor_filtered
+            .fragment_intensity
+            .iter()
+            .all(|&x| x > 0.0));
+        assert_eq!(precursor_filtered.fragment_mz.len(), 5); // All intensities are > 0
+
+        // Test filtering with top_k = 3
+        let precursor_top3 = speclib.get_precursor_filtered(0, false, 3);
+        assert_eq!(precursor_top3.fragment_mz.len(), 3);
+        // Should contain top 3 intensities: 30.0, 25.0, 20.0 sorted by mz: 100.0, 200.0, 400.0
+        assert_eq!(precursor_top3.fragment_mz, vec![100.0, 200.0, 400.0]);
+        assert_eq!(precursor_top3.fragment_intensity, vec![30.0, 25.0, 20.0]);
+
+        // Test combined filtering: non_zero = true and top_k = 2
+        let precursor_combined = speclib.get_precursor_filtered(0, true, 2);
+        assert_eq!(precursor_combined.fragment_mz.len(), 2);
+        assert!(precursor_combined
+            .fragment_intensity
+            .iter()
+            .all(|&x| x > 0.0));
+        // Should contain top 2 intensities: 30.0, 25.0 sorted by mz: 100.0, 200.0
+        assert_eq!(precursor_combined.fragment_mz, vec![100.0, 200.0]);
+        assert_eq!(precursor_combined.fragment_intensity, vec![30.0, 25.0]);
     });
 }

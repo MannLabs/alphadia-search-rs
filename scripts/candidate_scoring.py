@@ -262,11 +262,13 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         "num_over_50",
         "hyperscore_intensity_observation",
         "hyperscore_intensity_library",
+        "hyperscore_inverse_mass_error",
         "rt_observed",
         "delta_rt",
         "longest_b_series",
         "longest_y_series",
         "naa",
+        "weighted_mass_error",
     ]
 
     logger.info(f"Performing NN based FDR with {len(available_columns)} features")
@@ -409,11 +411,13 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         "num_over_50",
         "hyperscore_intensity_observation",
         "hyperscore_intensity_library",
+        "hyperscore_inverse_mass_error",
         "rt_observed",
         "delta_rt",
         "longest_b_series",
         "longest_y_series",
         "naa",
+        "weighted_mass_error",
     ]
 
     # Filter to only include columns that exist in the DataFrame

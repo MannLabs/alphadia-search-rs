@@ -4,11 +4,14 @@ use crate::precursor_quantified::PrecursorQuantified;
 fn test_precursor_quantified() -> PrecursorQuantified {
     PrecursorQuantified {
         idx: 0,
+        mz_library: 499.8,
         mz: 500.0,
+        rt_library: 99.5,
         rt: 100.0,
         naa: 10,
         rank: 1,
         rt_observed: 102.5,
+        fragment_mz_library: vec![199.9, 299.8, 399.9],
         fragment_mz: vec![200.0, 300.0, 400.0],
         fragment_intensity: vec![10.0, 15.0, 20.0],
         fragment_cardinality: vec![1, 1, 1],
@@ -54,7 +57,9 @@ fn test_from_precursor_quantified_vec_multiple() {
 
     let mut precursor2 = test_precursor_quantified();
     precursor2.idx = 2;
+    precursor2.mz_library = 599.7;
     precursor2.mz = 600.0;
+    precursor2.fragment_mz_library = vec![249.8, 349.9];
     precursor2.fragment_mz = vec![250.0, 350.0];
     precursor2.fragment_intensity = vec![5.0, 8.0];
     precursor2.fragment_mz_observed = vec![250.2, 349.8];

@@ -5,14 +5,15 @@ use std::time::Instant;
 use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
-use crate::dense_xic_observation::DenseXICObservation;
+use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_hyperscore, calculate_longest_ion_series,
-    correlation_axis_0, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
+    calculate_longest_ion_series, correlation_axis_0, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
+use crate::utils::{calculate_fragment_mz_and_errors, calculate_weighted_mean_absolute_error};
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
@@ -108,8 +109,8 @@ impl PeakGroupScoring {
         let cycle_stop_idx = candidate.cycle_stop;
         let mass_tolerance = self.params.mass_tolerance;
 
-        // Create dense XIC observation using the filtered precursor fragments
-        let dense_xic_obs = DenseXICObservation::new(
+        // Create dense XIC and m/z observation using the filtered precursor fragments
+        let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
             cycle_start_idx,
@@ -119,13 +120,13 @@ impl PeakGroupScoring {
         );
 
         // Normalize the profiles before calculating median
-        let normalized_xic = normalize_profiles(&dense_xic_obs.dense_xic, 1);
+        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
         let median_profile = median_axis_0(&normalized_xic);
 
         // Calculate correlations of each profile with the median profile
         let correlations = correlation_axis_0(&median_profile, &normalized_xic);
 
-        let observation_intensities = dense_xic_obs.dense_xic.sum_axis(Axis(1));
+        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
 
         let intensity_correlations = calculate_correlation_safe(
             observation_intensities.as_slice().unwrap(),
@@ -197,6 +198,28 @@ impl PeakGroupScoring {
             &matched_mask_intensity,
         );
 
+        // Calculate fragment m/z and mass errors
+        let (_fragment_mz_observed, fragment_mass_errors) = calculate_fragment_mz_and_errors(
+            &dense_xic_mz_obs.dense_mz,
+            &dense_xic_mz_obs.dense_xic,
+            &precursor.fragment_mz,
+        );
+
+        // Calculate weighted mean absolute mass error using library intensities
+        let weighted_mass_error = calculate_weighted_mean_absolute_error(
+            &fragment_mass_errors,
+            &precursor.fragment_intensity,
+        );
+
+        // Calculate hyperscore with inverse mass error weighting
+        // Use observed intensities (sum across cycles) and exclude zero intensity fragments
+        let hyperscore_inverse_mass_error = calculate_hyperscore_inverse_mass_error(
+            &precursor.fragment_type,
+            observation_intensities.as_slice().unwrap(),
+            &matched_mask_intensity,
+            &fragment_mass_errors,
+        );
+
         // Calculate retention time features
         let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
         let delta_rt = rt_observed - precursor.rt;
@@ -218,11 +241,13 @@ impl PeakGroupScoring {
             num_over_50 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
+            hyperscore_inverse_mass_error,
             rt_observed,
             delta_rt,
             longest_b_series as f32,
             longest_y_series as f32,
             precursor.naa as f32,
+            weighted_mass_error,
         ))
     }
 }

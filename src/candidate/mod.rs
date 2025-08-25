@@ -87,6 +87,8 @@ pub struct CandidateFeature {
     pub hyperscore_intensity_observation: f32,
     /// Hyperscore calculated from library intensities
     pub hyperscore_intensity_library: f32,
+    /// Hyperscore with inverse mass error weighting
+    pub hyperscore_inverse_mass_error: f32,
     /// Observed retention time in seconds (from cycle center)
     pub rt_observed: f32,
     /// Delta retention time (observed - library) in seconds
@@ -97,6 +99,8 @@ pub struct CandidateFeature {
     pub longest_y_series: f32,
     /// Number of amino acids in the precursor sequence
     pub naa: f32,
+    /// Mean absolute mass error weighted by predicted intensity
+    pub weighted_mass_error: f32,
 }
 
 impl CandidateFeature {
@@ -117,11 +121,13 @@ impl CandidateFeature {
         num_over_50: f32,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
+        hyperscore_inverse_mass_error: f32,
         rt_observed: f32,
         delta_rt: f32,
         longest_b_series: f32,
         longest_y_series: f32,
         naa: f32,
+        weighted_mass_error: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -139,11 +145,13 @@ impl CandidateFeature {
             num_over_50,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
+            hyperscore_inverse_mass_error,
             rt_observed,
             delta_rt,
             longest_b_series,
             longest_y_series,
             naa,
+            weighted_mass_error,
         }
     }
 }
@@ -196,11 +204,13 @@ impl CandidateFeatureCollection {
         let mut num_over_50 = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
+        let mut hyperscore_inverse_mass_errors = Array1::<f32>::zeros(n);
         let mut rt_observeds = Array1::<f32>::zeros(n);
         let mut delta_rts = Array1::<f32>::zeros(n);
         let mut longest_b_series = Array1::<f32>::zeros(n);
         let mut longest_y_series = Array1::<f32>::zeros(n);
         let mut naa = Array1::<f32>::zeros(n);
+        let mut weighted_mass_errors = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -218,11 +228,13 @@ impl CandidateFeatureCollection {
             num_over_50[i] = feature.num_over_50;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
+            hyperscore_inverse_mass_errors[i] = feature.hyperscore_inverse_mass_error;
             rt_observeds[i] = feature.rt_observed;
             delta_rts[i] = feature.delta_rt;
             longest_b_series[i] = feature.longest_b_series;
             longest_y_series[i] = feature.longest_y_series;
             naa[i] = feature.naa;
+            weighted_mass_errors[i] = feature.weighted_mass_error;
         }
 
         // Create Python dictionary
@@ -251,11 +263,16 @@ impl CandidateFeatureCollection {
             "hyperscore_intensity_library",
             hyperscore_intensity_libraries.into_pyarray(py),
         )?;
+        dict.set_item(
+            "hyperscore_inverse_mass_error",
+            hyperscore_inverse_mass_errors.into_pyarray(py),
+        )?;
         dict.set_item("rt_observed", rt_observeds.into_pyarray(py))?;
         dict.set_item("delta_rt", delta_rts.into_pyarray(py))?;
         dict.set_item("longest_b_series", longest_b_series.into_pyarray(py))?;
         dict.set_item("longest_y_series", longest_y_series.into_pyarray(py))?;
         dict.set_item("naa", naa.into_pyarray(py))?;
+        dict.set_item("weighted_mass_error", weighted_mass_errors.into_pyarray(py))?;
 
         Ok(dict.into())
     }
@@ -277,11 +294,13 @@ impl CandidateFeatureCollection {
             "num_over_50".to_string(),
             "hyperscore_intensity_observation".to_string(),
             "hyperscore_intensity_library".to_string(),
+            "hyperscore_inverse_mass_error".to_string(),
             "rt_observed".to_string(),
             "delta_rt".to_string(),
             "longest_b_series".to_string(),
             "longest_y_series".to_string(),
             "naa".to_string(),
+            "weighted_mass_error".to_string(),
         ]
     }
 }
@@ -466,7 +485,7 @@ mod tests {
         let feature_names = CandidateFeatureCollection::get_feature_names();
 
         // Verify we have the expected number of f32 features
-        assert_eq!(feature_names.len(), 18);
+        assert_eq!(feature_names.len(), 20);
 
         // Verify some key feature names are present
         assert!(feature_names.contains(&"score".to_string()));
@@ -481,6 +500,7 @@ mod tests {
         assert!(feature_names.contains(&"longest_b_series".to_string()));
         assert!(feature_names.contains(&"longest_y_series".to_string()));
         assert!(feature_names.contains(&"naa".to_string()));
+        assert!(feature_names.contains(&"weighted_mass_error".to_string()));
 
         // Verify that non-f32 columns are NOT included
         assert!(!feature_names.contains(&"precursor_idx".to_string()));

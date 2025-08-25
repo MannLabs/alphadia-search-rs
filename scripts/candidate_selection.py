@@ -16,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
+def run_candidate_selection(ms_data, alphabase_speclib_flat):
     """
     Run candidate selection using alphaRaw MSData_Base object and SpecLibFlat.
 
@@ -60,32 +60,28 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     selection_params = SelectionParameters()
 
     logger.info(
-        f"Creating SpecLibFlat with {alpha_base_spec_lib_flat.precursor_df.shape[0]} precursors"
+        f"Creating SpecLibFlat with {alphabase_speclib_flat.precursor_df.shape[0]} precursors"
     )
 
     spec_lib_flat = SpecLibFlat.from_arrays(
-        alpha_base_spec_lib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df["mz_calibrated"].values.astype(
-            np.float32
-        ),
-        alpha_base_spec_lib_flat.precursor_df["rt_calibrated"].values.astype(
-            np.float32
-        ),
-        alpha_base_spec_lib_flat.precursor_df["nAA"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.precursor_df["flat_frag_start_idx"].values.astype(
+        alphabase_speclib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
+        alphabase_speclib_flat.precursor_df["mz_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.precursor_df["rt_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.precursor_df["nAA"].values.astype(np.uint8),
+        alphabase_speclib_flat.precursor_df["flat_frag_start_idx"].values.astype(
             np.uint64
         ),
-        alpha_base_spec_lib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
+        alphabase_speclib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
             np.uint64
         ),
-        alpha_base_spec_lib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df["intensity"].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df["cardinality"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["charge"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["loss_type"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["number"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["position"].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df["type"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.fragment_df["intensity"].values.astype(np.float32),
+        alphabase_speclib_flat.fragment_df["cardinality"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["charge"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["loss_type"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["number"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["position"].values.astype(np.uint8),
+        alphabase_speclib_flat.fragment_df["type"].values.astype(np.uint8),
     )
 
     # Default parameters
@@ -116,7 +112,7 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     return candidates
 
 
-def parse_candidates(candidates, ms_data, alpha_base_spec_lib_flat):
+def parse_candidates(candidates, ms_data, alphabase_speclib_flat):
     result = candidates.to_arrays()
 
     precursor_idx = result[0]
@@ -144,7 +140,7 @@ def parse_candidates(candidates, ms_data, alpha_base_spec_lib_flat):
     )
 
     candidates_df = candidates_df.merge(
-        alpha_base_spec_lib_flat.precursor_df[
+        alphabase_speclib_flat.precursor_df[
             ["precursor_idx", "elution_group_idx", "decoy"]
         ],
         on="precursor_idx",

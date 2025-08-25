@@ -9,13 +9,14 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::dense_xic_observation::DenseXICObservation;
+use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, median_axis_0, normalize_profiles,
 };
 use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
+use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
 use numpy::ndarray::Axis;
 
@@ -94,7 +95,7 @@ impl PeakGroupQuantification {
             return None;
         }
 
-        let dense_xic_obs = DenseXICObservation::new(
+        let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
             cycle_start,
@@ -104,21 +105,18 @@ impl PeakGroupQuantification {
         );
 
         let num_fragments = precursor.fragment_mz.len();
-
-        let mut fragment_mz_observed = vec![0.0f32; num_fragments];
         let mut fragment_correlation_observed = vec![0.0f32; num_fragments];
-        let mut fragment_mass_error_observed = vec![0.0f32; num_fragments];
 
         let _center_cycle_idx = cycle_center - cycle_start;
 
-        for fragment_idx in 0..num_fragments {
-            let expected_mz = precursor.fragment_mz[fragment_idx];
+        // Calculate observed m/z values and mass errors for all fragments
+        let (fragment_mz_observed, fragment_mass_error_observed) = calculate_fragment_mz_and_errors(
+            &dense_xic_mz_obs.dense_mz,
+            &dense_xic_mz_obs.dense_xic,
+            &precursor.fragment_mz,
+        );
 
-            fragment_mz_observed[fragment_idx] = expected_mz;
-            fragment_mass_error_observed[fragment_idx] = 0.0;
-        }
-
-        let normalized_xic = normalize_profiles(&dense_xic_obs.dense_xic, 1);
+        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
         let median_profile = median_axis_0(&normalized_xic);
 
         for fragment_idx in 0..num_fragments {
@@ -131,11 +129,11 @@ impl PeakGroupQuantification {
         }
 
         // Calculate observed intensities from the dense XIC observation (sum across cycles)
-        let observation_intensities = dense_xic_obs.dense_xic.sum_axis(Axis(1));
+        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
-        Some(PrecursorQuantified {
+        let precursor_quantified = PrecursorQuantified {
             idx: precursor.idx,
             mz_library: precursor.mz_library,
             mz: precursor.mz,
@@ -159,6 +157,8 @@ impl PeakGroupQuantification {
             fragment_mz_observed,
             fragment_correlation_observed,
             fragment_mass_error_observed,
-        })
+        };
+
+        precursor_quantified.filter_fragments_by_intensity(0.0)
     }
 }

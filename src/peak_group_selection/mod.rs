@@ -96,13 +96,11 @@ impl PeakGroupSelection {
         dia_data: &T,
         lib: &SpecLibFlat,
     ) -> CandidateCollection {
-        let max_precursor_idx = min(10_000_000, lib.num_precursors());
-
         let start_time = Instant::now();
-        // Parallel iteration over precursor indices with flat_map to collect candidates
-        let candidates: Vec<Candidate> = (0..max_precursor_idx)
+        // Parallel iteration over precursor indices with filter_map to collect candidates
+        let candidates: Vec<Candidate> = (0..lib.num_precursors())
             .into_par_iter()
-            .flat_map(|i| {
+            .filter_map(|i| {
                 let precursor = lib.get_precursor_filtered(
                     i,
                     true, // Always filter non-zero intensities for scoring
@@ -116,11 +114,12 @@ impl PeakGroupSelection {
                     self.params.candidate_count,
                 )
             })
+            .flatten()
             .collect();
         let end_time = Instant::now();
         let duration = end_time.duration_since(start_time);
 
-        let precursors_per_second = max_precursor_idx as f32 / duration.as_secs_f32();
+        let precursors_per_second = lib.num_precursors() as f32 / duration.as_secs_f32();
         println!("Precursors per second: {precursors_per_second:?}");
         println!("Found {} candidates", candidates.len());
 
@@ -135,12 +134,17 @@ impl PeakGroupSelection {
         mass_tolerance: f32,
         rt_tolerance: f32,
         candidate_count: usize,
-    ) -> Vec<Candidate> {
+    ) -> Option<Vec<Candidate>> {
         let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index().get_cycle_idx_limits(
             precursor.rt,
             rt_tolerance,
             self.params.kernel_size,
         );
+
+        // Validate cycle range
+        if cycle_stop_idx <= cycle_start_idx {
+            return None;
+        }
 
         // Create dense XIC observation using the filtered precursor fragments
         let dense_xic_obs = DenseXICObservation::new(
@@ -186,7 +190,7 @@ impl PeakGroupSelection {
             candidates.push(candidate);
         }
 
-        candidates
+        Some(candidates)
     }
 }
 

@@ -17,8 +17,10 @@ impl QuantificationParameters {
     #[new]
     pub fn new() -> Self {
         Self {
-            tolerance_ppm: 20.0,
-            top_k_fragments: 50,
+            // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
+            tolerance_ppm: 7.0,
+            // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
+            top_k_fragments: 100,
         }
     }
 }

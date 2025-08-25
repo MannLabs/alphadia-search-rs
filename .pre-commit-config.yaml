@@ -18,6 +18,20 @@ repos:
         files: \.rs$
         pass_filenames: false
 
+      - id: ruff-check-scripts
+        name: ruff check scripts
+        entry: ruff check scripts/
+        language: system
+        files: ^scripts/.*\.py$
+        pass_filenames: false
+
+      - id: ruff-format-scripts
+        name: ruff format scripts
+        entry: ruff format scripts/
+        language: system
+        files: ^scripts/.*\.py$
+        pass_filenames: false
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

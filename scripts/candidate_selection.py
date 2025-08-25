@@ -11,10 +11,10 @@ from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s'
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
+
 
 def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     """
@@ -38,23 +38,20 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
 
     # Prepare arrays for DIAData
     spectrum_arrays = (
-        ms_data.spectrum_df['delta_scan_idx'].values,
-        ms_data.spectrum_df['isolation_lower_mz'].values.astype(np.float32),
-        ms_data.spectrum_df['isolation_upper_mz'].values.astype(np.float32),
-        ms_data.spectrum_df['peak_start_idx'].values,
-        ms_data.spectrum_df['peak_stop_idx'].values,
-        ms_data.spectrum_df['cycle_idx'].values,
-        ms_data.spectrum_df['rt'].values.astype(np.float32)*60.0,
+        ms_data.spectrum_df["delta_scan_idx"].values,
+        ms_data.spectrum_df["isolation_lower_mz"].values.astype(np.float32),
+        ms_data.spectrum_df["isolation_upper_mz"].values.astype(np.float32),
+        ms_data.spectrum_df["peak_start_idx"].values,
+        ms_data.spectrum_df["peak_stop_idx"].values,
+        ms_data.spectrum_df["cycle_idx"].values,
+        ms_data.spectrum_df["rt"].values.astype(np.float32) * 60.0,
     )
     peak_arrays = (
-        ms_data.peak_df['mz'].values.astype(np.float32),
-        ms_data.peak_df['intensity'].values.astype(np.float32)
+        ms_data.peak_df["mz"].values.astype(np.float32),
+        ms_data.peak_df["intensity"].values.astype(np.float32),
     )
     start_time = time.perf_counter()
-    rs_data_next_gen = DIAData.from_arrays(
-        *spectrum_arrays,
-        *peak_arrays
-    )
+    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays)
     end_time = time.perf_counter()
     creation_time = end_time - start_time
     logger.info(f"DIAData creation time: {creation_time:.4f} seconds")
@@ -62,33 +59,43 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     logger.info("Setting up scoring parameters")
     selection_params = SelectionParameters()
 
-    logger.info(f"Creating SpecLibFlat with {alpha_base_spec_lib_flat.precursor_df.shape[0]} precursors")
+    logger.info(
+        f"Creating SpecLibFlat with {alpha_base_spec_lib_flat.precursor_df.shape[0]} precursors"
+    )
 
     spec_lib_flat = SpecLibFlat.from_arrays(
-        alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['nAA'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['cardinality'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['charge'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['loss_type'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['number'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['position'].values.astype(np.uint8),
-        alpha_base_spec_lib_flat.fragment_df['type'].values.astype(np.uint8)
+        alpha_base_spec_lib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
+        alpha_base_spec_lib_flat.precursor_df["mz_calibrated"].values.astype(
+            np.float32
+        ),
+        alpha_base_spec_lib_flat.precursor_df["rt_calibrated"].values.astype(
+            np.float32
+        ),
+        alpha_base_spec_lib_flat.precursor_df["nAA"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.precursor_df["flat_frag_start_idx"].values.astype(
+            np.uint64
+        ),
+        alpha_base_spec_lib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
+            np.uint64
+        ),
+        alpha_base_spec_lib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
+        alpha_base_spec_lib_flat.fragment_df["intensity"].values.astype(np.float32),
+        alpha_base_spec_lib_flat.fragment_df["cardinality"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["charge"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["loss_type"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["number"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["position"].values.astype(np.uint8),
+        alpha_base_spec_lib_flat.fragment_df["type"].values.astype(np.uint8),
     )
 
     # Default parameters
     config_dict = {
-        'fwhm_rt': 3.0,
-        'kernel_size': 20,
-        'peak_length': 3,
-        'mass_tolerance': 7.0,
-        'rt_tolerance': 500.0,
-        'candidate_count': 3
+        "fwhm_rt": 3.0,
+        "kernel_size": 20,
+        "peak_length": 3,
+        "mass_tolerance": 7.0,
+        "rt_tolerance": 500.0,
+        "candidate_count": 3,
     }
     selection_params.update(config_dict)
 
@@ -106,12 +113,10 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     logger.info(f"Candidate selection time: {search_time:.4f} seconds")
     logger.info(f"Found {candidates.len()} candidates")
 
-
-
     return candidates
 
-def parse_candidates(candidates, ms_data, alpha_base_spec_lib_flat):
 
+def parse_candidates(candidates, ms_data, alpha_base_spec_lib_flat):
     result = candidates.to_arrays()
 
     precursor_idx = result[0]
@@ -124,45 +129,60 @@ def parse_candidates(candidates, ms_data, alpha_base_spec_lib_flat):
     frame_start = result[7]
     frame_stop = result[8]
 
-    candidates_df = pd.DataFrame({
-        'precursor_idx': precursor_idx,
-        'rank': rank,
-        'score': score,
-        'scan_center': scan_center,
-        'scan_start': scan_start,
-        'scan_stop': scan_stop,
-        'frame_center': frame_center,
-        'frame_start': frame_start,
-        'frame_stop': frame_stop
-    })
-
-    candidates_df = candidates_df.merge(
-        alpha_base_spec_lib_flat.precursor_df[['precursor_idx', 'elution_group_idx', 'decoy']], on='precursor_idx', how='left'
+    candidates_df = pd.DataFrame(
+        {
+            "precursor_idx": precursor_idx,
+            "rank": rank,
+            "score": score,
+            "scan_center": scan_center,
+            "scan_start": scan_start,
+            "scan_stop": scan_stop,
+            "frame_center": frame_center,
+            "frame_start": frame_start,
+            "frame_stop": frame_stop,
+        }
     )
 
-    cycle_len = ms_data.spectrum_df['cycle_idx'].max() + 1
+    candidates_df = candidates_df.merge(
+        alpha_base_spec_lib_flat.precursor_df[
+            ["precursor_idx", "elution_group_idx", "decoy"]
+        ],
+        on="precursor_idx",
+        how="left",
+    )
 
-    candidates_df['frame_start'] = candidates_df['frame_start'] * cycle_len
-    candidates_df['frame_stop'] = candidates_df['frame_stop'] * cycle_len
-    candidates_df['frame_center'] = candidates_df['frame_center'] * cycle_len
+    cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
 
-    candidates_df['scan_start'] = 0
-    candidates_df['scan_stop'] = 1
-    candidates_df['scan_center'] = 0
+    candidates_df["frame_start"] = candidates_df["frame_start"] * cycle_len
+    candidates_df["frame_stop"] = candidates_df["frame_stop"] * cycle_len
+    candidates_df["frame_center"] = candidates_df["frame_center"] * cycle_len
+
+    candidates_df["scan_start"] = 0
+    candidates_df["scan_stop"] = 1
+    candidates_df["scan_center"] = 0
 
     return candidates_df
 
+
 def main():
-    parser = argparse.ArgumentParser(description="Run candidate selection with alphaRaw MSData_Base and SpecLibFlat")
-    parser.add_argument("--ms_data_path",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/CPD_NE_000057_08.hdf",
-                       help="Path to the MS data file (HDF format)")
-    parser.add_argument("--spec_lib_path",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
-                       help="Path to the spectral library file (HDF format)")
-    parser.add_argument("--output_folder",
-                       default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib",
-                       help="Path to the output folder")
+    parser = argparse.ArgumentParser(
+        description="Run candidate selection with alphaRaw MSData_Base and SpecLibFlat"
+    )
+    parser.add_argument(
+        "--ms_data_path",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/CPD_NE_000057_08.hdf",
+        help="Path to the MS data file (HDF format)",
+    )
+    parser.add_argument(
+        "--spec_lib_path",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib/speclib_flat_calibrated.hdf",
+        help="Path to the spectral library file (HDF format)",
+    )
+    parser.add_argument(
+        "--output_folder",
+        default="/Users/georgwallmann/Documents/data/alphadia_performance_tests/output/ibrutinib",
+        help="Path to the output folder",
+    )
     args = parser.parse_args()
 
     logger = logging.getLogger(__name__)
@@ -185,6 +205,7 @@ def main():
     candidates_df.to_parquet(output_path)
 
     return
+
 
 if __name__ == "__main__":
     main()

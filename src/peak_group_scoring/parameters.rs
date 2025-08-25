@@ -15,8 +15,10 @@ impl ScoringParameters {
     #[new]
     pub fn new() -> Self {
         Self {
+            // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
             mass_tolerance: 7.0,
-            top_k_fragments: 12,
+            // maximum number of fragments to use for scoring per precursor. depends on the number of fragments in the precursor.
+            top_k_fragments: 100,
         }
     }
 

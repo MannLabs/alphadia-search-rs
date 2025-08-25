@@ -55,11 +55,8 @@ impl PeakGroupScoring {
         let start_time = Instant::now();
 
         // Parallel iteration over candidates to score each one
-        let n = std::cmp::min(100_000_000, candidates.len());
-
         let scored_candidates: Vec<CandidateFeature> = candidates
             .par_iter()
-            .take(n)
             .filter_map(|candidate| {
                 // Find precursor by idx (not array position)
                 match lib.get_precursor_by_idx_filtered(
@@ -68,7 +65,7 @@ impl PeakGroupScoring {
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {
-                        Some(self.score_candidate_generic(dia_data, &precursor, candidate))
+                        self.score_candidate_generic(dia_data, &precursor, candidate)
                     }
                     None => {
                         eprintln!(
@@ -87,8 +84,12 @@ impl PeakGroupScoring {
         let end_time = Instant::now();
         let duration = end_time.duration_since(start_time);
 
-        let candidates_per_second = n as f32 / duration.as_secs_f32();
-        println!("Scored {n} candidates at {candidates_per_second:.2} candidates/second");
+        let candidates_per_second = candidates.len() as f32 / duration.as_secs_f32();
+        println!(
+            "Scored {} candidates at {:.2} candidates/second",
+            candidates.len(),
+            candidates_per_second
+        );
 
         feature_collection
     }
@@ -99,7 +100,7 @@ impl PeakGroupScoring {
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
-    ) -> CandidateFeature {
+    ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
 
@@ -201,7 +202,7 @@ impl PeakGroupScoring {
         let delta_rt = rt_observed - precursor.rt;
 
         // Create and return candidate feature
-        CandidateFeature::new(
+        Some(CandidateFeature::new(
             candidate.precursor_idx,
             candidate.rank,
             candidate.score,
@@ -222,6 +223,6 @@ impl PeakGroupScoring {
             longest_b_series as f32,
             longest_y_series as f32,
             precursor.naa as f32,
-        )
+        ))
     }
 }

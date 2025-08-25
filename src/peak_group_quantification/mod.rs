@@ -87,7 +87,9 @@ impl PeakGroupQuantification {
         let cycle_stop = candidate.cycle_stop;
         let cycle_center = candidate.cycle_center;
 
-        if cycle_stop <= cycle_start {
+        let num_cycles = cycle_stop - cycle_start;
+
+        if num_cycles == 0 || cycle_center < cycle_start || cycle_center >= cycle_stop {
             return None;
         }
 
@@ -101,11 +103,6 @@ impl PeakGroupQuantification {
         );
 
         let num_fragments = precursor.fragment_mz.len();
-        let num_cycles = cycle_stop - cycle_start;
-
-        if num_cycles == 0 || cycle_center < cycle_start || cycle_center >= cycle_stop {
-            return None;
-        }
 
         let mut fragment_mz_observed = vec![0.0f32; num_fragments];
         let mut fragment_correlation_observed = vec![0.0f32; num_fragments];
@@ -141,6 +138,9 @@ impl PeakGroupQuantification {
             naa: precursor.naa,
             rank: candidate.rank,
             rt_observed,
+            // Clone is necessary because we only have a borrowed reference (&Precursor) to the precursor,
+            // but PrecursorQuantified needs to own its Vec<T> data. Since Vec<T> contains heap-allocated
+            // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
             fragment_mz: precursor.fragment_mz.clone(),
             fragment_intensity: precursor.fragment_intensity.clone(),
             fragment_cardinality: precursor.fragment_cardinality.clone(),

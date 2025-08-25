@@ -17,6 +17,7 @@ use crate::peak_group_scoring::utils::{
 use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
+use numpy::ndarray::Axis;
 
 pub mod parameters;
 pub mod tests;
@@ -129,6 +130,9 @@ impl PeakGroupQuantification {
             fragment_correlation_observed[fragment_idx] = correlation;
         }
 
+        // Calculate observed intensities from the dense XIC observation (sum across cycles)
+        let observation_intensities = dense_xic_obs.dense_xic.sum_axis(Axis(1));
+
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
         Some(PrecursorQuantified {
@@ -142,7 +146,7 @@ impl PeakGroupQuantification {
             // but PrecursorQuantified needs to own its Vec<T> data. Since Vec<T> contains heap-allocated
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
             fragment_mz: precursor.fragment_mz.clone(),
-            fragment_intensity: precursor.fragment_intensity.clone(),
+            fragment_intensity: observation_intensities.to_vec(),
             fragment_cardinality: precursor.fragment_cardinality.clone(),
             fragment_charge: precursor.fragment_charge.clone(),
             fragment_loss_type: precursor.fragment_loss_type.clone(),

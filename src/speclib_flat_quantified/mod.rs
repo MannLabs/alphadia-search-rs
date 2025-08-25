@@ -26,7 +26,7 @@ pub struct SpecLibFlatQuantified {
 
     /// Precursor m/z values, sorted according to precursor_idx order
     /// Used for extraction of precursor XICs and selection of quadrupole windows
-    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// It's left to the caller if these are precursor_mz_library or precursor_mz_calibrated values, depending on optimization and calibration
     precursor_mz: Vec<f32>,
 
     /// Precursor retention times, as originally stored in the library
@@ -34,6 +34,7 @@ pub struct SpecLibFlatQuantified {
     precursor_rt_library: Vec<f32>,
 
     /// Precursor retention times, sorted according to precursor_idx order
+    /// It's left to the caller if these are precursor_rt_library or precursor_rt_calibrated values, depending on optimization and calibration
     precursor_rt: Vec<f32>,
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
     precursor_naa: Vec<u8>,
@@ -51,7 +52,7 @@ pub struct SpecLibFlatQuantified {
 
     /// Fragment m/z values, expected to be sorted in ascending order within each precursor upon creation
     /// These mz values are used for extraction of the fragment XIC
-    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// It's left to the caller if these are fragment_mz_library or fragment_mz_calibrated values, depending on optimization and calibration
     /// Mass errors etc. will be calculated against these values
     fragment_mz: Vec<f32>,
     /// Fragment intensity values in original library order (NOT sorted, maintains original order within each precursor)

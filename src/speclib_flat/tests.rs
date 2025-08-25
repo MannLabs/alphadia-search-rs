@@ -5,6 +5,7 @@ use numpy::PyArrayMethods;
 #[test]
 fn test_filter_fragments_no_filtering() {
     let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let fragment_mz_library = vec![100.1, 200.1, 300.1, 400.1, 500.1];
     let fragment_intensity = vec![0.0, 15.0, 10.0, 20.0, 5.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -12,9 +13,9 @@ fn test_filter_fragments_no_filtering() {
     let fragment_number = vec![1u8; fragment_mz.len()];
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
-
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -33,6 +34,7 @@ fn test_filter_fragments_no_filtering() {
 #[test]
 fn test_filter_fragments_non_zero_only() {
     let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![0.0, 15.0, 10.0, 0.0, 5.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -41,8 +43,9 @@ fn test_filter_fragments_non_zero_only() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -62,6 +65,7 @@ fn test_filter_fragments_non_zero_only() {
 #[test]
 fn test_filter_fragments_top_k_selection() {
     let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![5.0, 15.0, 10.0, 20.0, 8.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -69,9 +73,9 @@ fn test_filter_fragments_top_k_selection() {
     let fragment_number = vec![1u8; fragment_mz.len()];
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
-
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -91,6 +95,7 @@ fn test_filter_fragments_top_k_selection() {
 #[test]
 fn test_filter_fragments_combined_non_zero_and_top_k() {
     let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![0.0, 15.0, 10.0, 0.0, 20.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -99,8 +104,9 @@ fn test_filter_fragments_combined_non_zero_and_top_k() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -121,6 +127,7 @@ fn test_filter_fragments_combined_non_zero_and_top_k() {
 #[test]
 fn test_filter_fragments_order_preservation() {
     let fragment_mz = vec![600.0, 200.0, 800.0, 100.0, 400.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![15.0, 25.0, 5.0, 30.0, 20.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -129,8 +136,9 @@ fn test_filter_fragments_order_preservation() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -157,6 +165,7 @@ fn test_filter_fragments_order_preservation() {
 #[test]
 fn test_filter_fragments_identical_intensities() {
     let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![10.0, 15.0, 10.0, 10.0, 10.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -165,8 +174,9 @@ fn test_filter_fragments_identical_intensities() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -197,8 +207,8 @@ fn test_filter_fragments_identical_intensities() {
 
 #[test]
 fn test_filter_fragments_empty_input() {
-    let (mz, intensity, _, _, _, _, _, _) =
-        filter_fragments(&[], &[], &[], &[], &[], &[], &[], &[], false, 5);
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) =
+        filter_fragments(&[], &[], &[], &[], &[], &[], &[], &[], &[], false, 5);
 
     assert!(mz.is_empty());
     assert!(intensity.is_empty());
@@ -207,8 +217,9 @@ fn test_filter_fragments_empty_input() {
 #[test]
 fn test_filter_fragments_single_fragment() {
     // Non-zero single fragment
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &[500.0],
+        &[500.1],
         &[10.0],
         &[1],
         &[1],
@@ -223,8 +234,9 @@ fn test_filter_fragments_single_fragment() {
     assert_eq!(intensity, vec![10.0]);
 
     // Zero single fragment with non-zero filter
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &[500.0],
+        &[500.1],
         &[0.0],
         &[1],
         &[1],
@@ -242,6 +254,7 @@ fn test_filter_fragments_single_fragment() {
 #[test]
 fn test_filter_fragments_all_zero_intensities() {
     let fragment_mz = vec![100.0, 200.0, 300.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![0.0, 0.0, 0.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -250,8 +263,9 @@ fn test_filter_fragments_all_zero_intensities() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -270,6 +284,7 @@ fn test_filter_fragments_all_zero_intensities() {
 #[test]
 fn test_filter_fragments_top_k_zero() {
     let fragment_mz = vec![100.0, 200.0, 300.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![10.0, 20.0, 15.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -278,8 +293,9 @@ fn test_filter_fragments_top_k_zero() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -298,6 +314,7 @@ fn test_filter_fragments_top_k_zero() {
 #[test]
 fn test_filter_fragments_top_k_larger_than_available() {
     let fragment_mz = vec![100.0, 200.0];
+    let fragment_mz_library = vec![100.1; fragment_mz.len()]; // dummy data
     let fragment_intensity = vec![10.0, 20.0];
     let fragment_cardinality = vec![1u8; fragment_mz.len()];
     let fragment_charge = vec![1u8; fragment_mz.len()];
@@ -306,8 +323,9 @@ fn test_filter_fragments_top_k_larger_than_available() {
     let fragment_position = vec![1u8; fragment_mz.len()];
     let fragment_type = vec![FragmentType::B; fragment_mz.len()];
 
-    let (mz, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
         &fragment_mz,
+        &fragment_mz_library,
         &fragment_intensity,
         &fragment_cardinality,
         &fragment_charge,
@@ -331,6 +349,7 @@ fn test_filter_fragments_invariants() {
 
     for non_zero in [false, true] {
         for k in [0, 1, 2, 3, 10] {
+            let fragment_mz_library = vec![100.1; fragment_mz.len()];
             let fragment_cardinality = vec![1u8; fragment_mz.len()];
             let fragment_charge = vec![1u8; fragment_mz.len()];
             let fragment_loss_type = vec![0u8; fragment_mz.len()];
@@ -338,18 +357,20 @@ fn test_filter_fragments_invariants() {
             let fragment_position = vec![1u8; fragment_mz.len()];
             let fragment_type = vec![1u8; fragment_mz.len()];
 
-            let (filtered_mz, filtered_intensity, _, _, _, _, _, _) = filter_fragments(
-                &fragment_mz,
-                &fragment_intensity,
-                &fragment_cardinality,
-                &fragment_charge,
-                &fragment_loss_type,
-                &fragment_number,
-                &fragment_position,
-                &fragment_type,
-                non_zero,
-                k,
-            );
+            let (filtered_mz, _filtered_mz_library, filtered_intensity, _, _, _, _, _, _) =
+                filter_fragments(
+                    &fragment_mz,
+                    &fragment_mz_library,
+                    &fragment_intensity,
+                    &fragment_cardinality,
+                    &fragment_charge,
+                    &fragment_loss_type,
+                    &fragment_number,
+                    &fragment_position,
+                    &fragment_type,
+                    non_zero,
+                    k,
+                );
 
             // Invariant: Output vectors have same length
             assert_eq!(filtered_mz.len(), filtered_intensity.len());
@@ -428,12 +449,15 @@ fn test_speclib_flat_creation_sorting() {
 
         let speclib = SpecLibFlat::from_arrays(
             precursor_idx.readonly(),
-            precursor_mz.readonly(),
-            precursor_rt.readonly(),
+            precursor_mz.readonly(), // library
+            precursor_mz.readonly(), // observed - reusing library values for test
+            precursor_rt.readonly(), // library
+            precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
             precursor_start_idx.readonly(),
             precursor_stop_idx.readonly(),
-            fragment_mz.readonly(),
+            fragment_mz.readonly(), // library
+            fragment_mz.readonly(), // observed - reusing library values for test
             fragment_intensity.readonly(),
             fragment_cardinality.readonly(),
             fragment_charge.readonly(),
@@ -492,12 +516,15 @@ fn test_speclib_flat_binary_search() {
 
         let speclib = SpecLibFlat::from_arrays(
             precursor_idx.readonly(),
-            precursor_mz.readonly(),
-            precursor_rt.readonly(),
+            precursor_mz.readonly(), // library
+            precursor_mz.readonly(), // observed - reusing library values for test
+            precursor_rt.readonly(), // library
+            precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
             precursor_start_idx.readonly(),
             precursor_stop_idx.readonly(),
-            fragment_mz.readonly(),
+            fragment_mz.readonly(), // library
+            fragment_mz.readonly(), // observed - reusing library values for test
             fragment_intensity.readonly(),
             fragment_cardinality.readonly(),
             fragment_charge.readonly(),

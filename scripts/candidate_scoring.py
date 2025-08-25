@@ -116,7 +116,9 @@ def create_spec_lib_flat(alphabase_speclib_flat):
 
     spec_lib_flat = SpecLibFlat.from_arrays(
         alphabase_speclib_flat.precursor_df["precursor_idx"].values.astype(np.uint64),
+        alphabase_speclib_flat.precursor_df["mz_library"].values.astype(np.float32),
         alphabase_speclib_flat.precursor_df["mz_calibrated"].values.astype(np.float32),
+        alphabase_speclib_flat.precursor_df["rt_library"].values.astype(np.float32),
         alphabase_speclib_flat.precursor_df["rt_calibrated"].values.astype(np.float32),
         alphabase_speclib_flat.precursor_df["nAA"].values.astype(np.uint8),
         alphabase_speclib_flat.precursor_df["flat_frag_start_idx"].values.astype(
@@ -125,6 +127,7 @@ def create_spec_lib_flat(alphabase_speclib_flat):
         alphabase_speclib_flat.precursor_df["flat_frag_stop_idx"].values.astype(
             np.uint64
         ),
+        alphabase_speclib_flat.fragment_df["mz_library"].values.astype(np.float32),
         alphabase_speclib_flat.fragment_df["mz_calibrated"].values.astype(np.float32),
         alphabase_speclib_flat.fragment_df["intensity"].values.astype(np.float32),
         alphabase_speclib_flat.fragment_df["cardinality"].values.astype(np.uint8),
@@ -207,6 +210,7 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
                 "proteins",
                 "rt_calibrated",
                 "rt_library",
+                "mz_library",
             ]
         ],
         on="precursor_idx",

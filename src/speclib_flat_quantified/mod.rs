@@ -43,9 +43,9 @@ pub struct SpecLibFlatQuantified {
     /// Observed retention time, sorted according to precursor_idx order
     precursor_rt_observed: Vec<f32>,
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
-    precursor_start_idx: Vec<usize>,
+    flat_frag_start_idx: Vec<usize>,
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
-    precursor_stop_idx: Vec<usize>,
+    flat_frag_stop_idx: Vec<usize>,
     /// Fragment m/z values, as originally stored in the library
     /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
     fragment_mz_library: Vec<f32>,
@@ -75,6 +75,10 @@ pub struct SpecLibFlatQuantified {
     fragment_correlation_observed: Vec<f32>,
     /// Observed fragment mass error values
     fragment_mass_error_observed: Vec<f32>,
+    /// Fragment precursor indices (expanded to fragment dimension)
+    fragment_precursor_idx: Vec<usize>,
+    /// Fragment precursor ranks (expanded to fragment dimension)
+    fragment_precursor_rank: Vec<usize>,
 }
 
 #[pymethods]
@@ -90,8 +94,8 @@ impl SpecLibFlatQuantified {
             precursor_naa: Vec::new(),
             precursor_rank: Vec::new(),
             precursor_rt_observed: Vec::new(),
-            precursor_start_idx: Vec::new(),
-            precursor_stop_idx: Vec::new(),
+            flat_frag_start_idx: Vec::new(),
+            flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
             fragment_mz: Vec::new(),
             fragment_intensity: Vec::new(),
@@ -104,6 +108,8 @@ impl SpecLibFlatQuantified {
             fragment_mz_observed: Vec::new(),
             fragment_correlation_observed: Vec::new(),
             fragment_mass_error_observed: Vec::new(),
+            fragment_precursor_idx: Vec::new(),
+            fragment_precursor_rank: Vec::new(),
         }
     }
 
@@ -119,87 +125,87 @@ impl SpecLibFlatQuantified {
 
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<pyo3::PyObject> {
         use numpy::IntoPyArray;
-        use pyo3::types::PyDict;
+        use pyo3::types::{PyDict, PyTuple};
 
-        let dict = PyDict::new(py);
+        let precursor_dict = PyDict::new(py);
+        let fragment_dict = PyDict::new(py);
 
         // Precursor arrays
-        dict.set_item("precursor_idx", self.precursor_idx.clone().into_pyarray(py))?;
-        dict.set_item(
-            "precursor_mz_library",
+        precursor_dict.set_item("idx", self.precursor_idx.clone().into_pyarray(py))?;
+        precursor_dict.set_item(
+            "mz_library",
             self.precursor_mz_library.clone().into_pyarray(py),
         )?;
-        dict.set_item("precursor_mz", self.precursor_mz.clone().into_pyarray(py))?;
-        dict.set_item(
-            "precursor_rt_library",
+        precursor_dict.set_item("mz", self.precursor_mz.clone().into_pyarray(py))?;
+        precursor_dict.set_item(
+            "rt_library",
             self.precursor_rt_library.clone().into_pyarray(py),
         )?;
-        dict.set_item("precursor_rt", self.precursor_rt.clone().into_pyarray(py))?;
-        dict.set_item("precursor_naa", self.precursor_naa.clone().into_pyarray(py))?;
-        dict.set_item(
-            "precursor_rank",
-            self.precursor_rank.clone().into_pyarray(py),
-        )?;
-        dict.set_item(
-            "precursor_rt_observed",
+        precursor_dict.set_item("rt", self.precursor_rt.clone().into_pyarray(py))?;
+        precursor_dict.set_item("naa", self.precursor_naa.clone().into_pyarray(py))?;
+        precursor_dict.set_item("rank", self.precursor_rank.clone().into_pyarray(py))?;
+        precursor_dict.set_item(
+            "rt_observed",
             self.precursor_rt_observed.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "precursor_start_idx",
-            self.precursor_start_idx.clone().into_pyarray(py),
+        precursor_dict.set_item(
+            "flat_frag_start_idx",
+            self.flat_frag_start_idx.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "precursor_stop_idx",
-            self.precursor_stop_idx.clone().into_pyarray(py),
+        precursor_dict.set_item(
+            "flat_frag_stop_idx",
+            self.flat_frag_stop_idx.clone().into_pyarray(py),
         )?;
 
         // Fragment arrays (library data)
-        dict.set_item(
-            "fragment_mz_library",
+        fragment_dict.set_item(
+            "mz_library",
             self.fragment_mz_library.clone().into_pyarray(py),
         )?;
-        dict.set_item("fragment_mz", self.fragment_mz.clone().into_pyarray(py))?;
-        dict.set_item(
-            "fragment_intensity",
+        fragment_dict.set_item("mz", self.fragment_mz.clone().into_pyarray(py))?;
+        fragment_dict.set_item(
+            "intensity",
             self.fragment_intensity.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "fragment_cardinality",
+        fragment_dict.set_item(
+            "cardinality",
             self.fragment_cardinality.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "fragment_charge",
-            self.fragment_charge.clone().into_pyarray(py),
-        )?;
-        dict.set_item(
-            "fragment_loss_type",
+        fragment_dict.set_item("charge", self.fragment_charge.clone().into_pyarray(py))?;
+        fragment_dict.set_item(
+            "loss_type",
             self.fragment_loss_type.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "fragment_number",
-            self.fragment_number.clone().into_pyarray(py),
-        )?;
-        dict.set_item(
-            "fragment_position",
-            self.fragment_position.clone().into_pyarray(py),
-        )?;
-        dict.set_item("fragment_type", self.fragment_type.clone().into_pyarray(py))?;
+        fragment_dict.set_item("number", self.fragment_number.clone().into_pyarray(py))?;
+        fragment_dict.set_item("position", self.fragment_position.clone().into_pyarray(py))?;
+        fragment_dict.set_item("type", self.fragment_type.clone().into_pyarray(py))?;
 
         // Fragment arrays (quantified data)
-        dict.set_item(
-            "fragment_mz_observed",
+        fragment_dict.set_item(
+            "mz_observed",
             self.fragment_mz_observed.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "fragment_correlation_observed",
+        fragment_dict.set_item(
+            "correlation_observed",
             self.fragment_correlation_observed.clone().into_pyarray(py),
         )?;
-        dict.set_item(
-            "fragment_mass_error_observed",
+        fragment_dict.set_item(
+            "mass_error_observed",
             self.fragment_mass_error_observed.clone().into_pyarray(py),
         )?;
+        fragment_dict.set_item(
+            "precursor_idx",
+            self.fragment_precursor_idx.clone().into_pyarray(py),
+        )?;
+        fragment_dict.set_item(
+            "rank",
+            self.fragment_precursor_rank.clone().into_pyarray(py),
+        )?;
 
-        Ok(dict.into())
+        let precursor_obj: pyo3::PyObject = precursor_dict.into();
+        let fragment_obj: pyo3::PyObject = fragment_dict.into();
+        let result_tuple = PyTuple::new(py, &[precursor_obj, fragment_obj])?;
+        Ok(result_tuple.into())
     }
 }
 
@@ -217,8 +223,8 @@ impl SpecLibFlatQuantified {
         let mut precursor_naa = Vec::new();
         let mut precursor_rank = Vec::new();
         let mut precursor_rt_observed = Vec::new();
-        let mut precursor_start_idx = Vec::new();
-        let mut precursor_stop_idx = Vec::new();
+        let mut flat_frag_start_idx = Vec::new();
+        let mut flat_frag_stop_idx = Vec::new();
         let mut fragment_mz_library = Vec::new();
         let mut fragment_mz = Vec::new();
         let mut fragment_intensity = Vec::new();
@@ -231,6 +237,8 @@ impl SpecLibFlatQuantified {
         let mut fragment_mz_observed = Vec::new();
         let mut fragment_correlation_observed = Vec::new();
         let mut fragment_mass_error_observed = Vec::new();
+        let mut fragment_precursor_idx = Vec::new();
+        let mut fragment_precursor_rank = Vec::new();
 
         let mut current_fragment_idx = 0;
 
@@ -248,8 +256,11 @@ impl SpecLibFlatQuantified {
             current_fragment_idx += precursor.fragment_mz.len();
             let stop_idx = current_fragment_idx;
 
-            precursor_start_idx.push(start_idx);
-            precursor_stop_idx.push(stop_idx);
+            flat_frag_start_idx.push(start_idx);
+            flat_frag_stop_idx.push(stop_idx);
+
+            // Calculate fragment count before moving fragment_mz
+            let fragment_count = precursor.fragment_mz.len();
 
             fragment_mz_library.extend(precursor.fragment_mz_library);
             fragment_mz.extend(precursor.fragment_mz);
@@ -263,6 +274,10 @@ impl SpecLibFlatQuantified {
             fragment_mz_observed.extend(precursor.fragment_mz_observed);
             fragment_correlation_observed.extend(precursor.fragment_correlation_observed);
             fragment_mass_error_observed.extend(precursor.fragment_mass_error_observed);
+
+            // Expand precursor values to fragment dimension
+            fragment_precursor_idx.extend(vec![precursor.idx; fragment_count]);
+            fragment_precursor_rank.extend(vec![precursor.rank; fragment_count]);
         }
 
         // Create indices for sorting
@@ -284,10 +299,10 @@ impl SpecLibFlatQuantified {
             indices.iter().map(|&i| precursor_rank[i]).collect();
         let sorted_precursor_rt_observed: Vec<f32> =
             indices.iter().map(|&i| precursor_rt_observed[i]).collect();
-        let sorted_precursor_start_idx: Vec<usize> =
-            indices.iter().map(|&i| precursor_start_idx[i]).collect();
-        let sorted_precursor_stop_idx: Vec<usize> =
-            indices.iter().map(|&i| precursor_stop_idx[i]).collect();
+        let sorted_flat_frag_start_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_start_idx[i]).collect();
+        let sorted_flat_frag_stop_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_stop_idx[i]).collect();
 
         Self {
             precursor_idx: sorted_precursor_idx,
@@ -298,8 +313,8 @@ impl SpecLibFlatQuantified {
             precursor_naa: sorted_precursor_naa,
             precursor_rank: sorted_precursor_rank,
             precursor_rt_observed: sorted_precursor_rt_observed,
-            precursor_start_idx: sorted_precursor_start_idx,
-            precursor_stop_idx: sorted_precursor_stop_idx,
+            flat_frag_start_idx: sorted_flat_frag_start_idx,
+            flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library,
             fragment_mz,
             fragment_intensity,
@@ -312,6 +327,8 @@ impl SpecLibFlatQuantified {
             fragment_mz_observed,
             fragment_correlation_observed,
             fragment_mass_error_observed,
+            fragment_precursor_idx,
+            fragment_precursor_rank,
         }
     }
 }

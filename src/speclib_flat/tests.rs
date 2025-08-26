@@ -419,8 +419,8 @@ fn test_speclib_flat_creation_sorting() {
         let precursor_mz = PyArray1::from_slice(py, &[300.0f32, 100.0, 400.0, 200.0]);
         let precursor_rt = PyArray1::from_slice(py, &[30.0f32, 10.0, 40.0, 20.0]);
         let precursor_naa = PyArray1::from_slice(py, &[15u8, 10, 20, 12]);
-        let precursor_start_idx = PyArray1::from_slice(py, &[6usize, 0, 9, 3]);
-        let precursor_stop_idx = PyArray1::from_slice(py, &[9usize, 3, 12, 6]);
+        let flat_frag_start_idx = PyArray1::from_slice(py, &[6usize, 0, 9, 3]);
+        let flat_frag_stop_idx = PyArray1::from_slice(py, &[9usize, 3, 12, 6]);
         let fragment_mz = PyArray1::from_slice(
             py,
             &[
@@ -454,8 +454,8 @@ fn test_speclib_flat_creation_sorting() {
             precursor_rt.readonly(), // library
             precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
-            precursor_start_idx.readonly(),
-            precursor_stop_idx.readonly(),
+            flat_frag_start_idx.readonly(),
+            flat_frag_stop_idx.readonly(),
             fragment_mz.readonly(), // library
             fragment_mz.readonly(), // observed - reusing library values for test
             fragment_intensity.readonly(),
@@ -503,8 +503,8 @@ fn test_speclib_flat_binary_search() {
         let precursor_mz = PyArray1::from_slice(py, &[100.0f32, 200.0, 300.0]);
         let precursor_rt = PyArray1::from_slice(py, &[10.0f32, 20.0, 30.0]);
         let precursor_naa = PyArray1::from_slice(py, &[8u8, 12, 16]);
-        let precursor_start_idx = PyArray1::from_slice(py, &[0usize, 2, 4]);
-        let precursor_stop_idx = PyArray1::from_slice(py, &[2usize, 4, 6]);
+        let flat_frag_start_idx = PyArray1::from_slice(py, &[0usize, 2, 4]);
+        let flat_frag_stop_idx = PyArray1::from_slice(py, &[2usize, 4, 6]);
         let fragment_mz = PyArray1::from_slice(py, &[101.0f32, 102.0, 201.0, 202.0, 301.0, 302.0]);
         let fragment_intensity = PyArray1::from_slice(py, &[10.0f32, 11.0, 20.0, 21.0, 30.0, 31.0]);
         let fragment_cardinality = PyArray1::from_slice(py, &[1u8; 6]);
@@ -521,8 +521,8 @@ fn test_speclib_flat_binary_search() {
             precursor_rt.readonly(), // library
             precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
-            precursor_start_idx.readonly(),
-            precursor_stop_idx.readonly(),
+            flat_frag_start_idx.readonly(),
+            flat_frag_stop_idx.readonly(),
             fragment_mz.readonly(), // library
             fragment_mz.readonly(), // observed - reusing library values for test
             fragment_intensity.readonly(),

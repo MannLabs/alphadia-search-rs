@@ -28,21 +28,47 @@ pub struct PrecursorQuantified {
 
 impl PrecursorQuantified {
     pub fn filter_fragments_by_intensity(&self, min_intensity: f32) -> Option<PrecursorQuantified> {
-        let valid_indices: Vec<usize> = self
+        // Count valid fragments first to pre-allocate vectors
+        let estimated_valid = self
             .fragment_intensity
             .iter()
-            .enumerate()
-            .filter_map(|(idx, &intensity)| {
-                if intensity > min_intensity {
-                    Some(idx)
-                } else {
-                    None
-                }
-            })
-            .collect();
+            .filter(|&&intensity| intensity > min_intensity)
+            .count();
 
-        if valid_indices.is_empty() {
+        if estimated_valid == 0 {
             return None;
+        }
+
+        // Pre-allocate all vectors with exact capacity
+        let mut fragment_mz_library = Vec::with_capacity(estimated_valid);
+        let mut fragment_mz = Vec::with_capacity(estimated_valid);
+        let mut fragment_intensity = Vec::with_capacity(estimated_valid);
+        let mut fragment_cardinality = Vec::with_capacity(estimated_valid);
+        let mut fragment_charge = Vec::with_capacity(estimated_valid);
+        let mut fragment_loss_type = Vec::with_capacity(estimated_valid);
+        let mut fragment_number = Vec::with_capacity(estimated_valid);
+        let mut fragment_position = Vec::with_capacity(estimated_valid);
+        let mut fragment_type = Vec::with_capacity(estimated_valid);
+        let mut fragment_mz_observed = Vec::with_capacity(estimated_valid);
+        let mut fragment_correlation_observed = Vec::with_capacity(estimated_valid);
+        let mut fragment_mass_error_observed = Vec::with_capacity(estimated_valid);
+
+        // Single iteration to fill all vectors
+        for (i, &intensity) in self.fragment_intensity.iter().enumerate() {
+            if intensity > min_intensity {
+                fragment_mz_library.push(self.fragment_mz_library[i]);
+                fragment_mz.push(self.fragment_mz[i]);
+                fragment_intensity.push(intensity);
+                fragment_cardinality.push(self.fragment_cardinality[i]);
+                fragment_charge.push(self.fragment_charge[i]);
+                fragment_loss_type.push(self.fragment_loss_type[i]);
+                fragment_number.push(self.fragment_number[i]);
+                fragment_position.push(self.fragment_position[i]);
+                fragment_type.push(self.fragment_type[i]);
+                fragment_mz_observed.push(self.fragment_mz_observed[i]);
+                fragment_correlation_observed.push(self.fragment_correlation_observed[i]);
+                fragment_mass_error_observed.push(self.fragment_mass_error_observed[i]);
+            }
         }
 
         Some(PrecursorQuantified {
@@ -54,51 +80,18 @@ impl PrecursorQuantified {
             naa: self.naa,
             rank: self.rank,
             rt_observed: self.rt_observed,
-            fragment_mz_library: valid_indices
-                .iter()
-                .map(|&i| self.fragment_mz_library[i])
-                .collect(),
-            fragment_mz: valid_indices.iter().map(|&i| self.fragment_mz[i]).collect(),
-            fragment_intensity: valid_indices
-                .iter()
-                .map(|&i| self.fragment_intensity[i])
-                .collect(),
-            fragment_cardinality: valid_indices
-                .iter()
-                .map(|&i| self.fragment_cardinality[i])
-                .collect(),
-            fragment_charge: valid_indices
-                .iter()
-                .map(|&i| self.fragment_charge[i])
-                .collect(),
-            fragment_loss_type: valid_indices
-                .iter()
-                .map(|&i| self.fragment_loss_type[i])
-                .collect(),
-            fragment_number: valid_indices
-                .iter()
-                .map(|&i| self.fragment_number[i])
-                .collect(),
-            fragment_position: valid_indices
-                .iter()
-                .map(|&i| self.fragment_position[i])
-                .collect(),
-            fragment_type: valid_indices
-                .iter()
-                .map(|&i| self.fragment_type[i])
-                .collect(),
-            fragment_mz_observed: valid_indices
-                .iter()
-                .map(|&i| self.fragment_mz_observed[i])
-                .collect(),
-            fragment_correlation_observed: valid_indices
-                .iter()
-                .map(|&i| self.fragment_correlation_observed[i])
-                .collect(),
-            fragment_mass_error_observed: valid_indices
-                .iter()
-                .map(|&i| self.fragment_mass_error_observed[i])
-                .collect(),
+            fragment_mz_library,
+            fragment_mz,
+            fragment_intensity,
+            fragment_cardinality,
+            fragment_charge,
+            fragment_loss_type,
+            fragment_number,
+            fragment_position,
+            fragment_type,
+            fragment_mz_observed,
+            fragment_correlation_observed,
+            fragment_mass_error_observed,
         })
     }
 }

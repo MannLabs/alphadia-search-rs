@@ -133,7 +133,7 @@ impl PeakGroupQuantification {
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
-        Some(PrecursorQuantified {
+        let precursor_quantified = PrecursorQuantified {
             idx: precursor.idx,
             mz_library: precursor.mz_library,
             mz: precursor.mz,
@@ -157,6 +157,8 @@ impl PeakGroupQuantification {
             fragment_mz_observed,
             fragment_correlation_observed,
             fragment_mass_error_observed,
-        })
+        };
+
+        precursor_quantified.filter_fragments_by_intensity(0.0)
     }
 }

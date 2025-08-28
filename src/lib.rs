@@ -22,6 +22,7 @@ pub mod score;
 mod simd;
 pub mod speclib_flat;
 pub mod speclib_flat_quantified;
+pub mod svm;
 pub mod traits;
 pub mod utils;
 
@@ -70,6 +71,52 @@ fn get_current_simd_backend() -> PyResult<String> {
     Ok(simd::get_current_backend())
 }
 
+#[pyfunction]
+fn train_svm_python_interface(
+    features: Vec<Vec<f64>>,
+    labels: Vec<f64>,
+    lambda_reg: f64,
+    epsilon: f64,
+    max_iter: usize,
+) -> PyResult<PyObject> {
+    use crate::svm::data::{SvmData, SvmOptions};
+    use crate::svm::train_l2_svm;
+    use pyo3::types::PyDict;
+
+    Python::with_gil(|py| {
+        // Create SVM data
+        let data = SvmData::new(features, labels);
+
+        // Create SVM options
+        let options = SvmOptions {
+            lambda: lambda_reg,
+            epsilon,
+            mfnitermax: max_iter,
+            ..Default::default()
+        };
+
+        // Train SVM
+        match train_l2_svm(&data, &options, 1.0, 1.0) {
+            Ok((weights, outputs)) => {
+                let result_dict = PyDict::new(py);
+                result_dict.set_item("weights", weights)?;
+                result_dict.set_item("scores", outputs)?;
+                result_dict.set_item("converged", true)?;
+                Ok(result_dict.into())
+            }
+            Err(e) => Err(PyErr::new::<PyValueError, _>(format!(
+                "SVM training failed: {e}"
+            ))),
+        }
+    })
+}
+
+#[pyfunction]
+fn compute_q_values_python_interface(scores: Vec<f64>, labels: Vec<f64>) -> PyResult<Vec<f64>> {
+    use crate::svm::utils::compute_q_values_target_decoy;
+    Ok(compute_q_values_target_decoy(&scores, &labels))
+}
+
 #[pymodule]
 fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
@@ -88,5 +135,7 @@ fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(train_svm_python_interface, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_q_values_python_interface, m)?)?;
     Ok(())
 }

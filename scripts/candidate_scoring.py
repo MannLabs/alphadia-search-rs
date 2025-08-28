@@ -21,12 +21,119 @@ from alpharaw.ms_data_base import MSData_Base
 from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
+import alphadia_ng
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def perform_svm_fdr(target_df, decoy_df, feature_columns, competitive=True):
+    """
+    SVM-based semi-supervised FDR calculation using Rust SVM implementation.
+
+    Parameters
+    ----------
+    target_df : pd.DataFrame
+        Target examples with features
+    decoy_df : pd.DataFrame
+        Decoy examples with features
+    feature_columns : list
+        List of feature column names to use
+    competitive : bool
+        Whether to use competitive target-decoy approach
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined DataFrame with SVM scores and q-values
+    """
+    logger.info("Running SVM-based semi-supervised FDR calculation")
+
+    # Prepare feature matrices
+    target_features = target_df[feature_columns].fillna(0).values
+    decoy_features = decoy_df[feature_columns].fillna(0).values
+
+    # Add bias term (constant 1.0) to features
+    target_features_with_bias = np.column_stack(
+        [target_features, np.ones(len(target_features))]
+    )
+    decoy_features_with_bias = np.column_stack(
+        [decoy_features, np.ones(len(decoy_features))]
+    )
+
+    # Combine features and create labels
+    all_features = np.vstack([target_features_with_bias, decoy_features_with_bias])
+    labels = np.hstack([np.ones(len(target_features)), -np.ones(len(decoy_features))])
+
+    logger.info(
+        f"Training SVM on {len(target_features)} targets and {len(decoy_features)} decoys"
+    )
+    logger.info(f"Using {len(feature_columns)} features: {feature_columns}")
+
+    # Train SVM using Rust implementation
+    svm_result = alphadia_ng.train_svm_python_interface(
+        features=all_features.tolist(),
+        labels=labels.tolist(),
+        lambda_reg=0.01,  # L2 regularization
+        epsilon=1e-6,  # Convergence tolerance
+        max_iter=100,  # Maximum iterations
+    )
+
+    _weights = np.array(svm_result["weights"])
+    scores = np.array(svm_result["scores"])
+    converged = svm_result["converged"]
+
+    if not converged:
+        logger.warning("SVM training did not converge within maximum iterations")
+    else:
+        logger.info("SVM training converged successfully")
+
+    # Split scores back to targets and decoys
+    target_scores = scores[: len(target_features)]
+    decoy_scores = scores[len(target_features) :]
+
+    # Calculate q-values using target-decoy competition
+    logger.info("Calculating q-values using target-decoy FDR estimation")
+
+    # Combine scores and labels for FDR calculation
+    all_svm_scores = np.hstack([target_scores, decoy_scores])
+    all_labels = np.hstack(
+        [np.ones(len(target_scores)), np.zeros(len(decoy_scores))]
+    )  # 1=target, 0=decoy
+
+    q_values = alphadia_ng.compute_q_values_python_interface(
+        scores=all_svm_scores.tolist(), labels=all_labels.tolist()
+    )
+    q_values = np.array(q_values)
+
+    # Split q-values back to targets and decoys
+    target_qvals = q_values[: len(target_scores)]
+    decoy_qvals = q_values[len(target_scores) :]
+
+    # Create result DataFrames
+    target_result = target_df.copy()
+    target_result["svm_score"] = target_scores
+    target_result["qval"] = target_qvals
+
+    decoy_result = decoy_df.copy()
+    decoy_result["svm_score"] = decoy_scores
+    decoy_result["qval"] = decoy_qvals
+
+    # Combine results
+    combined_result = pd.concat([target_result, decoy_result], ignore_index=True)
+
+    logger.info("SVM FDR calculation completed")
+    logger.info(f"Targets with q < 0.01: {np.sum(target_qvals < 0.01)}")
+    logger.info(f"Targets with q < 0.05: {np.sum(target_qvals < 0.05)}")
+    logger.info(f"Targets with q < 0.1: {np.sum(target_qvals < 0.1)}")
+    logger.info(f"Decoys with q < 0.01: {np.sum(decoy_qvals < 0.01)}")
+    logger.info(f"Decoys with q < 0.05: {np.sum(decoy_qvals < 0.05)}")
+    logger.info(f"Decoys with q < 0.1: {np.sum(decoy_qvals < 0.1)}")
+
+    return combined_result
 
 
 def load_candidates_from_parquet(candidates_path, top_n=None):
@@ -220,9 +327,9 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
     return features_df
 
 
-def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
+def run_fdr_filtering(psm_scored_df, candidates_df, output_folder, use_svm=False):
     """
-    Run FDR filtering on scored candidates.
+    Run FDR filtering on scored candidates using either neural network or SVM method.
 
     Parameters
     ----------
@@ -232,20 +339,16 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         Original candidates DataFrame
     output_folder : str
         Path to output folder for saving FDR results
+    use_svm : bool
+        Whether to use SVM-based semi-supervised FDR method
 
     Returns
     -------
     tuple[pd.DataFrame, pd.DataFrame]
         FDR-filtered PSMs with q-value <= 0.01 and corresponding candidates_filtered_df
     """
-    logger.info("Running FDR filtering")
-
-    classifier = BinaryClassifierLegacyNewBatching(
-        test_size=0.001,
-        batch_size=5000,
-        learning_rate=0.001,
-        epochs=10,
-        experimental_hyperparameter_tuning=True,
+    logger.info(
+        f"Running FDR filtering ({'SVM-based' if use_svm else 'Neural Network'})"
     )
 
     available_columns = [
@@ -271,7 +374,7 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         "weighted_mass_error",
     ]
 
-    logger.info(f"Performing NN based FDR with {len(available_columns)} features")
+    logger.info(f"Using {len(available_columns)} features for FDR calculation")
 
     # Create composite index for proper matching
     psm_scored_df["precursor_idx_rank"] = (
@@ -285,13 +388,37 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         + candidates_df["rank"].astype(str)
     )
 
-    psm_df = perform_fdr(
-        classifier,
-        available_columns,
-        psm_scored_df[psm_scored_df["decoy"] == 0].copy(),
-        psm_scored_df[psm_scored_df["decoy"] == 1].copy(),
-        competetive=True,
+    features_raw_output_path = os.path.join(
+        output_folder, "candidate_features_raw.parquet"
     )
+    psm_scored_df.to_parquet(features_raw_output_path)
+    logger.info(f"Saved raw features to: {features_raw_output_path}")
+
+    if use_svm:
+        # Use SVM-based semi-supervised FDR calculation
+        target_df = psm_scored_df[psm_scored_df["decoy"] == 0].copy()
+        decoy_df = psm_scored_df[psm_scored_df["decoy"] == 1].copy()
+
+        psm_df = perform_svm_fdr(
+            target_df, decoy_df, available_columns, competitive=True
+        )
+    else:
+        # Use neural network-based FDR calculation
+        classifier = BinaryClassifierLegacyNewBatching(
+            test_size=0.001,
+            batch_size=5000,
+            learning_rate=0.001,
+            epochs=10,
+            experimental_hyperparameter_tuning=True,
+        )
+
+        psm_df = perform_fdr(
+            classifier,
+            available_columns,
+            psm_scored_df[psm_scored_df["decoy"] == 0].copy(),
+            psm_scored_df[psm_scored_df["decoy"] == 1].copy(),
+            competetive=True,
+        )
 
     psm_df = psm_df[psm_df["qval"] <= 0.01]
     logger.info(f"After FDR filtering (q-value <= 0.01): {len(psm_df):,} PSMs")
@@ -632,6 +759,11 @@ def main():
         action="store_true",
         help="Run peak group quantification on FDR-filtered candidates",
     )
+    parser.add_argument(
+        "--svm",
+        action="store_true",
+        help="Use SVM-based semi-supervised FDR method instead of neural network",
+    )
     args = parser.parse_args()
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
@@ -654,7 +786,7 @@ def main():
     candidates_filtered_df = None
     if args.fdr or args.diagnosis or args.quantify:
         psm_fdr_passed_df, candidates_filtered_df = run_fdr_filtering(
-            psm_scored_df, candidates, args.output_folder
+            psm_scored_df, candidates, args.output_folder, use_svm=args.svm
         )
 
     # Generate diagnosis features if requested

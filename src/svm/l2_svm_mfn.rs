@@ -92,6 +92,9 @@ impl<'a> L2SvmMfn<'a> {
             // Compute outputs for all examples with new weights
             self.compute_all_outputs(&weights_bar, &mut outputs_bar);
 
+            // Log target true positives at different FDR thresholds
+            self.log_target_true_positives(&outputs_bar, iter + 1);
+
             // Check optimality conditions
             let mut optimal = cgls_converged;
             if optimal {
@@ -244,6 +247,34 @@ impl<'a> L2SvmMfn<'a> {
         }
 
         Ok(true)
+    }
+
+    /// Log target true positives at different FDR thresholds
+    fn log_target_true_positives(&self, outputs: &SvmVector, iteration: usize) {
+        use crate::svm::utils::count_positives_at_fdr;
+
+        // Create score and label vectors for FDR calculation
+        let mut scores = Vec::new();
+        let mut labels = Vec::new();
+
+        for i in 0..self.data.m {
+            let label = self.data.get_label(i);
+            let score = outputs.vec[i];
+
+            scores.push(score);
+            // Convert labels: positive examples (targets) = 1.0, negative (decoys) = -1.0 -> 1.0, 0.0
+            labels.push(if label > 0.0 { 1.0 } else { 0.0 });
+        }
+
+        // Count target true positives at different FDR thresholds
+        let tp_at_01 = count_positives_at_fdr(&scores, &labels, 0.01);
+        let tp_at_05 = count_positives_at_fdr(&scores, &labels, 0.05);
+        let tp_at_10 = count_positives_at_fdr(&scores, &labels, 0.10);
+        let tp_at_50 = count_positives_at_fdr(&scores, &labels, 0.50);
+
+        println!(
+            "  Iteration {iteration}: Target true positives at FDR - 1%: {tp_at_01}, 5%: {tp_at_05}, 10%: {tp_at_10}, 50%: {tp_at_50}"
+        );
     }
 }
 

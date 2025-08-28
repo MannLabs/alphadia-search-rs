@@ -30,6 +30,40 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def convert_delta_rt_to_abs(target_df, decoy_df, feature_columns):
+    """
+    Convert delta_rt feature to absolute value while keeping other features unchanged.
+
+    Parameters
+    ----------
+    target_df : pd.DataFrame
+        Target examples with features
+    decoy_df : pd.DataFrame
+        Decoy examples with features
+    feature_columns : list
+        List of feature column names to use
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        Modified feature matrices for targets and decoys
+    """
+    # Copy dataframes to avoid modifying originals
+    target_modified = target_df.copy()
+    decoy_modified = decoy_df.copy()
+
+    # Convert delta_rt to absolute value if it exists
+    if "delta_rt" in feature_columns:
+        target_modified["delta_rt"] = target_modified["delta_rt"].abs()
+        decoy_modified["delta_rt"] = decoy_modified["delta_rt"].abs()
+
+    # Extract feature matrices
+    target_features = target_modified[feature_columns].fillna(0).values
+    decoy_features = decoy_modified[feature_columns].fillna(0).values
+
+    return target_features, decoy_features
+
+
 def perform_svm_fdr(target_df, decoy_df, feature_columns, competitive=True):
     """
     SVM-based semi-supervised FDR calculation using Rust SVM implementation.
@@ -52,9 +86,10 @@ def perform_svm_fdr(target_df, decoy_df, feature_columns, competitive=True):
     """
     logger.info("Running SVM-based semi-supervised FDR calculation")
 
-    # Prepare feature matrices
-    target_features = target_df[feature_columns].fillna(0).values
-    decoy_features = decoy_df[feature_columns].fillna(0).values
+    # Prepare feature matrices with delta_rt converted to absolute value
+    target_features, decoy_features = convert_delta_rt_to_abs(
+        target_df, decoy_df, feature_columns
+    )
 
     # Add bias term (constant 1.0) to features
     target_features_with_bias = np.column_stack(
@@ -134,6 +169,136 @@ def perform_svm_fdr(target_df, decoy_df, feature_columns, competitive=True):
     logger.info(f"Decoys with q < 0.1: {np.sum(decoy_qvals < 0.1)}")
 
     return combined_result
+
+
+def perform_svm_nn_hybrid_fdr(target_df, decoy_df, feature_columns):
+    """
+    Hybrid SVM-NN FDR calculation:
+    1. Perform SVM-based FDR calculation
+    2. Filter at 10% FDR to get unique elution_group_idx + rank combinations
+    3. Filter original SVM results (100% FDR) to only include these combinations
+    4. Apply NN-based FDR on the filtered results
+
+    Parameters
+    ----------
+    target_df : pd.DataFrame
+        Target examples with features
+    decoy_df : pd.DataFrame
+        Decoy examples with features
+    feature_columns : list
+        List of feature column names to use
+
+    Returns
+    -------
+    pd.DataFrame
+        Combined DataFrame with final NN-based scores and q-values
+    """
+    logger.info("Running hybrid SVM-NN FDR calculation")
+
+    # Step 1: Perform SVM-based FDR calculation
+    logger.info("Step 1: Performing SVM-based FDR calculation")
+    svm_results = perform_svm_fdr(
+        target_df, decoy_df, feature_columns, competitive=True
+    )
+
+    logger.info(f"SVM results: {len(svm_results):,}")
+
+    # Step 2: Filter at 10% FDR and get unique elution_group_idx + rank combinations
+    logger.info(
+        "Step 2: Filtering at 50% FDR and getting unique elution_group_idx + rank combinations"
+    )
+
+    # Filter SVM results to 10% FDR
+    svm_10_fdr = svm_results[svm_results["qval"] <= 0.50].copy()
+    logger.info(f"SVM results passing 10% FDR: {len(svm_10_fdr):,}")
+
+    # Create elution_group_idx + rank combination column
+    svm_10_fdr["elution_group_rank"] = (
+        svm_10_fdr["elution_group_idx"].astype(str)
+        + "_"
+        + svm_10_fdr["rank"].astype(str)
+    )
+
+    # Get unique elution_group_idx + rank combinations that passed 10% FDR
+    unique_combinations = svm_10_fdr["elution_group_rank"].unique()
+    logger.info(
+        f"Unique elution_group_idx + rank combinations at 10% FDR: {len(unique_combinations):,}"
+    )
+
+    # Step 3: Filter original SVM results (100% FDR) to only include these combinations
+    logger.info("Step 3: Filtering original SVM results by unique combinations")
+
+    # Create combination column in original results
+    svm_results["elution_group_rank"] = (
+        svm_results["elution_group_idx"].astype(str)
+        + "_"
+        + svm_results["rank"].astype(str)
+    )
+
+    # Filter to only combinations that passed 10% FDR
+    filtered_df = svm_results[
+        svm_results["elution_group_rank"].isin(unique_combinations)
+    ].copy()
+
+    # Remove the temporary combination column
+    filtered_df = filtered_df.drop(columns=["elution_group_rank"])
+    logger.info(
+        f"Selected {len(filtered_df):,} candidates (elution_group_idx + rank combinations): "
+        f"{len(filtered_df[filtered_df['decoy'] == 0]):,} targets, "
+        f"{len(filtered_df[filtered_df['decoy'] == 1]):,} decoys"
+    )
+
+    # Step 4: Apply NN-based FDR on filtered results
+    logger.info("Step 4: Applying neural network-based FDR on filtered results")
+
+    if len(filtered_df) == 0:
+        logger.warning(
+            "No candidates remaining after filtering - returning empty results"
+        )
+        return pd.DataFrame()
+
+    # Separate targets and decoys for NN FDR
+    filtered_targets = filtered_df[filtered_df["decoy"] == 0].copy()
+    filtered_decoys = filtered_df[filtered_df["decoy"] == 1].copy()
+
+    if len(filtered_targets) == 0 or len(filtered_decoys) == 0:
+        logger.warning("No targets or decoys remaining after filtering")
+        return filtered_df
+
+    # Apply neural network FDR
+    from alphadia.fdr.fdr import perform_fdr
+    from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
+
+    classifier = BinaryClassifierLegacyNewBatching(
+        test_size=0.001,
+        batch_size=min(
+            5000, len(filtered_df)
+        ),  # Adjust batch size for smaller datasets
+        learning_rate=0.001,
+        epochs=10,
+        experimental_hyperparameter_tuning=True,
+    )
+
+    final_results = perform_fdr(
+        classifier,
+        feature_columns,
+        filtered_targets,
+        filtered_decoys,
+        competetive=True,
+    )
+
+    logger.info("Hybrid SVM-NN FDR calculation completed")
+    logger.info(
+        f"Final results with NN q < 0.01: {np.sum(final_results['qval'] < 0.01):,}"
+    )
+    logger.info(
+        f"Final results with NN q < 0.05: {np.sum(final_results['qval'] < 0.05):,}"
+    )
+    logger.info(
+        f"Final results with NN q < 0.1: {np.sum(final_results['qval'] < 0.1):,}"
+    )
+
+    return final_results
 
 
 def load_candidates_from_parquet(candidates_path, top_n=None):
@@ -327,9 +492,11 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
     return features_df
 
 
-def run_fdr_filtering(psm_scored_df, candidates_df, output_folder, use_svm=False):
+def run_fdr_filtering(
+    psm_scored_df, candidates_df, output_folder, use_svm=False, use_svm_nn=False
+):
     """
-    Run FDR filtering on scored candidates using either neural network or SVM method.
+    Run FDR filtering on scored candidates using neural network, SVM, or hybrid SVM-NN method.
 
     Parameters
     ----------
@@ -341,15 +508,20 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder, use_svm=False
         Path to output folder for saving FDR results
     use_svm : bool
         Whether to use SVM-based semi-supervised FDR method
+    use_svm_nn : bool
+        Whether to use hybrid SVM-NN method (SVM at 10% FDR, best per group, then NN FDR)
 
     Returns
     -------
     tuple[pd.DataFrame, pd.DataFrame]
         FDR-filtered PSMs with q-value <= 0.01 and corresponding candidates_filtered_df
     """
-    logger.info(
-        f"Running FDR filtering ({'SVM-based' if use_svm else 'Neural Network'})"
+    method_name = (
+        "Hybrid SVM-NN"
+        if use_svm_nn
+        else ("SVM-based" if use_svm else "Neural Network")
     )
+    logger.info(f"Running FDR filtering ({method_name})")
 
     available_columns = [
         "score",
@@ -394,11 +566,14 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder, use_svm=False
     psm_scored_df.to_parquet(features_raw_output_path)
     logger.info(f"Saved raw features to: {features_raw_output_path}")
 
-    if use_svm:
-        # Use SVM-based semi-supervised FDR calculation
-        target_df = psm_scored_df[psm_scored_df["decoy"] == 0].copy()
-        decoy_df = psm_scored_df[psm_scored_df["decoy"] == 1].copy()
+    target_df = psm_scored_df[psm_scored_df["decoy"] == 0].copy()
+    decoy_df = psm_scored_df[psm_scored_df["decoy"] == 1].copy()
 
+    if use_svm_nn:
+        # Use hybrid SVM-NN method
+        psm_df = perform_svm_nn_hybrid_fdr(target_df, decoy_df, available_columns)
+    elif use_svm:
+        # Use SVM-based semi-supervised FDR calculation
         psm_df = perform_svm_fdr(
             target_df, decoy_df, available_columns, competitive=True
         )
@@ -415,8 +590,8 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder, use_svm=False
         psm_df = perform_fdr(
             classifier,
             available_columns,
-            psm_scored_df[psm_scored_df["decoy"] == 0].copy(),
-            psm_scored_df[psm_scored_df["decoy"] == 1].copy(),
+            target_df,
+            decoy_df,
             competetive=True,
         )
 
@@ -764,7 +939,16 @@ def main():
         action="store_true",
         help="Use SVM-based semi-supervised FDR method instead of neural network",
     )
+    parser.add_argument(
+        "--svm-nn",
+        action="store_true",
+        help="Use hybrid SVM-NN method: SVM at 10% FDR, best per elution group, then NN FDR",
+    )
     args = parser.parse_args()
+
+    # Validate mutually exclusive options
+    if args.svm and args.svm_nn:
+        parser.error("--svm and --svm-nn are mutually exclusive options")
 
     logger.info(f"Loading MS data from: {args.ms_data_path}")
     # Load MS data using alpharaw
@@ -786,7 +970,11 @@ def main():
     candidates_filtered_df = None
     if args.fdr or args.diagnosis or args.quantify:
         psm_fdr_passed_df, candidates_filtered_df = run_fdr_filtering(
-            psm_scored_df, candidates, args.output_folder, use_svm=args.svm
+            psm_scored_df,
+            candidates,
+            args.output_folder,
+            use_svm=args.svm,
+            use_svm_nn=args.svm_nn,
         )
 
     # Generate diagnosis features if requested

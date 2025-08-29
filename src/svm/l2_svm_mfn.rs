@@ -12,18 +12,33 @@ use crate::svm::line_search::LineSearch;
 const BIG_EPSILON: f64 = 0.01;
 const RELATIVE_STOP_EPS: f64 = 1e-9;
 
+/// Iteration tracking data for optimal convergence
+#[derive(Clone, Debug)]
+pub struct IterationData {
+    pub weights: Vec<f64>,
+    pub outputs: Vec<f64>,
+    pub precursors_1pct: usize,
+    pub objective: f64,
+}
+
 /// L2-SVM trainer with Modified Finite Newton method
 ///
 /// This implements the main L2-SVM training algorithm from Percolator
 pub struct L2SvmMfn<'a> {
     data: &'a SvmData,
     options: &'a SvmOptions,
+    /// Track iterations for optimal convergence based on 1% FDR precursors
+    iteration_history: Vec<IterationData>,
 }
 
 impl<'a> L2SvmMfn<'a> {
     /// Create new L2-SVM trainer
     pub fn new(data: &'a SvmData, options: &'a SvmOptions) -> Self {
-        Self { data, options }
+        Self {
+            data,
+            options,
+            iteration_history: Vec::new(),
+        }
     }
 
     /// Train L2-SVM model using Modified Finite Newton method
@@ -92,8 +107,17 @@ impl<'a> L2SvmMfn<'a> {
             // Compute outputs for all examples with new weights
             self.compute_all_outputs(&weights_bar, &mut outputs_bar);
 
-            // Log target true positives at different FDR thresholds
-            self.log_target_true_positives(&outputs_bar, iter + 1);
+            // Log target true positives at different FDR thresholds and store iteration data
+            let precursors_1pct = self.log_target_true_positives(&outputs_bar, iter + 1);
+
+            // Store iteration data for potential reversion
+            let iteration_data = IterationData {
+                weights: weights_bar.vec.clone(),
+                outputs: outputs_bar.vec.clone(),
+                precursors_1pct,
+                objective: f,
+            };
+            self.iteration_history.push(iteration_data);
 
             // Check optimality conditions
             let mut optimal = cgls_converged;
@@ -112,13 +136,24 @@ impl<'a> L2SvmMfn<'a> {
                             BIG_EPSILON, self.options.epsilon);
                     continue;
                 } else {
-                    // Final convergence
-                    weights.vec.copy_from_slice(&weights_bar.vec);
-                    outputs.vec.copy_from_slice(&outputs_bar.vec);
-                    println!(
-                        "L2_SVM_MFN converged (optimality) in {} iterations",
-                        iter + 1
-                    );
+                    // Final convergence - check if we should revert to optimal iteration
+                    let optimal_iteration = self.find_optimal_iteration();
+                    if let Some(best_iter) = optimal_iteration {
+                        weights.vec.copy_from_slice(&best_iter.weights);
+                        outputs.vec.copy_from_slice(&best_iter.outputs);
+                        println!(
+                            "L2_SVM_MFN converged (optimality) in {} iterations. Reverted to iteration with {} precursors at 1% FDR.",
+                            iter + 1,
+                            best_iter.precursors_1pct
+                        );
+                    } else {
+                        weights.vec.copy_from_slice(&weights_bar.vec);
+                        outputs.vec.copy_from_slice(&outputs_bar.vec);
+                        println!(
+                            "L2_SVM_MFN converged (optimality) in {} iterations",
+                            iter + 1
+                        );
+                    }
                     break;
                 }
             }
@@ -156,10 +191,22 @@ impl<'a> L2SvmMfn<'a> {
 
             // Check relative stopping criterion
             if (f - f_old).abs() < RELATIVE_STOP_EPS * f_old.abs() {
-                println!(
-                    "L2_SVM_MFN converged (relative improvement) in {} iterations",
-                    iter + 1
-                );
+                // Check if we should revert to optimal iteration
+                let optimal_iteration = self.find_optimal_iteration();
+                if let Some(best_iter) = optimal_iteration {
+                    weights.vec.copy_from_slice(&best_iter.weights);
+                    outputs.vec.copy_from_slice(&best_iter.outputs);
+                    println!(
+                        "L2_SVM_MFN converged (relative improvement) in {} iterations. Reverted to iteration with {} precursors at 1% FDR.",
+                        iter + 1,
+                        best_iter.precursors_1pct
+                    );
+                } else {
+                    println!(
+                        "L2_SVM_MFN converged (relative improvement) in {} iterations",
+                        iter + 1
+                    );
+                }
                 break;
             }
         }
@@ -250,7 +297,8 @@ impl<'a> L2SvmMfn<'a> {
     }
 
     /// Log target true positives at different FDR thresholds
-    fn log_target_true_positives(&self, outputs: &SvmVector, iteration: usize) {
+    /// Returns the number of precursors at 1% FDR for tracking
+    fn log_target_true_positives(&self, outputs: &SvmVector, iteration: usize) -> usize {
         use crate::svm::utils::count_positives_at_fdr;
 
         // Create score and label vectors for FDR calculation
@@ -275,6 +323,30 @@ impl<'a> L2SvmMfn<'a> {
         println!(
             "  Iteration {iteration}: Target true positives at FDR - 1%: {tp_at_01}, 5%: {tp_at_05}, 10%: {tp_at_10}, 50%: {tp_at_50}"
         );
+
+        tp_at_01
+    }
+
+    /// Find the iteration with the highest number of precursors at 1% FDR
+    /// Returns None if no iterations have > 0 precursors at 1% FDR (revert not beneficial)
+    fn find_optimal_iteration(&self) -> Option<&IterationData> {
+        if self.iteration_history.is_empty() {
+            return None;
+        }
+
+        // Find the iteration with the maximum precursors at 1% FDR
+        let best_iteration = self
+            .iteration_history
+            .iter()
+            .max_by_key(|iter_data| iter_data.precursors_1pct)?;
+
+        // Only revert if the best iteration actually has precursors at 1% FDR
+        // Otherwise, stick with the converged solution
+        if best_iteration.precursors_1pct > 0 {
+            Some(best_iteration)
+        } else {
+            None
+        }
     }
 }
 

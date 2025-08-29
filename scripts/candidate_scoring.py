@@ -483,6 +483,8 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
                 "rt_calibrated",
                 "rt_library",
                 "mz_library",
+                "charge",
+                "sequence",
             ]
         ],
         on="precursor_idx",
@@ -544,6 +546,8 @@ def run_fdr_filtering(
         "longest_y_series",
         "naa",
         "weighted_mass_error",
+        "charge",
+        "mz_library",
     ]
 
     logger.info(f"Using {len(available_columns)} features for FDR calculation")
@@ -720,6 +724,8 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         "longest_y_series",
         "naa",
         "weighted_mass_error",
+        "charge",
+        "mz_library",
     ]
 
     # Filter to only include columns that exist in the DataFrame

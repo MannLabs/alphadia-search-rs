@@ -101,10 +101,10 @@ pub struct CandidateFeature {
     pub naa: f32,
     /// Mean absolute mass error weighted by predicted intensity
     pub weighted_mass_error: f32,
-    /// Total intensity of b-series ions
-    pub intensity_b_series: f32,
-    /// Total intensity of y-series ions
-    pub intensity_y_series: f32,
+    /// Log10 transformed total intensity of b-ion series
+    pub log10_b_ion_intensity: f32,
+    /// Log10 transformed total intensity of y-ion series
+    pub log10_y_ion_intensity: f32,
 }
 
 impl CandidateFeature {
@@ -132,8 +132,8 @@ impl CandidateFeature {
         longest_y_series: f32,
         naa: f32,
         weighted_mass_error: f32,
-        intensity_b_series: f32,
-        intensity_y_series: f32,
+        log10_b_ion_intensity: f32,
+        log10_y_ion_intensity: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -158,8 +158,8 @@ impl CandidateFeature {
             longest_y_series,
             naa,
             weighted_mass_error,
-            intensity_b_series,
-            intensity_y_series,
+            log10_b_ion_intensity,
+            log10_y_ion_intensity,
         }
     }
 }
@@ -219,8 +219,8 @@ impl CandidateFeatureCollection {
         let mut longest_y_series = Array1::<f32>::zeros(n);
         let mut naa = Array1::<f32>::zeros(n);
         let mut weighted_mass_errors = Array1::<f32>::zeros(n);
-        let mut intensity_b_series = Array1::<f32>::zeros(n);
-        let mut intensity_y_series = Array1::<f32>::zeros(n);
+        let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
+        let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -245,8 +245,8 @@ impl CandidateFeatureCollection {
             longest_y_series[i] = feature.longest_y_series;
             naa[i] = feature.naa;
             weighted_mass_errors[i] = feature.weighted_mass_error;
-            intensity_b_series[i] = feature.intensity_b_series;
-            intensity_y_series[i] = feature.intensity_y_series;
+            log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
+            log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
         }
 
         // Create Python dictionary
@@ -285,8 +285,14 @@ impl CandidateFeatureCollection {
         dict.set_item("longest_y_series", longest_y_series.into_pyarray(py))?;
         dict.set_item("naa", naa.into_pyarray(py))?;
         dict.set_item("weighted_mass_error", weighted_mass_errors.into_pyarray(py))?;
-        dict.set_item("intensity_b_series", intensity_b_series.into_pyarray(py))?;
-        dict.set_item("intensity_y_series", intensity_y_series.into_pyarray(py))?;
+        dict.set_item(
+            "log10_b_ion_intensity",
+            log10_b_ion_intensity.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "log10_y_ion_intensity",
+            log10_y_ion_intensity.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }
@@ -315,8 +321,8 @@ impl CandidateFeatureCollection {
             "longest_y_series".to_string(),
             "naa".to_string(),
             "weighted_mass_error".to_string(),
-            "intensity_b_series".to_string(),
-            "intensity_y_series".to_string(),
+            "log10_b_ion_intensity".to_string(),
+            "log10_y_ion_intensity".to_string(),
         ]
     }
 }
@@ -517,8 +523,8 @@ mod tests {
         assert!(feature_names.contains(&"longest_y_series".to_string()));
         assert!(feature_names.contains(&"naa".to_string()));
         assert!(feature_names.contains(&"weighted_mass_error".to_string()));
-        assert!(feature_names.contains(&"intensity_b_series".to_string()));
-        assert!(feature_names.contains(&"intensity_y_series".to_string()));
+        assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
+        assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
 
         // Verify that non-f32 columns are NOT included
         assert!(!feature_names.contains(&"precursor_idx".to_string()));

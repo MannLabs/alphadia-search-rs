@@ -269,8 +269,8 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         "longest_y_series",
         "naa",
         "weighted_mass_error",
-        "intensity_b_series",
-        "intensity_y_series",
+        "log10_b_ion_intensity",
+        "log10_y_ion_intensity",
     ]
 
     logger.info(f"Performing NN based FDR with {len(available_columns)} features")
@@ -420,8 +420,8 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         "longest_y_series",
         "naa",
         "weighted_mass_error",
-        "intensity_b_series",
-        "intensity_y_series",
+        "log10_b_ion_intensity",
+        "log10_y_ion_intensity",
     ]
 
     # Filter to only include columns that exist in the DataFrame

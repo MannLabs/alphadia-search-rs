@@ -227,19 +227,24 @@ impl PeakGroupScoring {
         let delta_rt = rt_observed - precursor.rt;
 
         // Calculate intensity scores for b and y series
-        let intensity_b_series = intensity_ion_series(
+        let intensity_b_raw = intensity_ion_series(
             &precursor.fragment_type,
             observation_intensities.as_slice().unwrap(),
             &matched_mask_intensity,
             FragmentType::B,
         );
 
-        let intensity_y_series = intensity_ion_series(
+        let intensity_y_raw = intensity_ion_series(
             &precursor.fragment_type,
             observation_intensities.as_slice().unwrap(),
             &matched_mask_intensity,
             FragmentType::Y,
         );
+
+        // Apply log10 transformation (add epsilon to avoid log(0))
+        const EPSILON: f32 = 1e-8;
+        let log10_b_ion_intensity = (intensity_b_raw + EPSILON).log10();
+        let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
 
         // Create and return candidate feature
         Some(CandidateFeature::new(
@@ -265,8 +270,8 @@ impl PeakGroupScoring {
             longest_y_series as f32,
             precursor.naa as f32,
             weighted_mass_error,
-            intensity_b_series,
-            intensity_y_series,
+            log10_b_ion_intensity,
+            log10_y_ion_intensity,
         ))
     }
 }

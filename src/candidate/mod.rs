@@ -101,6 +101,10 @@ pub struct CandidateFeature {
     pub naa: f32,
     /// Mean absolute mass error weighted by predicted intensity
     pub weighted_mass_error: f32,
+    /// Total intensity of b-series ions
+    pub intensity_b_series: f32,
+    /// Total intensity of y-series ions
+    pub intensity_y_series: f32,
 }
 
 impl CandidateFeature {
@@ -128,6 +132,8 @@ impl CandidateFeature {
         longest_y_series: f32,
         naa: f32,
         weighted_mass_error: f32,
+        intensity_b_series: f32,
+        intensity_y_series: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -152,6 +158,8 @@ impl CandidateFeature {
             longest_y_series,
             naa,
             weighted_mass_error,
+            intensity_b_series,
+            intensity_y_series,
         }
     }
 }
@@ -211,6 +219,8 @@ impl CandidateFeatureCollection {
         let mut longest_y_series = Array1::<f32>::zeros(n);
         let mut naa = Array1::<f32>::zeros(n);
         let mut weighted_mass_errors = Array1::<f32>::zeros(n);
+        let mut intensity_b_series = Array1::<f32>::zeros(n);
+        let mut intensity_y_series = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -235,6 +245,8 @@ impl CandidateFeatureCollection {
             longest_y_series[i] = feature.longest_y_series;
             naa[i] = feature.naa;
             weighted_mass_errors[i] = feature.weighted_mass_error;
+            intensity_b_series[i] = feature.intensity_b_series;
+            intensity_y_series[i] = feature.intensity_y_series;
         }
 
         // Create Python dictionary
@@ -273,6 +285,8 @@ impl CandidateFeatureCollection {
         dict.set_item("longest_y_series", longest_y_series.into_pyarray(py))?;
         dict.set_item("naa", naa.into_pyarray(py))?;
         dict.set_item("weighted_mass_error", weighted_mass_errors.into_pyarray(py))?;
+        dict.set_item("intensity_b_series", intensity_b_series.into_pyarray(py))?;
+        dict.set_item("intensity_y_series", intensity_y_series.into_pyarray(py))?;
 
         Ok(dict.into())
     }
@@ -301,6 +315,8 @@ impl CandidateFeatureCollection {
             "longest_y_series".to_string(),
             "naa".to_string(),
             "weighted_mass_error".to_string(),
+            "intensity_b_series".to_string(),
+            "intensity_y_series".to_string(),
         ]
     }
 }
@@ -485,7 +501,7 @@ mod tests {
         let feature_names = CandidateFeatureCollection::get_feature_names();
 
         // Verify we have the expected number of f32 features
-        assert_eq!(feature_names.len(), 20);
+        assert_eq!(feature_names.len(), 22);
 
         // Verify some key feature names are present
         assert!(feature_names.contains(&"score".to_string()));
@@ -501,6 +517,8 @@ mod tests {
         assert!(feature_names.contains(&"longest_y_series".to_string()));
         assert!(feature_names.contains(&"naa".to_string()));
         assert!(feature_names.contains(&"weighted_mass_error".to_string()));
+        assert!(feature_names.contains(&"intensity_b_series".to_string()));
+        assert!(feature_names.contains(&"intensity_y_series".to_string()));
 
         // Verify that non-f32 columns are NOT included
         assert!(!feature_names.contains(&"precursor_idx".to_string()));

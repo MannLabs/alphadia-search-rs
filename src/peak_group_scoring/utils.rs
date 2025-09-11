@@ -360,3 +360,33 @@ pub fn calculate_hyperscore_inverse_mass_error(
         Some(&weights),
     )
 }
+
+/// Calculate total intensity for a specific ion series
+///
+/// Sums all observed intensities for fragments of the specified type
+/// that have a matched intensity (intensity > 0 and matched_mask = true)
+pub fn intensity_ion_series(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    target_fragment_type: u8,
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+    {
+        return 0.0;
+    }
+
+    let mut total_intensity = 0.0;
+
+    for i in 0..fragment_types.len() {
+        if matched_mask[i]
+            && fragment_intensities[i] > 0.0
+            && fragment_types[i] == target_fragment_type
+        {
+            total_intensity += fragment_intensities[i];
+        }
+    }
+
+    total_intensity
+}

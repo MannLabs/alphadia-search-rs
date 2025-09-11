@@ -5,11 +5,13 @@ use std::time::Instant;
 use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
+use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
-    calculate_longest_ion_series, correlation_axis_0, median_axis_0, normalize_profiles,
+    calculate_longest_ion_series, correlation_axis_0, intensity_ion_series, median_axis_0,
+    normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -224,6 +226,21 @@ impl PeakGroupScoring {
         let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
         let delta_rt = rt_observed - precursor.rt;
 
+        // Calculate intensity scores for b and y series
+        let intensity_b_series = intensity_ion_series(
+            &precursor.fragment_type,
+            observation_intensities.as_slice().unwrap(),
+            &matched_mask_intensity,
+            FragmentType::B,
+        );
+
+        let intensity_y_series = intensity_ion_series(
+            &precursor.fragment_type,
+            observation_intensities.as_slice().unwrap(),
+            &matched_mask_intensity,
+            FragmentType::Y,
+        );
+
         // Create and return candidate feature
         Some(CandidateFeature::new(
             candidate.precursor_idx,
@@ -248,6 +265,8 @@ impl PeakGroupScoring {
             longest_y_series as f32,
             precursor.naa as f32,
             weighted_mass_error,
+            intensity_b_series,
+            intensity_y_series,
         ))
     }
 }

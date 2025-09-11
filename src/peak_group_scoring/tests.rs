@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
 use super::utils::{
     calculate_hyperscore, calculate_longest_ion_series, correlation, correlation_axis_0,
-    median_axis_0, normalize_profiles,
+    intensity_ion_series, median_axis_0, normalize_profiles,
 };
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
@@ -745,4 +745,166 @@ fn test_hyperscore_inverse_mass_error_small_errors() {
 
     // Then: Small errors should produce higher score
     assert!(score_small > score_large);
+}
+
+#[test]
+fn test_intensity_ion_series_basic() {
+    // Given: Fragment data with mixed types
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::A,
+    ];
+    let fragment_intensities = vec![100.0, 200.0, 150.0, 250.0, 75.0];
+    let matched_mask = vec![true, true, true, true, true];
+
+    // When: Calculating intensities for different ion series
+    let b_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::B,
+    );
+    let y_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::Y,
+    );
+
+    // Then: Should sum only matching ion types
+    assert_eq!(b_intensity, 300.0); // 100.0 + 200.0
+    assert_eq!(y_intensity, 400.0); // 150.0 + 250.0
+}
+
+#[test]
+fn test_intensity_ion_series_edge_cases() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let fragment_intensities = vec![100.0, 200.0];
+    let matched_mask = vec![false, true]; // Only y-ion matched
+
+    // No matches for B-series
+    assert_eq!(
+        intensity_ion_series(
+            &fragment_types,
+            &fragment_intensities,
+            &matched_mask,
+            FragmentType::B
+        ),
+        0.0
+    );
+    // Y-series has one match
+    assert_eq!(
+        intensity_ion_series(
+            &fragment_types,
+            &fragment_intensities,
+            &matched_mask,
+            FragmentType::Y
+        ),
+        200.0
+    );
+
+    // Zero intensities should be excluded
+    let zero_intensities = vec![0.0, 200.0];
+    let all_matched = vec![true, true];
+    assert_eq!(
+        intensity_ion_series(
+            &fragment_types,
+            &zero_intensities,
+            &all_matched,
+            FragmentType::B
+        ),
+        0.0
+    );
+
+    // Empty arrays
+    let empty: Vec<u8> = vec![];
+    let empty_f32: Vec<f32> = vec![];
+    let empty_bool: Vec<bool> = vec![];
+    assert_eq!(
+        intensity_ion_series(&empty, &empty_f32, &empty_bool, FragmentType::B),
+        0.0
+    );
+}
+
+#[test]
+fn test_intensity_ion_series_all_fragment_types() {
+    // Given: Fragment data with multiple types
+    let fragment_types = vec![
+        FragmentType::A,
+        FragmentType::B,
+        FragmentType::C,
+        FragmentType::X,
+        FragmentType::Y,
+        FragmentType::Z,
+    ];
+    let fragment_intensities = vec![50.0, 100.0, 75.0, 80.0, 200.0, 60.0];
+    let matched_mask = vec![true, true, true, true, true, true];
+
+    // When: Calculating intensity for different fragment types
+    let a_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::A,
+    );
+    let b_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::B,
+    );
+    let c_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::C,
+    );
+    let x_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::X,
+    );
+    let y_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::Y,
+    );
+    let z_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::Z,
+    );
+
+    // Then: Should return correct intensities for each type
+    assert_eq!(a_intensity, 50.0);
+    assert_eq!(b_intensity, 100.0);
+    assert_eq!(c_intensity, 75.0);
+    assert_eq!(x_intensity, 80.0);
+    assert_eq!(y_intensity, 200.0);
+    assert_eq!(z_intensity, 60.0);
+}
+
+#[test]
+fn test_intensity_ion_series_no_matches() {
+    // Given: Fragment data with no matches for target type
+    let fragment_types = vec![FragmentType::B, FragmentType::Y, FragmentType::A];
+    let fragment_intensities = vec![100.0, 200.0, 50.0];
+    let matched_mask = vec![true, true, true];
+
+    // When: Calculating intensity for a type that doesn't exist
+    let c_intensity = intensity_ion_series(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        FragmentType::C,
+    );
+
+    // Then: Should return 0
+    assert_eq!(c_intensity, 0.0);
 }

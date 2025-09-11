@@ -172,6 +172,7 @@ impl PeakGroupScoring {
         let num_over_90 = correlations.iter().filter(|&x| *x > 0.90).count();
         let num_over_80 = correlations.iter().filter(|&x| *x > 0.80).count();
         let num_over_50 = correlations.iter().filter(|&x| *x > 0.50).count();
+        let num_over_0 = correlations.iter().filter(|&x| *x > 0.0).count();
 
         let intensity_correlation = intensity_correlations;
         let num_fragments = precursor.fragment_mz.len();
@@ -261,6 +262,7 @@ impl PeakGroupScoring {
             num_over_90 as f32,
             num_over_80 as f32,
             num_over_50 as f32,
+            num_over_0 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,

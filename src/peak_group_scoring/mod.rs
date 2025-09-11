@@ -5,11 +5,13 @@ use std::time::Instant;
 use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
+use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
-    calculate_longest_ion_series, correlation_axis_0, median_axis_0, normalize_profiles,
+    calculate_longest_ion_series, correlation_axis_0, intensity_ion_series, median_axis_0,
+    normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -63,6 +65,7 @@ impl PeakGroupScoring {
                 match lib.get_precursor_by_idx_filtered(
                     candidate.precursor_idx,
                     true, // Always filter non-zero intensities for scoring
+                    true, // Filter Y1 ions by default
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {
@@ -170,6 +173,7 @@ impl PeakGroupScoring {
         let num_over_90 = correlations.iter().filter(|&x| *x > 0.90).count();
         let num_over_80 = correlations.iter().filter(|&x| *x > 0.80).count();
         let num_over_50 = correlations.iter().filter(|&x| *x > 0.50).count();
+        let num_over_0 = correlations.iter().filter(|&x| *x > 0.0).count();
 
         let intensity_correlation = intensity_correlations;
         let num_fragments = precursor.fragment_mz.len();
@@ -224,6 +228,26 @@ impl PeakGroupScoring {
         let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
         let delta_rt = rt_observed - precursor.rt;
 
+        // Calculate intensity scores for b and y series
+        let intensity_b_raw = intensity_ion_series(
+            &precursor.fragment_type,
+            observation_intensities.as_slice().unwrap(),
+            &matched_mask_intensity,
+            FragmentType::B,
+        );
+
+        let intensity_y_raw = intensity_ion_series(
+            &precursor.fragment_type,
+            observation_intensities.as_slice().unwrap(),
+            &matched_mask_intensity,
+            FragmentType::Y,
+        );
+
+        // Apply log10 transformation (add epsilon to avoid log(0))
+        const EPSILON: f32 = 1e-8;
+        let log10_b_ion_intensity = (intensity_b_raw + EPSILON).log10();
+        let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
+
         // Create and return candidate feature
         Some(CandidateFeature::new(
             candidate.precursor_idx,
@@ -239,6 +263,7 @@ impl PeakGroupScoring {
             num_over_90 as f32,
             num_over_80 as f32,
             num_over_50 as f32,
+            num_over_0 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,
@@ -248,6 +273,8 @@ impl PeakGroupScoring {
             longest_y_series as f32,
             precursor.naa as f32,
             weighted_mass_error,
+            log10_b_ion_intensity,
+            log10_y_ion_intensity,
         ))
     }
 }

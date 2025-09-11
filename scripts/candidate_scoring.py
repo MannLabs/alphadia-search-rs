@@ -537,6 +537,7 @@ def run_fdr_filtering(
         "num_over_90",
         "num_over_80",
         "num_over_50",
+        "num_over_0",
         "hyperscore_intensity_observation",
         "hyperscore_intensity_library",
         "hyperscore_inverse_mass_error",
@@ -548,6 +549,8 @@ def run_fdr_filtering(
         "weighted_mass_error",
         "charge",
         "mz_library",
+        "log10_b_ion_intensity",
+        "log10_y_ion_intensity",
     ]
 
     logger.info(f"Using {len(available_columns)} features for FDR calculation")
@@ -685,6 +688,22 @@ def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
     return diagnosis_features_df
 
 
+def save_diagnosis_features(diagnosis_features_df, output_folder):
+    """
+    Save diagnosis features DataFrame to parquet file.
+
+    Parameters
+    ----------
+    diagnosis_features_df : pd.DataFrame
+        DataFrame with diagnosis features for targets and decoys
+    output_folder : str
+        Output folder path
+    """
+    output_path = os.path.join(output_folder, "diagnosis_features.parquet")
+    diagnosis_features_df.to_parquet(output_path)
+    logger.info(f"Saved diagnosis features to: {output_path}")
+
+
 def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     """
     Plot histograms of all features from diagnosis features DataFrame colored by decoy and target using seaborn.
@@ -715,6 +734,7 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         "num_over_90",
         "num_over_80",
         "num_over_50",
+        "num_over_0",
         "hyperscore_intensity_observation",
         "hyperscore_intensity_library",
         "hyperscore_inverse_mass_error",
@@ -726,6 +746,8 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         "weighted_mass_error",
         "charge",
         "mz_library",
+        "log10_b_ion_intensity",
+        "log10_y_ion_intensity",
     ]
 
     # Filter to only include columns that exist in the DataFrame
@@ -986,6 +1008,7 @@ def main():
     # Generate diagnosis features if requested
     if args.diagnosis and psm_fdr_passed_df is not None:
         diagnosis_features_df = get_diagnosis_features(psm_scored_df, psm_fdr_passed_df)
+        save_diagnosis_features(diagnosis_features_df, args.output_folder)
         plot_diagnosis_feature_histograms(diagnosis_features_df, args.output_folder)
 
     # Run peak group quantification if requested

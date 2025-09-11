@@ -83,6 +83,8 @@ pub struct CandidateFeature {
     pub num_over_80: f32,
     /// Number of correlations above 0.50
     pub num_over_50: f32,
+    /// Number of correlations above 0.0
+    pub num_over_0: f32,
     /// Hyperscore calculated from observed intensities
     pub hyperscore_intensity_observation: f32,
     /// Hyperscore calculated from library intensities
@@ -101,6 +103,10 @@ pub struct CandidateFeature {
     pub naa: f32,
     /// Mean absolute mass error weighted by predicted intensity
     pub weighted_mass_error: f32,
+    /// Log10 transformed total intensity of b-ion series
+    pub log10_b_ion_intensity: f32,
+    /// Log10 transformed total intensity of y-ion series
+    pub log10_y_ion_intensity: f32,
 }
 
 impl CandidateFeature {
@@ -119,6 +125,7 @@ impl CandidateFeature {
         num_over_90: f32,
         num_over_80: f32,
         num_over_50: f32,
+        num_over_0: f32,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
         hyperscore_inverse_mass_error: f32,
@@ -128,6 +135,8 @@ impl CandidateFeature {
         longest_y_series: f32,
         naa: f32,
         weighted_mass_error: f32,
+        log10_b_ion_intensity: f32,
+        log10_y_ion_intensity: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -143,6 +152,7 @@ impl CandidateFeature {
             num_over_90,
             num_over_80,
             num_over_50,
+            num_over_0,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,
@@ -152,6 +162,8 @@ impl CandidateFeature {
             longest_y_series,
             naa,
             weighted_mass_error,
+            log10_b_ion_intensity,
+            log10_y_ion_intensity,
         }
     }
 }
@@ -202,6 +214,7 @@ impl CandidateFeatureCollection {
         let mut num_over_90 = Array1::<f32>::zeros(n);
         let mut num_over_80 = Array1::<f32>::zeros(n);
         let mut num_over_50 = Array1::<f32>::zeros(n);
+        let mut num_over_0 = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
         let mut hyperscore_inverse_mass_errors = Array1::<f32>::zeros(n);
@@ -211,6 +224,8 @@ impl CandidateFeatureCollection {
         let mut longest_y_series = Array1::<f32>::zeros(n);
         let mut naa = Array1::<f32>::zeros(n);
         let mut weighted_mass_errors = Array1::<f32>::zeros(n);
+        let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
+        let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -226,6 +241,7 @@ impl CandidateFeatureCollection {
             num_over_90[i] = feature.num_over_90;
             num_over_80[i] = feature.num_over_80;
             num_over_50[i] = feature.num_over_50;
+            num_over_0[i] = feature.num_over_0;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
             hyperscore_inverse_mass_errors[i] = feature.hyperscore_inverse_mass_error;
@@ -235,6 +251,8 @@ impl CandidateFeatureCollection {
             longest_y_series[i] = feature.longest_y_series;
             naa[i] = feature.naa;
             weighted_mass_errors[i] = feature.weighted_mass_error;
+            log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
+            log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
         }
 
         // Create Python dictionary
@@ -255,6 +273,7 @@ impl CandidateFeatureCollection {
         dict.set_item("num_over_90", num_over_90.into_pyarray(py))?;
         dict.set_item("num_over_80", num_over_80.into_pyarray(py))?;
         dict.set_item("num_over_50", num_over_50.into_pyarray(py))?;
+        dict.set_item("num_over_0", num_over_0.into_pyarray(py))?;
         dict.set_item(
             "hyperscore_intensity_observation",
             hyperscore_intensity_observations.into_pyarray(py),
@@ -273,6 +292,14 @@ impl CandidateFeatureCollection {
         dict.set_item("longest_y_series", longest_y_series.into_pyarray(py))?;
         dict.set_item("naa", naa.into_pyarray(py))?;
         dict.set_item("weighted_mass_error", weighted_mass_errors.into_pyarray(py))?;
+        dict.set_item(
+            "log10_b_ion_intensity",
+            log10_b_ion_intensity.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "log10_y_ion_intensity",
+            log10_y_ion_intensity.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }
@@ -292,6 +319,7 @@ impl CandidateFeatureCollection {
             "num_over_90".to_string(),
             "num_over_80".to_string(),
             "num_over_50".to_string(),
+            "num_over_0".to_string(),
             "hyperscore_intensity_observation".to_string(),
             "hyperscore_intensity_library".to_string(),
             "hyperscore_inverse_mass_error".to_string(),
@@ -301,6 +329,8 @@ impl CandidateFeatureCollection {
             "longest_y_series".to_string(),
             "naa".to_string(),
             "weighted_mass_error".to_string(),
+            "log10_b_ion_intensity".to_string(),
+            "log10_y_ion_intensity".to_string(),
         ]
     }
 }
@@ -485,7 +515,7 @@ mod tests {
         let feature_names = CandidateFeatureCollection::get_feature_names();
 
         // Verify we have the expected number of f32 features
-        assert_eq!(feature_names.len(), 20);
+        assert_eq!(feature_names.len(), 23);
 
         // Verify some key feature names are present
         assert!(feature_names.contains(&"score".to_string()));
@@ -495,12 +525,15 @@ mod tests {
         assert!(feature_names.contains(&"intensity_correlation".to_string()));
         assert!(feature_names.contains(&"num_fragments".to_string()));
         assert!(feature_names.contains(&"num_scans".to_string()));
+        assert!(feature_names.contains(&"num_over_0".to_string()));
         assert!(feature_names.contains(&"rt_observed".to_string()));
         assert!(feature_names.contains(&"delta_rt".to_string()));
         assert!(feature_names.contains(&"longest_b_series".to_string()));
         assert!(feature_names.contains(&"longest_y_series".to_string()));
         assert!(feature_names.contains(&"naa".to_string()));
         assert!(feature_names.contains(&"weighted_mass_error".to_string()));
+        assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
+        assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
 
         // Verify that non-f32 columns are NOT included
         assert!(!feature_names.contains(&"precursor_idx".to_string()));

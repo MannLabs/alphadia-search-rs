@@ -382,6 +382,22 @@ def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
     return diagnosis_features_df
 
 
+def save_diagnosis_features(diagnosis_features_df, output_folder):
+    """
+    Save diagnosis features DataFrame to parquet file.
+
+    Parameters
+    ----------
+    diagnosis_features_df : pd.DataFrame
+        DataFrame with diagnosis features for targets and decoys
+    output_folder : str
+        Output folder path
+    """
+    output_path = os.path.join(output_folder, "diagnosis_features.parquet")
+    diagnosis_features_df.to_parquet(output_path)
+    logger.info(f"Saved diagnosis features to: {output_path}")
+
+
 def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     """
     Plot histograms of all features from diagnosis features DataFrame colored by decoy and target using seaborn.
@@ -666,6 +682,7 @@ def main():
     # Generate diagnosis features if requested
     if args.diagnosis and psm_fdr_passed_df is not None:
         diagnosis_features_df = get_diagnosis_features(psm_scored_df, psm_fdr_passed_df)
+        save_diagnosis_features(diagnosis_features_df, args.output_folder)
         plot_diagnosis_feature_histograms(diagnosis_features_df, args.output_folder)
 
     # Run peak group quantification if requested

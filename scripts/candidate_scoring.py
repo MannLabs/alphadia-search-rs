@@ -143,7 +143,7 @@ def create_spec_lib_flat(alphabase_speclib_flat):
 
 def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
     """
-    Run candidate scoring using alphaRaw MSData_Base object, SpecLibFlat, and candidates.
+    Run candidate scoring with multiple top_k_fragments values and stack results.
 
     Parameters
     ----------
@@ -157,7 +157,7 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
     Returns
     -------
     pd.DataFrame
-        Scored candidates DataFrame with features
+        Stacked scored candidates DataFrame with features from top6, top12, top24, top48
     """
     rs_data_next_gen = create_dia_data_next_gen(ms_data)
     spec_lib_flat = create_spec_lib_flat(alphabase_speclib_flat)
@@ -177,30 +177,97 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
         candidates_df["frame_stop"].values.astype(np.uint64) // cycle_len,
     )
 
-    scoring_params = ScoringParameters()
-    scoring_params.update(
-        {
-            "top_k_fragments": 99,
-            "mass_tolerance": 7.0,
-        }
+    # Define different top_k_fragments values
+    top_k_values = [6, 12, 24, 48]
+    all_features_dfs = []
+
+    logger.info(
+        f"Scoring {len(candidates_df):,} candidates with {len(top_k_values)} different top_k_fragments values"
     )
 
-    peak_group_scoring = PeakGroupScoring(scoring_params)
+    for top_k in top_k_values:
+        logger.info(f"Scoring with top_{top_k} fragments")
 
-    logger.info(f"Scoring {len(candidates_df):,} candidates")
+        scoring_params = ScoringParameters()
+        scoring_params.update(
+            {
+                "top_k_fragments": top_k,
+                "mass_tolerance": 7.0,
+            }
+        )
 
-    # Get candidate features
-    candidate_features = peak_group_scoring.score(
-        rs_data_next_gen, spec_lib_flat, candidates
-    )
+        def score_candidates_with_stacked_output(
+            scoring_params, rs_data, spec_lib, candidates
+        ):
+            """Score candidates and return stacked DataFrame with feature names.
 
-    # Convert features to dictionary of arrays
-    features_dict = candidate_features.to_dict_arrays()
+            Parameters
+            ----------
+            scoring_params : ScoringParameters
+                Scoring parameters
+            rs_data : DIAData
+                Raw spectrum data
+            spec_lib : SpecLibFlat
+                Spectral library
+            candidates : CandidateCollection
+                Candidates to score
 
-    # Create DataFrame from features
-    features_df = pd.DataFrame(features_dict)
+            Returns
+            -------
+            tuple
+                Stacked DataFrame and list of feature names
+            """
+            peak_group_scoring = PeakGroupScoring(scoring_params)
+            candidate_features = peak_group_scoring.score(rs_data, spec_lib, candidates)
 
-    features_df = features_df.merge(
+            # Convert features to dictionary of arrays
+            features_dict = candidate_features.to_dict_arrays()
+
+            # Create DataFrame from features
+            features_df = pd.DataFrame(features_dict)
+
+            # Stack the DataFrame (melt from wide to long format)
+            stacked_df = features_df.melt(
+                var_name="feature_name", value_name="feature_value"
+            )
+
+            # Get feature names list
+            feature_names = list(features_dict.keys())
+
+            return stacked_df, feature_names
+
+        # Get candidate features using wrapper function
+        stacked_df, feature_names = score_candidates_with_stacked_output(
+            scoring_params, rs_data_next_gen, spec_lib_flat, candidates
+        )
+
+        # For backward compatibility, also create the original features_df
+        peak_group_scoring = PeakGroupScoring(scoring_params)
+        candidate_features = peak_group_scoring.score(
+            rs_data_next_gen, spec_lib_flat, candidates
+        )
+        features_dict = candidate_features.to_dict_arrays()
+        features_df = pd.DataFrame(features_dict)
+
+        # Add suffix to column names to distinguish different top_k results
+        suffix = f"_top{top_k}"
+        feature_columns = [
+            col for col in features_df.columns if col not in ["precursor_idx", "rank"]
+        ]
+        rename_dict = {col: col + suffix for col in feature_columns}
+        features_df = features_df.rename(columns=rename_dict)
+
+        all_features_dfs.append(features_df)
+
+    # Merge all features DataFrames on precursor_idx and rank
+    stacked_features_df = all_features_dfs[0]
+    for features_df in all_features_dfs[1:]:
+        stacked_features_df = stacked_features_df.merge(
+            features_df, on=["precursor_idx", "rank"], how="inner"
+        )
+
+    # Merge with precursor metadata
+    stacked_features_df = stacked_features_df.merge(
         alphabase_speclib_flat.precursor_df[
             [
                 "precursor_idx",
@@ -217,7 +284,12 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
         how="left",
     )
 
-    return features_df
+    logger.info(f"Stacked features DataFrame shape: {stacked_features_df.shape}")
+    logger.info(
+        f"Total features per candidate: {len([col for col in stacked_features_df.columns if '_top' in col])}"
+    )
+
+    return stacked_features_df
 
 
 def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
@@ -248,7 +320,8 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         experimental_hyperparameter_tuning=True,
     )
 
-    available_columns = [
+    # Get all feature columns with suffixes for different top_k values
+    base_columns = [
         "score",
         "mean_correlation",
         "median_correlation",
@@ -274,7 +347,25 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         "log10_y_ion_intensity",
     ]
 
-    logger.info(f"Performing NN based FDR with {len(available_columns)} features")
+    # Generate all feature columns including suffixed versions
+    available_columns = []
+    for col in base_columns:
+        # Find all versions of this column in the DataFrame
+        matching_cols = [
+            df_col
+            for df_col in psm_scored_df.columns
+            if df_col == col or df_col.startswith(col + "_top")
+        ]
+        available_columns.extend(matching_cols)
+
+    # Filter to only include columns that exist in the DataFrame
+    available_columns = [
+        col for col in available_columns if col in psm_scored_df.columns
+    ]
+
+    logger.info(
+        f"Performing NN based FDR with {len(available_columns)} features (4x stacked from top6, top12, top24, top48)"
+    )
 
     # Create composite index for proper matching
     psm_scored_df["precursor_idx_rank"] = (
@@ -325,6 +416,7 @@ def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
     """
     Get best scoring target and decoy for each unique elution group from FDR-filtered results.
     Uses the original psm_scored_df to get paired decoys, not just FDR-filtered decoys.
+    With stacked features, uses first score column for ranking.
 
     Parameters
     ----------
@@ -338,7 +430,9 @@ def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
     pd.DataFrame
         DataFrame with best scoring target and decoy for each unique elution group
     """
-    logger.info("Getting diagnosis features for unique elution groups")
+    logger.info(
+        "Getting diagnosis features for unique elution groups using stacked features"
+    )
 
     # Get unique elution groups from FDR-filtered results
     unique_elution_groups = psm_fdr_passed_df["elution_group_idx"].unique()
@@ -355,17 +449,31 @@ def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
             psm_scored_df["elution_group_idx"] == elution_group_idx
         ]
 
-        # Get best scoring target
+        # Get best scoring target - use the first score column (score_top6)
         target_candidates = group_candidates[group_candidates["decoy"] == 0]
         if len(target_candidates) > 0:
-            best_target = target_candidates.loc[target_candidates["score"].idxmax()]
-            diagnosis_features_list.append(best_target)
+            # Find the first score column (should be score_top6)
+            score_cols = [
+                col for col in target_candidates.columns if col.startswith("score_top")
+            ]
+            if score_cols:
+                score_col = score_cols[0]  # Use first score column for ranking
+                best_target = target_candidates.loc[
+                    target_candidates[score_col].idxmax()
+                ]
+                diagnosis_features_list.append(best_target)
 
         # Get best scoring decoy from the original psm_scored_df (paired decoy)
         decoy_candidates = group_candidates[group_candidates["decoy"] == 1]
         if len(decoy_candidates) > 0:
-            best_decoy = decoy_candidates.loc[decoy_candidates["score"].idxmax()]
-            diagnosis_features_list.append(best_decoy)
+            # Find the first score column (should be score_top6)
+            score_cols = [
+                col for col in decoy_candidates.columns if col.startswith("score_top")
+            ]
+            if score_cols:
+                score_col = score_cols[0]  # Use first score column for ranking
+                best_decoy = decoy_candidates.loc[decoy_candidates[score_col].idxmax()]
+                diagnosis_features_list.append(best_decoy)
 
     diagnosis_features_df = pd.DataFrame(diagnosis_features_list)
 
@@ -415,8 +523,8 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     plt.style.use("default")
     sns.set_palette("husl")
 
-    # Define features to plot (excluding non-numeric columns)
-    feature_columns = [
+    # Define base feature names
+    base_feature_names = [
         "score",
         "mean_correlation",
         "median_correlation",
@@ -442,16 +550,28 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
         "log10_y_ion_intensity",
     ]
 
+    # Get all feature columns including suffixed versions
+    available_features = []
+    for base_name in base_feature_names:
+        matching_cols = [
+            col
+            for col in diagnosis_features_df.columns
+            if col == base_name or col.startswith(base_name + "_top")
+        ]
+        available_features.extend(matching_cols)
+
     # Filter to only include columns that exist in the DataFrame
     available_features = [
-        col for col in feature_columns if col in diagnosis_features_df.columns
+        col for col in available_features if col in diagnosis_features_df.columns
     ]
 
     if not available_features:
         logger.warning("No feature columns found in DataFrame")
         return
 
-    logger.info(f"Plotting histograms for {len(available_features)} features")
+    logger.info(
+        f"Plotting histograms for {len(available_features)} features (4x stacked from different top_k values)"
+    )
 
     # Calculate number of rows and columns for subplot layout
     n_features = len(available_features)

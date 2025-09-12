@@ -15,7 +15,10 @@ use crate::peak_group_scoring::utils::{
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
-use crate::utils::{calculate_fragment_mz_and_errors, calculate_weighted_mean_absolute_error};
+use crate::utils::{
+    calculate_fragment_mz_and_errors, calculate_median, calculate_std,
+    calculate_weighted_mean_absolute_error,
+};
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
@@ -145,29 +148,9 @@ impl PeakGroupScoring {
             0.0
         };
 
-        let mut sorted_correlations = correlations.clone();
-        sorted_correlations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_correlation = if !sorted_correlations.is_empty() {
-            let mid = sorted_correlations.len() / 2;
-            if sorted_correlations.len() % 2 == 0 {
-                (sorted_correlations[mid - 1] + sorted_correlations[mid]) / 2.0
-            } else {
-                sorted_correlations[mid]
-            }
-        } else {
-            0.0
-        };
+        let median_correlation = calculate_median(&correlations);
 
-        let correlation_std = if correlations.len() > 1 {
-            let variance = correlations
-                .iter()
-                .map(|&x| (x - mean_correlation).powi(2))
-                .sum::<f32>()
-                / (correlations.len() - 1) as f32;
-            variance.sqrt()
-        } else {
-            0.0
-        };
+        let correlation_std = calculate_std(&correlations);
 
         let num_over_95 = correlations.iter().filter(|&x| *x > 0.95).count();
         let num_over_90 = correlations.iter().filter(|&x| *x > 0.90).count();

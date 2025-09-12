@@ -106,3 +106,50 @@ pub fn calculate_weighted_mean_absolute_error(
         0.0
     }
 }
+
+/// Calculate median of a slice of f32 values
+///
+/// Returns the median value. For even-length slices, returns the average of the two middle values.
+/// Returns 0.0 if the slice is empty.
+///
+/// Parameters:
+/// - values: Slice of values to find median of
+///
+/// Returns:
+/// - Median value
+pub fn calculate_median(values: &[f32]) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+
+    let mut sorted_values = values.to_vec();
+    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mid = sorted_values.len() / 2;
+    if sorted_values.len() % 2 == 0 {
+        (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
+    } else {
+        sorted_values[mid]
+    }
+}
+
+/// Calculate standard deviation of a slice of f32 values
+///
+/// Uses the sample standard deviation formula (dividing by n-1).
+/// Returns 0.0 if there are fewer than 2 values.
+///
+/// Parameters:
+/// - values: Slice of values to calculate standard deviation for
+///
+/// Returns:
+/// - Sample standard deviation
+pub fn calculate_std(values: &[f32]) -> f32 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let variance =
+        values.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / (values.len() - 1) as f32;
+    variance.sqrt()
+}

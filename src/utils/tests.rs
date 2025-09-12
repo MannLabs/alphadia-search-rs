@@ -270,3 +270,23 @@ fn test_calculate_fragment_mz_and_errors_partial_signal() {
     assert!((mz_observed[1] - 200.025).abs() < 1e-5);
     assert!((mass_errors[1] - 125.0).abs() < 0.1); // (200.025 - 200.0) / 200.0 * 1e6
 }
+
+#[test]
+fn test_calculate_median() {
+    assert_eq!(calculate_median(&[3.0, 1.0, 4.0, 1.0, 5.0]), 3.0); // odd length
+    assert_eq!(calculate_median(&[2.0, 4.0, 1.0, 3.0]), 2.5); // even length
+    assert_eq!(calculate_median(&[42.0]), 42.0); // single value
+    assert_eq!(calculate_median(&[]), 0.0); // empty
+    assert_eq!(calculate_median(&[-3.0, 1.0, -1.0, 3.0, 0.0]), 0.0); // negative values
+    assert!(calculate_median(&[1.0, f32::NAN, 3.0]).is_nan()); // NaN handling
+}
+
+#[test]
+fn test_calculate_std() {
+    assert!((calculate_std(&[1.0, 2.0, 3.0, 4.0, 5.0]) - 1.5811).abs() < 1e-4); // basic case
+    assert_eq!(calculate_std(&[42.0]), 0.0); // single value
+    assert_eq!(calculate_std(&[]), 0.0); // empty
+    assert!((calculate_std(&[1.0, 5.0]) - 2.8284).abs() < 1e-4); // two values
+    assert_eq!(calculate_std(&[7.0, 7.0, 7.0]), 0.0); // identical values
+    assert_eq!(calculate_std(&[-2.0, 0.0, 2.0]), 2.0); // negative values
+}

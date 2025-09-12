@@ -153,3 +153,22 @@ pub fn calculate_std(values: &[f32]) -> f32 {
         values.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / (values.len() - 1) as f32;
     variance.sqrt()
 }
+
+pub fn create_ranked_mask(total_size: usize, rank: usize, len: usize) -> Vec<bool> {
+    if len == 0 || total_size == 0 {
+        return vec![false; total_size];
+    }
+
+    let start_idx = rank * len;
+    let end_idx = (start_idx + len).min(total_size);
+
+    let mut mask = vec![false; total_size];
+
+    if start_idx < total_size {
+        for i in start_idx..end_idx {
+            mask[i] = true;
+        }
+    }
+
+    mask
+}

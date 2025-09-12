@@ -290,3 +290,69 @@ fn test_calculate_std() {
     assert_eq!(calculate_std(&[7.0, 7.0, 7.0]), 0.0); // identical values
     assert_eq!(calculate_std(&[-2.0, 0.0, 2.0]), 2.0); // negative values
 }
+
+#[test]
+fn test_create_ranked_mask_basic_rank_0() {
+    assert_eq!(
+        create_ranked_mask(10, 0, 3),
+        [true, true, true, false, false, false, false, false, false, false]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_basic_rank_1() {
+    assert_eq!(
+        create_ranked_mask(10, 1, 3),
+        [false, false, false, true, true, true, false, false, false, false]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_basic_rank_2() {
+    assert_eq!(
+        create_ranked_mask(10, 2, 3),
+        [false, false, false, false, false, false, true, true, true, false]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_zero_length() {
+    assert_eq!(
+        create_ranked_mask(5, 0, 0),
+        [false, false, false, false, false]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_zero_total_size() {
+    assert_eq!(create_ranked_mask(0, 0, 3), Vec::<bool>::new());
+}
+
+#[test]
+fn test_create_ranked_mask_length_exceeds_remaining() {
+    assert_eq!(create_ranked_mask(3, 1, 5), [false, false, false]);
+}
+
+#[test]
+fn test_create_ranked_mask_rank_out_of_bounds() {
+    assert_eq!(
+        create_ranked_mask(5, 5, 2),
+        [false, false, false, false, false]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_single_element() {
+    assert_eq!(
+        create_ranked_mask(5, 1, 1),
+        [false, true, false, false, false]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_partial_overlap_at_end() {
+    assert_eq!(
+        create_ranked_mask(6, 1, 4),
+        [false, false, false, false, true, true]
+    );
+}

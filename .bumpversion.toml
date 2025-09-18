@@ -41,6 +41,3 @@ optional_value = "final"
 filename = "Cargo.toml"
 search = "version = \"{current_version}\""
 replace = "version = \"{new_version}\""
-
-[[tool.bumpversion.files]]
-filename = "pyproject.toml"

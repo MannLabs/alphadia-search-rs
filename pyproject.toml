@@ -51,11 +51,10 @@ homepage = "https://www.alphapept.org"
 
 dynamic = ["version"]
 dependencies = [
-    "alphabase",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "numpy"]
+dev = ["alphabase", "pytest", "numpy"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

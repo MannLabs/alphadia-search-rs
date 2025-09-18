@@ -37,6 +37,14 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
+dynamic = ["version"]
+dependencies = [
+]
+
+[project.optional-dependencies]
+dev = ["alphabase", "pytest", "numpy"]
+
+
 [project.urls]
 
 #repository = "https://github.com/MannLabs/alphadia-ng"
@@ -48,13 +56,6 @@ homepage = "https://www.alphapept.org"
 #publication = "https://www.biochem.mpg.de/mann"
 #documentation = "https://alphapeptdeep.readthedocs.io/en/latest/"
 
-
-dynamic = ["version"]
-dependencies = [
-]
-
-[project.optional-dependencies]
-dev = ["alphabase", "pytest", "numpy"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

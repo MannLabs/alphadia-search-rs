@@ -51,9 +51,12 @@ impl RTIndex {
     ///
     /// * `alpha_raw_view` - Source view containing spectrum data
     pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> Self {
-        // Estimate capacity: MS1 scans are typically a fraction of total scans
-        // Conservative estimate: assume every 10th scan is MS1 (DIA cycles are usually 5-15 scans)
-        let estimated_capacity = alpha_raw_view.spectrum_delta_scan_idx.len() / 10;
+        // Estimate capacity using the last element of spectrum_cycle_idx
+        // This represents the total number of cycles, which is the number of MS1 scans
+
+        let estimated_capacity = alpha_raw_view.spectrum_cycle_idx
+            [alpha_raw_view.spectrum_cycle_idx.len() - 1] as usize
+            + 1;
         let mut rt = Vec::with_capacity(estimated_capacity);
 
         for i in 0..alpha_raw_view.spectrum_delta_scan_idx.len() {

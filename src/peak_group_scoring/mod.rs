@@ -206,14 +206,14 @@ impl PeakGroupScoring {
         );
 
         // Calculate weighted mean absolute mass error using library intensities
-        let weighted_mass_error = calculate_weighted_mean_absolute_error(
+        let _weighted_mass_error = calculate_weighted_mean_absolute_error(
             &fragment_mass_errors,
             &precursor.fragment_intensity,
         );
 
         // Calculate hyperscore with inverse mass error weighting
         // Use observed intensities (sum across cycles) and exclude zero intensity fragments
-        let hyperscore_inverse_mass_error = calculate_hyperscore_inverse_mass_error(
+        let _hyperscore_inverse_mass_error = calculate_hyperscore_inverse_mass_error(
             &precursor.fragment_type,
             observation_intensities.as_slice().unwrap(),
             &matched_mask_intensity,
@@ -241,13 +241,11 @@ impl PeakGroupScoring {
             num_over_50 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
-            hyperscore_inverse_mass_error,
             rt_observed,
             delta_rt,
             longest_b_series as f32,
             longest_y_series as f32,
             precursor.naa as f32,
-            weighted_mass_error,
         ))
     }
 }

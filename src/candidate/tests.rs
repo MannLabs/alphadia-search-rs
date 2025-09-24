@@ -7,7 +7,7 @@ fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
     // Verify we have the expected number of f32 features
-    assert_eq!(feature_names.len(), 22);
+    assert_eq!(feature_names.len(), 23);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -17,6 +17,7 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"intensity_correlation".to_string()));
     assert!(feature_names.contains(&"num_fragments".to_string()));
     assert!(feature_names.contains(&"num_scans".to_string()));
+    assert!(feature_names.contains(&"num_over_0".to_string()));
     assert!(feature_names.contains(&"rt_observed".to_string()));
     assert!(feature_names.contains(&"delta_rt".to_string()));
     assert!(feature_names.contains(&"longest_b_series".to_string()));
@@ -171,6 +172,7 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         5.0,   // num_over_90
         8.0,   // num_over_80
         15.0,  // num_over_50
+        20.0,  // num_over_0
         100.0, // hyperscore_intensity_observation
         120.0, // hyperscore_intensity_library
         80.0,  // hyperscore_inverse_mass_error
@@ -262,6 +264,12 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
             .unwrap()
             .extract()
             .unwrap();
+        let num_over_0: Vec<f32> = dict
+            .get_item("num_over_0")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
         let hypo_obs: Vec<f32> = dict
             .get_item("hyperscore_intensity_observation")
             .unwrap()
@@ -337,6 +345,7 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         assert!((num_over_90[0] - 5.0).abs() < 1e-6);
         assert!((num_over_80[0] - 8.0).abs() < 1e-6);
         assert!((num_over_50[0] - 15.0).abs() < 1e-6);
+        assert!((num_over_0[0] - 20.0).abs() < 1e-6);
         assert!((hypo_obs[0] - 100.0).abs() < 1e-6);
         assert!((hypo_lib[0] - 120.0).abs() < 1e-6);
         assert!((hypo_inv_error[0] - 80.0).abs() < 1e-6);

@@ -371,15 +371,14 @@ pub fn intensity_ion_series(
     matched_mask: &[bool],
     target_fragment_type: u8,
 ) -> f32 {
-    if fragment_types.len() != fragment_intensities.len()
-        || fragment_types.len() != matched_mask.len()
-    {
+    let n_fragments = fragment_types.len();
+    if n_fragments != fragment_intensities.len() || n_fragments != matched_mask.len() {
         return 0.0;
     }
 
     let mut total_intensity = 0.0;
 
-    for i in 0..fragment_types.len() {
+    for i in 0..n_fragments {
         if matched_mask[i]
             && fragment_intensities[i] > 0.0
             && fragment_types[i] == target_fragment_type

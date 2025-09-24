@@ -22,6 +22,10 @@ pub const FEATURE_NAMES: &[&str] = &[
     "longest_b_series",
     "longest_y_series",
     "naa",
+    "hyperscore_inverse_mass_error",
+    "weighted_mass_error",
+    "log10_b_ion_intensity",
+    "log10_y_ion_intensity",
 ];
 
 #[derive(Debug, Clone)]
@@ -41,11 +45,15 @@ pub struct CandidateFeature {
     pub num_over_50: f32,
     pub hyperscore_intensity_observation: f32,
     pub hyperscore_intensity_library: f32,
+    pub hyperscore_inverse_mass_error: f32,
     pub rt_observed: f32,
     pub delta_rt: f32,
     pub longest_b_series: f32,
     pub longest_y_series: f32,
     pub naa: f32,
+    pub weighted_mass_error: f32,
+    pub log10_b_ion_intensity: f32,
+    pub log10_y_ion_intensity: f32,
 }
 
 impl CandidateFeature {
@@ -66,11 +74,15 @@ impl CandidateFeature {
         num_over_50: f32,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
+        hyperscore_inverse_mass_error: f32,
         rt_observed: f32,
         delta_rt: f32,
         longest_b_series: f32,
         longest_y_series: f32,
         naa: f32,
+        weighted_mass_error: f32,
+        log10_b_ion_intensity: f32,
+        log10_y_ion_intensity: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -88,11 +100,15 @@ impl CandidateFeature {
             num_over_50,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
+            hyperscore_inverse_mass_error,
             rt_observed,
             delta_rt,
             longest_b_series,
             longest_y_series,
             naa,
+            weighted_mass_error,
+            log10_b_ion_intensity,
+            log10_y_ion_intensity,
         }
     }
 }
@@ -143,11 +159,15 @@ impl CandidateFeatureCollection {
         let mut num_over_50 = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
+        let mut hyperscore_inverse_mass_errors = Array1::<f32>::zeros(n);
         let mut rt_observeds = Array1::<f32>::zeros(n);
         let mut delta_rts = Array1::<f32>::zeros(n);
         let mut longest_b_series = Array1::<f32>::zeros(n);
         let mut longest_y_series = Array1::<f32>::zeros(n);
         let mut naa = Array1::<f32>::zeros(n);
+        let mut weighted_mass_errors = Array1::<f32>::zeros(n);
+        let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
+        let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -165,11 +185,15 @@ impl CandidateFeatureCollection {
             num_over_50[i] = feature.num_over_50;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
+            hyperscore_inverse_mass_errors[i] = feature.hyperscore_inverse_mass_error;
             rt_observeds[i] = feature.rt_observed;
             delta_rts[i] = feature.delta_rt;
             longest_b_series[i] = feature.longest_b_series;
             longest_y_series[i] = feature.longest_y_series;
             naa[i] = feature.naa;
+            weighted_mass_errors[i] = feature.weighted_mass_error;
+            log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
+            log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
         }
 
         let dict = PyDict::new(py);
@@ -197,11 +221,24 @@ impl CandidateFeatureCollection {
             "hyperscore_intensity_library",
             hyperscore_intensity_libraries.into_pyarray(py),
         )?;
+        dict.set_item(
+            "hyperscore_inverse_mass_error",
+            hyperscore_inverse_mass_errors.into_pyarray(py),
+        )?;
         dict.set_item("rt_observed", rt_observeds.into_pyarray(py))?;
         dict.set_item("delta_rt", delta_rts.into_pyarray(py))?;
         dict.set_item("longest_b_series", longest_b_series.into_pyarray(py))?;
         dict.set_item("longest_y_series", longest_y_series.into_pyarray(py))?;
         dict.set_item("naa", naa.into_pyarray(py))?;
+        dict.set_item("weighted_mass_error", weighted_mass_errors.into_pyarray(py))?;
+        dict.set_item(
+            "log10_b_ion_intensity",
+            log10_b_ion_intensity.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "log10_y_ion_intensity",
+            log10_y_ion_intensity.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }

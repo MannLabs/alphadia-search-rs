@@ -4,4 +4,4 @@ source ~/miniconda3/etc/profile.d/conda.sh && conda activate alphadia-ng && matu
     --spec_lib_path /Users/georgwallmann/Documents/data/alphadia_performance_tests/output/alphadia-ng-scoring/astral_lf/speclib_flat_calibrated_decoy.hdf \
     --candidates_path /Users/georgwallmann/Documents/data/alphadia_performance_tests/output/alphadia-ng-scoring/astral_lf/candidates.parquet \
     --output_folder /Users/georgwallmann/Documents/data/alphadia_performance_tests/output/alphadia-ng-scoring/astral_lf \
-    --top-n 100000000 --fdr --quantify
+    --top-n 100000000 --fdr --quantify --diagnosis

@@ -104,6 +104,7 @@ impl PeakGroupSelection {
                 let precursor = lib.get_precursor_filtered(
                     i,
                     true, // Always filter non-zero intensities for scoring
+                    true, // Filter Y1 ions by default
                     self.params.top_k_fragments,
                 );
                 self.search_precursor_generic(

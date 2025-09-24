@@ -65,6 +65,7 @@ impl PeakGroupScoring {
                 match lib.get_precursor_by_idx_filtered(
                     candidate.precursor_idx,
                     true, // Always filter non-zero intensities for scoring
+                    true, // Filter Y1 ions by default
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {

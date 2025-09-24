@@ -34,4 +34,15 @@ pub trait QuadrupoleObservationTrait {
         mass_tolerance: f32,
         mz: f32,
     );
+
+    fn fill_xic_and_mz_slice(
+        &self,
+        mz_index: &MZIndex,
+        dense_xic: &mut ArrayViewMut1<f32>,
+        dense_mz: &mut ArrayViewMut1<f32>,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+        mz: f32,
+    );
 }

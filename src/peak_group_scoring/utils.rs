@@ -142,23 +142,25 @@ pub fn correlation(x: &[f32], y: &[f32]) -> f32 {
     calculate_correlation_safe(x, y)
 }
 
-/// Calculate hyperscore similar to X! Tandem and MSFragger
+/// Calculate hyperscore with optional per-fragment weights
 ///
-/// hyperscore = log(Nb! * Ny! * sum(Ib,i) * sum(Iy,i))
+/// hyperscore = log(Nb! * Ny! * sum(Ib,i * w_i) * sum(Iy,i * w_i))
 /// where:
 /// - Nb = number of matched b-ions
 /// - Ny = number of matched y-ions
 /// - Ib,i = intensities of matched b-ions
 /// - Iy,i = intensities of matched y-ions
+/// - w_i = optional weight for each fragment (if None, uses 1.0)
 ///
 /// Fragment types are encoded as ASCII values:
 /// - b-ion = 98 (ASCII 'b')
 /// - y-ion = 121 (ASCII 'y')
 ///   (other fragment types exist but are not used in hyperscore)
-pub fn calculate_hyperscore(
+pub fn calculate_hyperscore_weighted(
     fragment_types: &[u8],
     fragment_intensities: &[f32],
     matched_mask: &[bool],
+    weights: Option<&[f32]>,
 ) -> f32 {
     if fragment_types.len() != fragment_intensities.len()
         || fragment_types.len() != matched_mask.len()
@@ -166,26 +168,35 @@ pub fn calculate_hyperscore(
         return 0.0;
     }
 
+    if let Some(w) = weights {
+        if w.len() != fragment_types.len() {
+            return 0.0;
+        }
+    }
+
     let mut n_b = 0u32;
     let mut n_y = 0u32;
-    let mut sum_b_intensity = 0.0f32;
-    let mut sum_y_intensity = 0.0f32;
+    let mut weighted_sum_b = 0.0f32;
+    let mut weighted_sum_y = 0.0f32;
 
     for i in 0..fragment_types.len() {
         if !matched_mask[i] || fragment_intensities[i] == 0.0 {
             continue;
         }
 
+        let weight = weights.map(|w| w[i]).unwrap_or(1.0);
+        let weighted_intensity = fragment_intensities[i] * weight;
+
         match fragment_types[i] {
             FragmentType::B => {
                 // b-ion
                 n_b += 1;
-                sum_b_intensity += fragment_intensities[i];
+                weighted_sum_b += weighted_intensity;
             }
             FragmentType::Y => {
                 // y-ion
                 n_y += 1;
-                sum_y_intensity += fragment_intensities[i];
+                weighted_sum_y += weighted_intensity;
             }
             _ => {
                 // Other fragment types not used in hyperscore
@@ -209,15 +220,37 @@ pub fn calculate_hyperscore(
         0.0
     };
 
-    // Calculate hyperscore: log(Nb! * Ny! * sum(Ib) * sum(Iy))
-    let hyperscore =
-        factorial_b + factorial_y + sum_b_intensity.ln().max(0.0) + sum_y_intensity.ln().max(0.0);
+    // Calculate hyperscore: log(Nb! * Ny! * weighted_sum_b * weighted_sum_y)
+    // Don't use .max(0.0) on ln() as it can make valid small values become 0
+    let ln_sum_b = if weighted_sum_b > 0.0 {
+        weighted_sum_b.ln()
+    } else {
+        0.0
+    };
+    let ln_sum_y = if weighted_sum_y > 0.0 {
+        weighted_sum_y.ln()
+    } else {
+        0.0
+    };
 
-    if hyperscore.is_finite() && hyperscore > 0.0 {
+    let hyperscore = factorial_b + factorial_y + ln_sum_b + ln_sum_y;
+
+    if hyperscore.is_finite() {
         hyperscore
     } else {
         0.0
     }
+}
+
+/// Calculate standard hyperscore similar to X! Tandem and MSFragger
+///
+/// This is a wrapper around calculate_hyperscore_weighted with no weights
+pub fn calculate_hyperscore(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+) -> f32 {
+    calculate_hyperscore_weighted(fragment_types, fragment_intensities, matched_mask, None)
 }
 
 /// Natural logarithm of gamma function using Stirling's approximation
@@ -295,4 +328,35 @@ pub fn calculate_longest_ion_series(
     let longest_y = find_longest_sequence(y_ions);
 
     (longest_b, longest_y)
+}
+
+/// Calculate hyperscore with inverse mass error weighting
+///
+/// Similar to standard hyperscore but weights each matched fragment by 1/(|mass_error| + 0.1)
+/// Excludes fragments with zero observed intensity (sum across all cycles)
+///
+/// hyperscore = log(Nb! * Ny! * sum(Ib,i * w_i) * sum(Iy,i * w_i))
+/// where w_i = 1/(|mass_error_i| + 0.1)
+pub fn calculate_hyperscore_inverse_mass_error(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32], // Observed intensities (sum across cycles)
+    matched_mask: &[bool],
+    mass_errors: &[f32], // Mass errors in ppm
+) -> f32 {
+    if fragment_types.len() != mass_errors.len() {
+        return 0.0;
+    }
+
+    // Calculate inverse mass error weights: 1/(|mass_error| + 0.1)
+    let weights: Vec<f32> = mass_errors
+        .iter()
+        .map(|&error| 1.0 / (error.abs() + 0.1))
+        .collect();
+
+    calculate_hyperscore_weighted(
+        fragment_types,
+        fragment_intensities,
+        matched_mask,
+        Some(&weights),
+    )
 }

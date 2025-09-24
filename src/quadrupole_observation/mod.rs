@@ -148,4 +148,65 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
             mz,
         )
     }
+
+    fn fill_xic_and_mz_slice(
+        &self,
+        mz_index: &crate::mz_index::MZIndex,
+        dense_xic: &mut numpy::ndarray::ArrayViewMut1<f32>,
+        dense_mz: &mut numpy::ndarray::ArrayViewMut1<f32>,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+        mz: f32,
+    ) {
+        let delta_mz = mz * mass_tolerance * 1e-6;
+        let lower_mz = mz - delta_mz;
+        let upper_mz = mz + delta_mz;
+
+        for mz_idx in mz_index.mz_range_indices(lower_mz, upper_mz) {
+            let actual_mz = mz_index.mz[mz_idx];
+
+            // Direct slice access using optimized indexing
+            let start = self.slice_starts[mz_idx] as usize;
+            let stop = self.slice_starts[mz_idx + 1] as usize;
+
+            let cycle_indices = &self.cycle_indices[start..stop];
+            let intensities = &self.intensities[start..stop];
+
+            // Binary search for start position
+            let start_pos = cycle_indices
+                .binary_search(&(cycle_start_idx as u16))
+                .unwrap_or_else(|idx| idx);
+
+            // Process cycles within range
+            for i in start_pos..cycle_indices.len() {
+                let cycle_idx = cycle_indices[i] as usize;
+
+                if cycle_idx >= cycle_stop_idx {
+                    break;
+                }
+
+                let relative_idx = cycle_idx - cycle_start_idx;
+                let intensity = intensities[i];
+
+                // Always accumulate intensity (even if zero)
+                dense_xic[relative_idx] += intensity;
+
+                // Update m/z weighted average only for non-zero intensities
+                if intensity > 0.0 {
+                    let prev_total_intensity = dense_xic[relative_idx] - intensity;
+
+                    if prev_total_intensity == 0.0 {
+                        // First non-zero intensity at this position
+                        dense_mz[relative_idx] = actual_mz;
+                    } else {
+                        // Update running weighted average
+                        dense_mz[relative_idx] = (dense_mz[relative_idx] * prev_total_intensity
+                            + actual_mz * intensity)
+                            / dense_xic[relative_idx];
+                    }
+                }
+            }
+        }
+    }
 }

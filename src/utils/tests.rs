@@ -1,0 +1,272 @@
+use super::*;
+use numpy::ndarray::arr2;
+
+#[test]
+fn test_weighted_mean_nonzero_axis_1_basic() {
+    // Given: Simple 2x3 arrays with known values
+    let values = arr2(&[[10.0, 20.0, 30.0], [5.0, 15.0, 25.0]]);
+    let weights = arr2(&[
+        [1.0, 2.0, 3.0],
+        [4.0, 0.0, 2.0], // Middle weight is 0
+    ]);
+
+    // When: Calculating weighted mean along axis 1
+    let result = weighted_mean_nonzero_axis_1(&values, &weights);
+
+    // Then: Should get correct weighted averages
+    // Row 0: (10*1 + 20*2 + 30*3) / (1+2+3) = 140/6 = 23.333...
+    assert!((result[0] - 23.333334).abs() < 1e-5);
+    // Row 1: (5*4 + 25*2) / (4+2) = 70/6 = 11.666... (15 is excluded due to 0 weight)
+    assert!((result[1] - 11.666667).abs() < 1e-5);
+}
+
+#[test]
+fn test_weighted_mean_nonzero_axis_1_all_zeros() {
+    // Given: Arrays where all weights in a row are zero
+    let values = arr2(&[[10.0, 20.0, 30.0], [5.0, 15.0, 25.0]]);
+    let weights = arr2(&[
+        [1.0, 2.0, 3.0],
+        [0.0, 0.0, 0.0], // All weights are zero
+    ]);
+
+    // When: Calculating weighted mean
+    let result = weighted_mean_nonzero_axis_1(&values, &weights);
+
+    // Then: Row with all zero weights should return 0
+    assert!((result[0] - 23.333334).abs() < 1e-5);
+    assert_eq!(result[1], 0.0);
+}
+
+#[test]
+fn test_weighted_mean_nonzero_axis_1_single_value() {
+    // Given: 1x1 arrays
+    let values = arr2(&[[42.0]]);
+    let weights = arr2(&[[2.5]]);
+
+    // When: Calculating weighted mean
+    let result = weighted_mean_nonzero_axis_1(&values, &weights);
+
+    // Then: Should return the single value
+    assert_eq!(result[0], 42.0);
+}
+
+#[test]
+fn test_weighted_mean_nonzero_axis_1_negative_values() {
+    // Given: Arrays with negative values
+    let values = arr2(&[[-10.0, 20.0, -30.0], [5.0, -15.0, 25.0]]);
+    let weights = arr2(&[[1.0, 2.0, 1.0], [1.0, 1.0, 1.0]]);
+
+    // When: Calculating weighted mean
+    let result = weighted_mean_nonzero_axis_1(&values, &weights);
+
+    // Then: Should handle negative values correctly
+    // Row 0: (-10*1 + 20*2 + -30*1) / (1+2+1) = 0/4 = 0
+    assert_eq!(result[0], 0.0);
+    // Row 1: (5*1 + -15*1 + 25*1) / (1+1+1) = 15/3 = 5
+    assert_eq!(result[1], 5.0);
+}
+
+#[test]
+fn test_weighted_mean_nonzero_axis_1_mixed_zeros() {
+    // Given: Arrays with some zero weights mixed in
+    let values = arr2(&[[100.0, 200.0, 300.0, 400.0], [10.0, 20.0, 30.0, 40.0]]);
+    let weights = arr2(&[
+        [1.0, 0.0, 3.0, 0.0], // Alternating zeros
+        [0.0, 2.0, 0.0, 4.0], // Alternating zeros
+    ]);
+
+    // When: Calculating weighted mean
+    let result = weighted_mean_nonzero_axis_1(&values, &weights);
+
+    // Then: Should only use non-zero weighted values
+    // Row 0: (100*1 + 300*3) / (1+3) = 1000/4 = 250
+    assert_eq!(result[0], 250.0);
+    // Row 1: (20*2 + 40*4) / (2+4) = 200/6 = 33.333...
+    assert!((result[1] - 33.333332).abs() < 1e-5);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_basic() {
+    // Given: Mass errors and intensity weights
+    let mass_errors = vec![10.0, -20.0, 30.0, -40.0];
+    let intensity_weights = vec![1.0, 2.0, 3.0, 4.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should get correct weighted mean of absolute values
+    // (|10|*1 + |-20|*2 + |30|*3 + |-40|*4) / (1+2+3+4) = (10+40+90+160) / 10 = 30
+    assert!((result - 30.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_zero_weights() {
+    // Given: Some weights are zero
+    let mass_errors = vec![10.0, -20.0, 30.0, -40.0];
+    let intensity_weights = vec![1.0, 0.0, 3.0, 0.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should ignore entries with zero weight
+    // (|10|*1 + |30|*3) / (1+3) = (10+90) / 4 = 25
+    assert!((result - 25.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_zero_mass_errors() {
+    // Given: Some mass errors are zero (no signal)
+    let mass_errors = vec![10.0, 0.0, 30.0, 0.0];
+    let intensity_weights = vec![1.0, 2.0, 3.0, 4.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should ignore entries with zero mass error
+    // (|10|*1 + |30|*3) / (1+3) = (10+90) / 4 = 25
+    assert!((result - 25.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_all_zeros() {
+    // Given: All weights are zero
+    let mass_errors = vec![10.0, -20.0, 30.0];
+    let intensity_weights = vec![0.0, 0.0, 0.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should return 0
+    assert_eq!(result, 0.0);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_empty() {
+    // Given: Empty arrays
+    let mass_errors: Vec<f32> = vec![];
+    let intensity_weights: Vec<f32> = vec![];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should return 0
+    assert_eq!(result, 0.0);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_mismatched_lengths() {
+    // Given: Arrays with different lengths
+    let mass_errors = vec![10.0, -20.0];
+    let intensity_weights = vec![1.0, 2.0, 3.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should return 0
+    assert_eq!(result, 0.0);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_single_value() {
+    // Given: Single value arrays
+    let mass_errors = vec![25.0];
+    let intensity_weights = vec![2.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should return the absolute value
+    assert_eq!(result, 25.0);
+}
+
+#[test]
+fn test_calculate_weighted_mean_absolute_error_negative_weights() {
+    // Given: Negative weights (should be treated as invalid and ignored)
+    let mass_errors = vec![10.0, 20.0, 30.0];
+    let intensity_weights = vec![1.0, -2.0, 3.0];
+
+    // When: Calculating weighted mean absolute error
+    let result = calculate_weighted_mean_absolute_error(&mass_errors, &intensity_weights);
+
+    // Then: Should only use positive weights
+    // (|10|*1 + |30|*3) / (1+3) = (10+90) / 4 = 25
+    assert!((result - 25.0).abs() < 1e-5);
+}
+
+#[test]
+fn test_calculate_fragment_mz_and_errors() {
+    // Given: Dense m/z and XIC matrices with known values
+    let dense_mz = arr2(&[
+        [200.01, 200.02, 200.03], // Fragment 0 m/z values
+        [300.05, 300.10, 300.15], // Fragment 1 m/z values
+        [0.0, 0.0, 0.0],          // Fragment 2 no signal
+    ]);
+    let dense_xic = arr2(&[
+        [1000.0, 2000.0, 3000.0], // Fragment 0 intensities
+        [500.0, 1000.0, 500.0],   // Fragment 1 intensities
+        [0.0, 0.0, 0.0],          // Fragment 2 no signal
+    ]);
+    let mz_library = vec![200.0, 300.0, 400.0];
+
+    // When: Calculating fragment m/z and errors
+    let (mz_observed, mass_errors) =
+        calculate_fragment_mz_and_errors(&dense_mz, &dense_xic, &mz_library);
+
+    // Then: Should get correct weighted averages and mass errors
+    // Fragment 0: (200.01*1000 + 200.02*2000 + 200.03*3000) / 6000 = 200.02333...
+    assert!((mz_observed[0] - 200.02333).abs() < 1e-5);
+    // Mass error: (200.02333 - 200.0) / 200.0 * 1e6 = 116.67 ppm
+    assert!((mass_errors[0] - 116.67).abs() < 0.1);
+
+    // Fragment 1: (300.05*500 + 300.10*1000 + 300.15*500) / 2000 = 300.1
+    assert!((mz_observed[1] - 300.1).abs() < 1e-5);
+    // Mass error: (300.1 - 300.0) / 300.0 * 1e6 = 333.33 ppm
+    assert!((mass_errors[1] - 333.33).abs() < 0.1);
+
+    // Fragment 2: No signal
+    assert_eq!(mz_observed[2], 0.0);
+    assert_eq!(mass_errors[2], 0.0);
+}
+
+#[test]
+fn test_calculate_fragment_mz_and_errors_edge_cases() {
+    // Given: Edge case with single fragment and cycle
+    let dense_mz = arr2(&[[250.005]]);
+    let dense_xic = arr2(&[[1500.0]]);
+    let mz_library = vec![250.0];
+
+    // When: Calculating fragment m/z and errors
+    let (mz_observed, mass_errors) =
+        calculate_fragment_mz_and_errors(&dense_mz, &dense_xic, &mz_library);
+
+    // Then: Should handle single value correctly
+    assert_eq!(mz_observed[0], 250.005);
+    // Mass error: (250.005 - 250.0) / 250.0 * 1e6 = 20 ppm
+    assert!((mass_errors[0] - 20.0).abs() < 0.1);
+}
+
+#[test]
+fn test_calculate_fragment_mz_and_errors_partial_signal() {
+    // Given: Some cycles have signal, others don't
+    let dense_mz = arr2(&[
+        [150.01, 0.0, 150.03, 0.0], // Fragment with partial signal
+        [0.0, 200.02, 0.0, 200.04], // Different pattern
+    ]);
+    let dense_xic = arr2(&[
+        [1000.0, 0.0, 2000.0, 0.0], // Matching intensities
+        [0.0, 3000.0, 0.0, 1000.0], // Different pattern
+    ]);
+    let mz_library = vec![150.0, 200.0];
+
+    // When: Calculating fragment m/z and errors
+    let (mz_observed, mass_errors) =
+        calculate_fragment_mz_and_errors(&dense_mz, &dense_xic, &mz_library);
+
+    // Then: Should only use non-zero signals
+    // Fragment 0: (150.01*1000 + 150.03*2000) / 3000 = 150.02333...
+    assert!((mz_observed[0] - 150.02333).abs() < 1e-5);
+    assert!((mass_errors[0] - 155.56).abs() < 0.2); // (150.02333 - 150.0) / 150.0 * 1e6
+                                                    // Fragment 1: (200.02*3000 + 200.04*1000) / 4000 = 200.025
+    assert!((mz_observed[1] - 200.025).abs() < 1e-5);
+    assert!((mass_errors[1] - 125.0).abs() < 0.1); // (200.025 - 200.0) / 200.0 * 1e6
+}

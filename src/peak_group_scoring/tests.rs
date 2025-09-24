@@ -608,3 +608,141 @@ fn test_longest_ion_series_mz_sorted_fragments() {
     assert_eq!(longest_b, 5); // b1,b2,b3,b4,b5 all continuous
     assert_eq!(longest_y, 5); // y1,y2,y3,y4,y5 all continuous
 }
+
+#[test]
+fn test_hyperscore_inverse_mass_error_basic() {
+    use super::calculate_hyperscore_inverse_mass_error;
+    use crate::constants::FragmentType;
+
+    // Given: Fragment data with mass errors
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let fragment_intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched_mask = vec![true, true, true, true];
+    let mass_errors = vec![1.0, 2.0, 0.5, 3.0]; // ppm errors
+
+    // When: Calculating hyperscore with inverse mass error
+    let score = calculate_hyperscore_inverse_mass_error(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        &mass_errors,
+    );
+
+    // Then: Should get non-zero score
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_hyperscore_inverse_mass_error_zero_intensity() {
+    use super::calculate_hyperscore_inverse_mass_error;
+    use crate::constants::FragmentType;
+
+    // Given: Some fragments with zero intensity
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let fragment_intensities = vec![100.0, 0.0, 150.0, 0.0]; // Two zeros
+    let matched_mask = vec![true, true, true, true];
+    let mass_errors = vec![1.0, 2.0, 0.5, 3.0];
+
+    // When: Calculating hyperscore
+    let score = calculate_hyperscore_inverse_mass_error(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        &mass_errors,
+    );
+
+    // Then: Should exclude zero intensity fragments
+    assert!(score > 0.0);
+    // Score should be based on only 1 b-ion and 1 y-ion
+}
+
+#[test]
+fn test_hyperscore_inverse_mass_error_all_zero_intensity() {
+    use super::calculate_hyperscore_inverse_mass_error;
+    use crate::constants::FragmentType;
+
+    // Given: All fragments have zero intensity
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let fragment_intensities = vec![0.0, 0.0];
+    let matched_mask = vec![true, true];
+    let mass_errors = vec![1.0, 2.0];
+
+    // When: Calculating hyperscore
+    let score = calculate_hyperscore_inverse_mass_error(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        &mass_errors,
+    );
+
+    // Then: Should return 0
+    assert_eq!(score, 0.0);
+}
+
+#[test]
+fn test_hyperscore_inverse_mass_error_large_errors() {
+    use super::calculate_hyperscore_inverse_mass_error;
+    use crate::constants::FragmentType;
+
+    // Given: Fragments with very large mass errors
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let fragment_intensities = vec![100.0, 100.0];
+    let matched_mask = vec![true, true];
+    let mass_errors = vec![1000.0, 2000.0]; // Very large errors
+
+    // When: Calculating hyperscore
+    let score = calculate_hyperscore_inverse_mass_error(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        &mass_errors,
+    );
+
+    // Then: Should still produce valid score (weight approaches 1/|error|)
+    // Even with very large errors, should produce non-zero score
+    assert!(score != 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_hyperscore_inverse_mass_error_small_errors() {
+    use super::calculate_hyperscore_inverse_mass_error;
+    use crate::constants::FragmentType;
+
+    // Given: Fragments with very small mass errors
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let fragment_intensities = vec![100.0, 100.0];
+    let matched_mask = vec![true, true];
+    let mass_errors = vec![0.01, 0.02]; // Very small errors
+
+    // When: Calculating hyperscore
+    let score_small = calculate_hyperscore_inverse_mass_error(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        &mass_errors,
+    );
+
+    // Compare with large errors
+    let mass_errors_large = vec![10.0, 20.0];
+    let score_large = calculate_hyperscore_inverse_mass_error(
+        &fragment_types,
+        &fragment_intensities,
+        &matched_mask,
+        &mass_errors_large,
+    );
+
+    // Then: Small errors should produce higher score
+    assert!(score_small > score_large);
+}

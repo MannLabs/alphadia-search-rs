@@ -23,6 +23,7 @@ mod simd;
 pub mod speclib_flat;
 pub mod speclib_flat_quantified;
 pub mod traits;
+pub mod utils;
 
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
 use crate::dia_data::DIAData;

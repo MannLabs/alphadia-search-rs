@@ -159,35 +159,11 @@ impl PeakGroupScoring {
         let num_over_0 = count_values_above(&correlations, 0.0, None);
 
         // Calculate ranked features using masks based on library intensities
-        // Create masks selecting top k fragments by library intensity
-        let mask_0_5 = create_ranked_mask(&precursor.fragment_intensity, 6); // top 6 (rank 0-5)
-        let mask_6_11 = create_ranked_mask(&precursor.fragment_intensity, 12); // top 12, then subtract top 6
-        let mask_12_17 = create_ranked_mask(&precursor.fragment_intensity, 18); // top 18, then subtract top 12
-        let mask_18_23 = create_ranked_mask(&precursor.fragment_intensity, 24); // top 24, then subtract top 18
-
-        // Convert to rank-specific masks by subtracting higher ranks
-        let mut mask_6_11_only = mask_6_11.clone();
-        let mut mask_12_17_only = mask_12_17.clone();
-        let mut mask_18_23_only = mask_18_23.clone();
-
-        for i in 0..mask_0_5.len() {
-            if mask_0_5[i] {
-                mask_6_11_only[i] = false;
-                mask_12_17_only[i] = false;
-                mask_18_23_only[i] = false;
-            }
-            if mask_6_11[i] && !mask_0_5[i] {
-                mask_12_17_only[i] = false;
-                mask_18_23_only[i] = false;
-            }
-            if mask_12_17[i] && !mask_6_11[i] {
-                mask_18_23_only[i] = false;
-            }
-        }
-
-        let mask_6_11 = mask_6_11_only;
-        let mask_12_17 = mask_12_17_only;
-        let mask_18_23 = mask_18_23_only;
+        // Create masks selecting specific rank ranges
+        let mask_0_5 = create_ranked_mask(&precursor.fragment_intensity, 0, 6); // ranks 0-5 (top 6)
+        let mask_6_11 = create_ranked_mask(&precursor.fragment_intensity, 6, 12); // ranks 6-11 (next 6)
+        let mask_12_17 = create_ranked_mask(&precursor.fragment_intensity, 12, 18); // ranks 12-17 (next 6)
+        let mask_18_23 = create_ranked_mask(&precursor.fragment_intensity, 18, 24); // ranks 18-23 (next 6)
 
         // Calculate num_over_0 for each rank range
         let num_over_0_rank_0_5 = count_values_above(&correlations, 0.0, Some(&mask_0_5));

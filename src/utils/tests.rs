@@ -293,77 +293,122 @@ fn test_calculate_std() {
 
 #[test]
 fn test_create_ranked_mask_basic_top_k() {
-    // Select top 2 from [1.0, 3.0, 2.0] -> should select 3.0, 2.0
-    assert_eq!(create_ranked_mask(&[1.0, 3.0, 2.0], 2), [false, true, true]);
-
-    // Select top 2 from [5.0, 1.0, 3.0, 2.0] -> should select 5.0, 3.0
+    // Select top 2 from [1.0, 3.0, 2.0] -> should select 3.0, 2.0 (ranks 0-1)
     assert_eq!(
-        create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 2),
+        create_ranked_mask(&[1.0, 3.0, 2.0], 0, 2),
+        [false, true, true]
+    );
+
+    // Select top 2 from [5.0, 1.0, 3.0, 2.0] -> should select 5.0, 3.0 (ranks 0-1)
+    assert_eq!(
+        create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 0, 2),
         [true, false, true, false]
     );
 }
 
 #[test]
 fn test_create_ranked_mask_ties() {
-    // With ties, select first occurrences: [1.0, 1.0, 1.0], k=2 -> first two
-    assert_eq!(create_ranked_mask(&[1.0, 1.0, 1.0], 2), [true, true, false]);
-
-    // Mixed values with ties: [3.0, 1.0, 3.0, 2.0], k=2 -> first 3.0 and second 3.0
+    // With ties, select first occurrences: [1.0, 1.0, 1.0], ranks 0-1 -> first two
     assert_eq!(
-        create_ranked_mask(&[3.0, 1.0, 3.0, 2.0], 2),
+        create_ranked_mask(&[1.0, 1.0, 1.0], 0, 2),
+        [true, true, false]
+    );
+
+    // Mixed values with ties: [3.0, 1.0, 3.0, 2.0], ranks 0-1 -> first 3.0 and second 3.0
+    assert_eq!(
+        create_ranked_mask(&[3.0, 1.0, 3.0, 2.0], 0, 2),
         [true, false, true, false]
     );
 }
 
 #[test]
 fn test_create_ranked_mask_k_zero() {
+    // When r1 >= r2, should return all false
     assert_eq!(
-        create_ranked_mask(&[1.0, 2.0, 3.0], 0),
+        create_ranked_mask(&[1.0, 2.0, 3.0], 0, 0),
+        [false, false, false]
+    );
+    assert_eq!(
+        create_ranked_mask(&[1.0, 2.0, 3.0], 2, 1),
         [false, false, false]
     );
 }
 
 #[test]
 fn test_create_ranked_mask_empty_array() {
-    assert_eq!(create_ranked_mask(&[], 5), Vec::<bool>::new());
+    assert_eq!(create_ranked_mask(&[], 0, 5), Vec::<bool>::new());
 }
 
 #[test]
 fn test_create_ranked_mask_k_exceeds_length() {
-    // k=5 but only 3 elements -> select all
-    assert_eq!(create_ranked_mask(&[1.0, 2.0, 3.0], 5), [true, true, true]);
+    // r2=5 but only 3 elements -> select all (ranks 0-2)
+    assert_eq!(
+        create_ranked_mask(&[1.0, 2.0, 3.0], 0, 5),
+        [true, true, true]
+    );
+    // ranks 1-5 but only 3 elements -> select ranks 1-2
+    assert_eq!(
+        create_ranked_mask(&[1.0, 2.0, 3.0], 1, 5),
+        [true, true, false]
+    );
 }
 
 #[test]
 fn test_create_ranked_mask_single_element() {
-    assert_eq!(create_ranked_mask(&[42.0], 1), [true]);
-    assert_eq!(create_ranked_mask(&[42.0], 0), [false]);
+    assert_eq!(create_ranked_mask(&[42.0], 0, 1), [true]);
+    assert_eq!(create_ranked_mask(&[42.0], 0, 0), [false]);
+    assert_eq!(create_ranked_mask(&[42.0], 1, 2), [false]); // rank 1 doesn't exist
 }
 
 #[test]
 fn test_create_ranked_mask_descending_order() {
-    // Already sorted descending: [5.0, 4.0, 3.0, 2.0, 1.0], k=3
+    // Already sorted descending: [5.0, 4.0, 3.0, 2.0, 1.0], ranks 0-2
     assert_eq!(
-        create_ranked_mask(&[5.0, 4.0, 3.0, 2.0, 1.0], 3),
+        create_ranked_mask(&[5.0, 4.0, 3.0, 2.0, 1.0], 0, 3),
         [true, true, true, false, false]
     );
 }
 
 #[test]
 fn test_create_ranked_mask_ascending_order() {
-    // Ascending order: [1.0, 2.0, 3.0, 4.0, 5.0], k=3 -> select 5.0, 4.0, 3.0
+    // Ascending order: [1.0, 2.0, 3.0, 4.0, 5.0], ranks 0-2 -> select 5.0, 4.0, 3.0
     assert_eq!(
-        create_ranked_mask(&[1.0, 2.0, 3.0, 4.0, 5.0], 3),
+        create_ranked_mask(&[1.0, 2.0, 3.0, 4.0, 5.0], 0, 3),
         [false, false, true, true, true]
     );
 }
 
 #[test]
 fn test_create_ranked_mask_negative_values() {
-    // Include negative values: [-1.0, 2.0, -3.0, 4.0], k=2 -> select 4.0, 2.0
+    // Include negative values: [-1.0, 2.0, -3.0, 4.0], ranks 0-1 -> select 4.0, 2.0
     assert_eq!(
-        create_ranked_mask(&[-1.0, 2.0, -3.0, 4.0], 2),
+        create_ranked_mask(&[-1.0, 2.0, -3.0, 4.0], 0, 2),
         [false, true, false, true]
+    );
+}
+
+#[test]
+fn test_create_ranked_mask_ranges() {
+    // Test different rank ranges with [5.0, 1.0, 3.0, 2.0, 4.0]
+    // Sorted by rank: [5.0(0), 4.0(1), 3.0(2), 2.0(3), 1.0(4)]
+    let values = [5.0, 1.0, 3.0, 2.0, 4.0];
+
+    // Ranks 0-1 (top 2): 5.0, 4.0
+    assert_eq!(
+        create_ranked_mask(&values, 0, 2),
+        [true, false, false, false, true]
+    );
+
+    // Ranks 2-3 (next 2): 3.0, 2.0
+    assert_eq!(
+        create_ranked_mask(&values, 2, 4),
+        [false, false, true, true, false]
+    );
+
+    // Rank 4 (last): 1.0
+    assert_eq!(
+        create_ranked_mask(&values, 4, 5),
+        [false, true, false, false, false]
     );
 }
 

@@ -162,17 +162,18 @@ pub fn calculate_std(values: &[f32]) -> f32 {
 ///
 /// Parameters:
 /// - intensities: Slice of intensity values to rank
-/// - k: Number of top values to select
+/// - r1: index of lowest rank to select
+/// - r2: index of highest rank not to select
 ///
 /// Returns:
 /// - Boolean vector where true indicates top k intensity values
 ///
 /// Examples:
-/// - `create_ranked_mask(&[1.0, 3.0, 2.0], 2)` → `[false, true, true]` (selects 3.0, 2.0)
-/// - `create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 2)` → `[true, false, true, false]` (selects 5.0, 3.0)
-/// - `create_ranked_mask(&[1.0, 1.0, 1.0], 2)` → `[true, true, false]` (first two in case of ties)
-pub fn create_ranked_mask(intensities: &[f32], k: usize) -> Vec<bool> {
-    if intensities.is_empty() || k == 0 {
+/// - `create_ranked_mask(&[1.0, 3.0, 2.0], 0, 2)` → `[false, true, true]` (selects 3.0, 2.0)
+/// - `create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 1, 2)` → `[false, false, true, false]` (selects rank 1, which is 3.0)
+/// - `create_ranked_mask(&[1.0, 1.0, 1.0], 0, 2)` → `[true, true, false]` (first two in case of ties)
+pub fn create_ranked_mask(intensities: &[f32], r1: usize, r2: usize) -> Vec<bool> {
+    if intensities.is_empty() || r1 >= r2 {
         return vec![false; intensities.len()];
     }
 
@@ -190,11 +191,12 @@ pub fn create_ranked_mask(intensities: &[f32], k: usize) -> Vec<bool> {
             .then_with(|| a.1.cmp(&b.1))
     });
 
-    // Create mask selecting the top k indices
+    // Create mask selecting ranks from r1 to r2-1 (inclusive r1, exclusive r2)
     let mut mask = vec![false; intensities.len()];
-    let top_k_count = k.min(indexed_values.len());
+    let start_rank = r1.min(indexed_values.len());
+    let end_rank = r2.min(indexed_values.len());
 
-    for i in 0..top_k_count {
+    for i in start_rank..end_rank {
         let original_index = indexed_values[i].1;
         mask[original_index] = true;
     }

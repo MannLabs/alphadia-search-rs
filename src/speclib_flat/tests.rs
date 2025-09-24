@@ -24,7 +24,7 @@ fn test_filter_sort_fragments_no_filtering() {
         &fragment_position,
         &fragment_type,
         false,
-        false, // Don't filter Y1 ions in basic tests
+        true, // Filter Y1 ions to broaden test scope
         usize::MAX,
     );
 
@@ -55,7 +55,7 @@ fn test_filter_sort_fragments_non_zero_only() {
         &fragment_position,
         &fragment_type,
         true,
-        false, // Don't filter Y1 ions in basic tests
+        true, // Filter Y1 ions to broaden test scope
         usize::MAX,
     );
 
@@ -274,7 +274,7 @@ fn test_filter_sort_fragments_all_zero_intensities() {
         &fragment_position,
         &fragment_type,
         true,
-        false, // Don't filter Y1 ions in basic tests
+        true, // Filter Y1 ions to broaden test scope
         usize::MAX,
     );
 

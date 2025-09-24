@@ -154,21 +154,82 @@ pub fn calculate_std(values: &[f32]) -> f32 {
     variance.sqrt()
 }
 
-pub fn create_ranked_mask(total_size: usize, rank: usize, len: usize) -> Vec<bool> {
-    if len == 0 || total_size == 0 {
-        return vec![false; total_size];
+/// Create a boolean mask for the top k highest intensity values
+///
+/// Analyzes the intensity array and creates a mask that selects the k highest values.
+/// In case of ties, the first occurrences are selected. If k exceeds the array length,
+/// all elements are selected.
+///
+/// Parameters:
+/// - intensities: Slice of intensity values to rank
+/// - k: Number of top values to select
+///
+/// Returns:
+/// - Boolean vector where true indicates top k intensity values
+///
+/// Examples:
+/// - `create_ranked_mask(&[1.0, 3.0, 2.0], 2)` → `[false, true, true]` (selects 3.0, 2.0)
+/// - `create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 2)` → `[true, false, true, false]` (selects 5.0, 3.0)
+/// - `create_ranked_mask(&[1.0, 1.0, 1.0], 2)` → `[true, true, false]` (first two in case of ties)
+pub fn create_ranked_mask(intensities: &[f32], k: usize) -> Vec<bool> {
+    if intensities.is_empty() || k == 0 {
+        return vec![false; intensities.len()];
     }
 
-    let start_idx = rank * len;
-    let end_idx = (start_idx + len).min(total_size);
+    // Create pairs of (value, original_index) and sort by value (descending), then by index (ascending)
+    let mut indexed_values: Vec<(f32, usize)> = intensities
+        .iter()
+        .enumerate()
+        .map(|(i, &val)| (val, i))
+        .collect();
 
-    let mut mask = vec![false; total_size];
+    // Sort by value descending, then by index ascending (for tie-breaking)
+    indexed_values.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
 
-    if start_idx < total_size {
-        for i in start_idx..end_idx {
-            mask[i] = true;
-        }
+    // Create mask selecting the top k indices
+    let mut mask = vec![false; intensities.len()];
+    let top_k_count = k.min(indexed_values.len());
+
+    for i in 0..top_k_count {
+        let original_index = indexed_values[i].1;
+        mask[original_index] = true;
     }
 
     mask
+}
+
+/// Count values above a threshold, optionally with a boolean mask
+///
+/// Counts how many values in the slice are greater than the threshold.
+/// If a mask is provided, only values where the mask is true are considered.
+///
+/// Parameters:
+/// - values: Slice of values to check
+/// - threshold: Threshold value (exclusive)
+/// - mask: Optional boolean mask to filter which values to consider
+///
+/// Returns:
+/// - Count of values above threshold
+///
+/// Examples:
+/// - `count_values_above(&[1.0, 2.0, 3.0], 1.5, None)` → 2 (values 2.0, 3.0)
+/// - `count_values_above(&[1.0, 2.0, 3.0], 1.5, Some(&[true, false, true]))` → 1 (only 3.0)
+pub fn count_values_above(values: &[f32], threshold: f32, mask: Option<&[bool]>) -> usize {
+    match mask {
+        Some(m) => {
+            if m.len() != values.len() {
+                return 0; // Mismatched lengths
+            }
+            values
+                .iter()
+                .enumerate()
+                .filter(|(i, &x)| m[*i] && x > threshold)
+                .count()
+        }
+        None => values.iter().filter(|&x| *x > threshold).count(),
+    }
 }

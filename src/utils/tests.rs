@@ -292,67 +292,106 @@ fn test_calculate_std() {
 }
 
 #[test]
-fn test_create_ranked_mask_basic_rank_0() {
+fn test_create_ranked_mask_basic_top_k() {
+    // Select top 2 from [1.0, 3.0, 2.0] -> should select 3.0, 2.0
+    assert_eq!(create_ranked_mask(&[1.0, 3.0, 2.0], 2), [false, true, true]);
+
+    // Select top 2 from [5.0, 1.0, 3.0, 2.0] -> should select 5.0, 3.0
     assert_eq!(
-        create_ranked_mask(10, 0, 3),
-        [true, true, true, false, false, false, false, false, false, false]
+        create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 2),
+        [true, false, true, false]
     );
 }
 
 #[test]
-fn test_create_ranked_mask_basic_rank_1() {
+fn test_create_ranked_mask_ties() {
+    // With ties, select first occurrences: [1.0, 1.0, 1.0], k=2 -> first two
+    assert_eq!(create_ranked_mask(&[1.0, 1.0, 1.0], 2), [true, true, false]);
+
+    // Mixed values with ties: [3.0, 1.0, 3.0, 2.0], k=2 -> first 3.0 and second 3.0
     assert_eq!(
-        create_ranked_mask(10, 1, 3),
-        [false, false, false, true, true, true, false, false, false, false]
+        create_ranked_mask(&[3.0, 1.0, 3.0, 2.0], 2),
+        [true, false, true, false]
     );
 }
 
 #[test]
-fn test_create_ranked_mask_basic_rank_2() {
+fn test_create_ranked_mask_k_zero() {
     assert_eq!(
-        create_ranked_mask(10, 2, 3),
-        [false, false, false, false, false, false, true, true, true, false]
+        create_ranked_mask(&[1.0, 2.0, 3.0], 0),
+        [false, false, false]
     );
 }
 
 #[test]
-fn test_create_ranked_mask_zero_length() {
-    assert_eq!(
-        create_ranked_mask(5, 0, 0),
-        [false, false, false, false, false]
-    );
+fn test_create_ranked_mask_empty_array() {
+    assert_eq!(create_ranked_mask(&[], 5), Vec::<bool>::new());
 }
 
 #[test]
-fn test_create_ranked_mask_zero_total_size() {
-    assert_eq!(create_ranked_mask(0, 0, 3), Vec::<bool>::new());
-}
-
-#[test]
-fn test_create_ranked_mask_length_exceeds_remaining() {
-    assert_eq!(create_ranked_mask(3, 1, 5), [false, false, false]);
-}
-
-#[test]
-fn test_create_ranked_mask_rank_out_of_bounds() {
-    assert_eq!(
-        create_ranked_mask(5, 5, 2),
-        [false, false, false, false, false]
-    );
+fn test_create_ranked_mask_k_exceeds_length() {
+    // k=5 but only 3 elements -> select all
+    assert_eq!(create_ranked_mask(&[1.0, 2.0, 3.0], 5), [true, true, true]);
 }
 
 #[test]
 fn test_create_ranked_mask_single_element() {
+    assert_eq!(create_ranked_mask(&[42.0], 1), [true]);
+    assert_eq!(create_ranked_mask(&[42.0], 0), [false]);
+}
+
+#[test]
+fn test_create_ranked_mask_descending_order() {
+    // Already sorted descending: [5.0, 4.0, 3.0, 2.0, 1.0], k=3
     assert_eq!(
-        create_ranked_mask(5, 1, 1),
-        [false, true, false, false, false]
+        create_ranked_mask(&[5.0, 4.0, 3.0, 2.0, 1.0], 3),
+        [true, true, true, false, false]
     );
 }
 
 #[test]
-fn test_create_ranked_mask_partial_overlap_at_end() {
+fn test_create_ranked_mask_ascending_order() {
+    // Ascending order: [1.0, 2.0, 3.0, 4.0, 5.0], k=3 -> select 5.0, 4.0, 3.0
     assert_eq!(
-        create_ranked_mask(6, 1, 4),
-        [false, false, false, false, true, true]
+        create_ranked_mask(&[1.0, 2.0, 3.0, 4.0, 5.0], 3),
+        [false, false, true, true, true]
     );
+}
+
+#[test]
+fn test_create_ranked_mask_negative_values() {
+    // Include negative values: [-1.0, 2.0, -3.0, 4.0], k=2 -> select 4.0, 2.0
+    assert_eq!(
+        create_ranked_mask(&[-1.0, 2.0, -3.0, 4.0], 2),
+        [false, true, false, true]
+    );
+}
+
+#[test]
+fn test_count_values_above_no_mask() {
+    assert_eq!(count_values_above(&[1.0, 2.0, 3.0, 4.0], 2.5, None), 2); // 3.0, 4.0
+    assert_eq!(count_values_above(&[1.0, 2.0, 3.0, 4.0], 0.0, None), 4); // all values
+    assert_eq!(count_values_above(&[1.0, 2.0, 3.0, 4.0], 5.0, None), 0); // no values
+    assert_eq!(count_values_above(&[], 1.0, None), 0); // empty slice
+    assert_eq!(count_values_above(&[2.0, 2.0, 2.0], 2.0, None), 0); // exact threshold
+}
+
+#[test]
+fn test_count_values_above_with_mask() {
+    let values = &[1.0, 2.0, 3.0, 4.0];
+    let mask = &[true, false, true, false];
+    assert_eq!(count_values_above(values, 1.5, Some(mask)), 1); // only 3.0 passes (2.0 masked out)
+
+    let all_true = &[true, true, true, true];
+    assert_eq!(count_values_above(values, 1.5, Some(all_true)), 3); // 2.0, 3.0, 4.0
+
+    let all_false = &[false, false, false, false];
+    assert_eq!(count_values_above(values, 0.0, Some(all_false)), 0); // all masked out
+}
+
+#[test]
+fn test_count_values_above_mismatched_lengths() {
+    let values = &[1.0, 2.0, 3.0];
+    let short_mask = &[true, false];
+    assert_eq!(count_values_above(values, 0.0, Some(short_mask)), 0); // mismatched lengths
 }

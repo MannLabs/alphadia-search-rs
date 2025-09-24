@@ -27,35 +27,38 @@ pub struct PrecursorQuantified {
 }
 
 impl PrecursorQuantified {
-    pub fn filter_fragments_by_intensity(&self, min_intensity: f32) -> Option<PrecursorQuantified> {
+    pub fn filter_fragments_by_intensity(
+        &self,
+        intensity_threshold: f32,
+    ) -> Option<PrecursorQuantified> {
         // Count valid fragments first to pre-allocate vectors
-        let estimated_valid = self
+        let valid_count = self
             .fragment_intensity
             .iter()
-            .filter(|&&intensity| intensity > min_intensity)
+            .filter(|&&intensity| intensity > intensity_threshold)
             .count();
 
-        if estimated_valid == 0 {
+        if valid_count == 0 {
             return None;
         }
 
         // Pre-allocate all vectors with exact capacity
-        let mut fragment_mz_library = Vec::with_capacity(estimated_valid);
-        let mut fragment_mz = Vec::with_capacity(estimated_valid);
-        let mut fragment_intensity = Vec::with_capacity(estimated_valid);
-        let mut fragment_cardinality = Vec::with_capacity(estimated_valid);
-        let mut fragment_charge = Vec::with_capacity(estimated_valid);
-        let mut fragment_loss_type = Vec::with_capacity(estimated_valid);
-        let mut fragment_number = Vec::with_capacity(estimated_valid);
-        let mut fragment_position = Vec::with_capacity(estimated_valid);
-        let mut fragment_type = Vec::with_capacity(estimated_valid);
-        let mut fragment_mz_observed = Vec::with_capacity(estimated_valid);
-        let mut fragment_correlation_observed = Vec::with_capacity(estimated_valid);
-        let mut fragment_mass_error_observed = Vec::with_capacity(estimated_valid);
+        let mut fragment_mz_library = Vec::with_capacity(valid_count);
+        let mut fragment_mz = Vec::with_capacity(valid_count);
+        let mut fragment_intensity = Vec::with_capacity(valid_count);
+        let mut fragment_cardinality = Vec::with_capacity(valid_count);
+        let mut fragment_charge = Vec::with_capacity(valid_count);
+        let mut fragment_loss_type = Vec::with_capacity(valid_count);
+        let mut fragment_number = Vec::with_capacity(valid_count);
+        let mut fragment_position = Vec::with_capacity(valid_count);
+        let mut fragment_type = Vec::with_capacity(valid_count);
+        let mut fragment_mz_observed = Vec::with_capacity(valid_count);
+        let mut fragment_correlation_observed = Vec::with_capacity(valid_count);
+        let mut fragment_mass_error_observed = Vec::with_capacity(valid_count);
 
         // Single iteration to fill all vectors
         for (i, &intensity) in self.fragment_intensity.iter().enumerate() {
-            if intensity > min_intensity {
+            if intensity > intensity_threshold {
                 fragment_mz_library.push(self.fragment_mz_library[i]);
                 fragment_mz.push(self.fragment_mz[i]);
                 fragment_intensity.push(intensity);

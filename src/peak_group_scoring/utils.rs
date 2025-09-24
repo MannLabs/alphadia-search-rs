@@ -242,7 +242,8 @@ fn gamma_ln(x: f32) -> f32 {
 }
 
 /// Calculate longest continuous b and y ion series scores
-/// Returns (longest_b_series, longest_y_series) based on increasing fragment_number values
+/// Returns (longest_b_series, longest_y_series) based on fragment_number values
+/// Handles fragment numbers in any order by sorting internally
 pub fn calculate_longest_ion_series(
     fragment_types: &[u8],
     fragment_numbers: &[u8],

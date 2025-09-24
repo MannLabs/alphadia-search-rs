@@ -494,3 +494,117 @@ fn test_longest_ion_series_mismatched_lengths() {
     assert_eq!(longest_b, 0);
     assert_eq!(longest_y, 0);
 }
+
+#[test]
+fn test_longest_ion_series_decreasing_fragment_numbers() {
+    // Test with decreasing fragment numbers (reverse order)
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B, // b3, b2, b1 (decreasing order)
+        FragmentType::Y,
+        FragmentType::Y, // y3, y2, y1 (decreasing order)
+    ];
+    let fragment_numbers = vec![3, 2, 1, 3, 2];
+    let matched_mask = vec![true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 3); // b1, b2, b3 continuous when sorted
+    assert_eq!(longest_y, 2); // y2, y3 continuous when sorted
+}
+
+#[test]
+fn test_longest_ion_series_random_order_with_gaps() {
+    // Test with randomly ordered fragment numbers containing gaps
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B, // b4, b1, b3, b6 (random order with gap at b2, b5)
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y, // y5, y1, y2 (random order with gaps at y3, y4)
+    ];
+    let fragment_numbers = vec![4, 1, 3, 6, 5, 1, 2];
+    let matched_mask = vec![true, true, true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 2); // b1,b3 -> gap -> b4 -> gap -> b6, longest is any 2 consecutive (none exist)
+                              // Actually: b1 alone, b3,b4 consecutive, b6 alone. Longest = 2 (b3,b4)
+    assert_eq!(longest_y, 2); // y1,y2 consecutive, gap, y5 alone. Longest = 2 (y1,y2)
+}
+
+#[test]
+fn test_longest_ion_series_all_same_number() {
+    // Test with duplicate fragment numbers (edge case)
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B, // all b2
+        FragmentType::Y,
+        FragmentType::Y, // all y3
+    ];
+    let fragment_numbers = vec![2, 2, 2, 3, 3];
+    let matched_mask = vec![true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 1); // only one unique number (2), so longest sequence is 1
+    assert_eq!(longest_y, 1); // only one unique number (3), so longest sequence is 1
+}
+
+#[test]
+fn test_longest_ion_series_mixed_order_comprehensive() {
+    // Comprehensive test with mixed fragment types and numbers in various orders
+    let fragment_types = vec![
+        FragmentType::B, // b5
+        FragmentType::Y, // y1
+        FragmentType::B, // b2
+        FragmentType::Y, // y4
+        FragmentType::B, // b3
+        FragmentType::Y, // y2
+        FragmentType::B, // b4
+        FragmentType::Y, // y3
+        FragmentType::B, // b1
+    ];
+    let fragment_numbers = vec![5, 1, 2, 4, 3, 2, 4, 3, 1];
+    let matched_mask = vec![true, true, true, true, true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 5); // b1,b2,b3,b4,b5 all continuous when sorted
+    assert_eq!(longest_y, 4); // y1,y2,y3,y4 all continuous when sorted
+}
+
+#[test]
+fn test_longest_ion_series_mz_sorted_fragments() {
+    // Test case simulating fragments sorted by m/z (like after the recent change)
+    // where fragment numbers may not be in increasing order
+    let fragment_types = vec![
+        FragmentType::B, // b1 (low m/z)
+        FragmentType::Y, // y5 (low m/z)
+        FragmentType::B, // b2 (medium m/z)
+        FragmentType::Y, // y4 (medium m/z)
+        FragmentType::B, // b3 (high m/z)
+        FragmentType::Y, // y3 (high m/z)
+        FragmentType::B, // b4 (higher m/z)
+        FragmentType::Y, // y2 (higher m/z)
+        FragmentType::B, // b5 (highest m/z)
+        FragmentType::Y, // y1 (highest m/z)
+    ];
+    // Fragment numbers in decreasing order for y-ions (typical for m/z sorting)
+    let fragment_numbers = vec![1, 5, 2, 4, 3, 3, 4, 2, 5, 1];
+    let matched_mask = vec![true, true, true, true, true, true, true, true, true, true];
+
+    let (longest_b, longest_y) =
+        calculate_longest_ion_series(&fragment_types, &fragment_numbers, &matched_mask);
+
+    assert_eq!(longest_b, 5); // b1,b2,b3,b4,b5 all continuous
+    assert_eq!(longest_y, 5); // y1,y2,y3,y4,y5 all continuous
+}

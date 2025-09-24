@@ -1,5 +1,5 @@
 use super::*;
-use crate::speclib_flat::filter_fragments;
+use crate::speclib_flat::filter_sort_fragments;
 
 fn test_precursor() -> Precursor {
     Precursor {
@@ -24,7 +24,7 @@ fn test_precursor() -> Precursor {
 #[test]
 fn test_no_filtering() {
     let precursor = test_precursor();
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_mz_library,
         &precursor.fragment_intensity,
@@ -45,7 +45,7 @@ fn test_no_filtering() {
 #[test]
 fn test_non_zero_filtering() {
     let precursor = test_precursor();
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_mz_library,
         &precursor.fragment_intensity,
@@ -67,7 +67,7 @@ fn test_non_zero_filtering() {
 #[test]
 fn test_top_k_selection() {
     let precursor = test_precursor();
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_mz_library,
         &precursor.fragment_intensity,
@@ -81,16 +81,16 @@ fn test_top_k_selection() {
         2,
     );
 
-    // Top 2: intensity 20.0 (mz 500.0) and 10.0 (mz 300.0), in original order
+    // Top 2: intensity 20.0 (mz 500.0) and 10.0 (mz 300.0), sorted by fragment_mz ascending
     assert_eq!(mz, vec![300.0, 500.0]);
     assert_eq!(intensity, vec![10.0, 20.0]);
-    assert!(mz.windows(2).all(|w| w[0] <= w[1])); // Maintains order
+    assert!(mz.windows(2).all(|w| w[0] <= w[1])); // Sorted by fragment_mz ascending
 }
 
 #[test]
 fn test_combined_filtering() {
     let precursor = test_precursor();
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_mz_library,
         &precursor.fragment_intensity,
@@ -108,7 +108,7 @@ fn test_combined_filtering() {
     assert_eq!(mz, vec![300.0, 500.0]);
     assert_eq!(intensity, vec![10.0, 20.0]);
     assert!(intensity.iter().all(|&i| i > 0.0));
-    assert!(mz.windows(2).all(|w| w[0] <= w[1]));
+    assert!(mz.windows(2).all(|w| w[0] <= w[1])); // Sorted by fragment_mz ascending
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn test_ordering_preservation() {
         fragment_type: vec![1, 1, 1, 1, 1],
     };
 
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &precursor.fragment_mz,
         &precursor.fragment_mz_library,
         &precursor.fragment_intensity,
@@ -145,9 +145,9 @@ fn test_ordering_preservation() {
         3,
     );
 
-    // Top 3: 100.0->30.0, 200.0->25.0, 400.0->20.0 in original index order
-    assert_eq!(mz, vec![200.0, 100.0, 400.0]);
-    assert_eq!(intensity, vec![25.0, 30.0, 20.0]);
+    // Top 3: 100.0->30.0, 200.0->25.0, 400.0->20.0 sorted by fragment_mz ascending
+    assert_eq!(mz, vec![100.0, 200.0, 400.0]);
+    assert_eq!(intensity, vec![30.0, 25.0, 20.0]);
 
     // Verify top-k correctness
     let mut sorted_intensity = intensity.clone();
@@ -175,7 +175,7 @@ fn test_top_k_larger_than_available() {
         fragment_type: vec![1, 1],
     };
 
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &small_precursor.fragment_mz,
         &small_precursor.fragment_mz_library,
         &small_precursor.fragment_intensity,
@@ -212,7 +212,7 @@ fn test_all_zero_intensities_filtered() {
         fragment_type: vec![1, 1],
     };
 
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_fragments(
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
         &zero_precursor.fragment_mz,
         &zero_precursor.fragment_mz_library,
         &zero_precursor.fragment_intensity,

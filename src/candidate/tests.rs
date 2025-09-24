@@ -7,7 +7,7 @@ fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
     // Verify we have the expected number of f32 features
-    assert_eq!(feature_names.len(), 18);
+    assert_eq!(feature_names.len(), 22);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -22,6 +22,10 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"longest_b_series".to_string()));
     assert!(feature_names.contains(&"longest_y_series".to_string()));
     assert!(feature_names.contains(&"naa".to_string()));
+    assert!(feature_names.contains(&"hyperscore_inverse_mass_error".to_string()));
+    assert!(feature_names.contains(&"weighted_mass_error".to_string()));
+    assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
+    assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
 
     // Verify that non-f32 columns are NOT included
     assert!(!feature_names.contains(&"precursor_idx".to_string()));
@@ -169,11 +173,15 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         15.0,  // num_over_50
         100.0, // hyperscore_intensity_observation
         120.0, // hyperscore_intensity_library
+        80.0,  // hyperscore_inverse_mass_error
         123.4, // rt_observed
         -2.5,  // delta_rt
         4.0,   // longest_b_series
         6.0,   // longest_y_series
         10.0,  // naa
+        2.5,   // weighted_mass_error
+        3.2,   // log10_b_ion_intensity
+        3.8,   // log10_y_ion_intensity
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 
@@ -291,6 +299,30 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
             .extract()
             .unwrap();
         let naa: Vec<f32> = dict.get_item("naa").unwrap().unwrap().extract().unwrap();
+        let hypo_inv_error: Vec<f32> = dict
+            .get_item("hyperscore_inverse_mass_error")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
+        let weighted_mass_error: Vec<f32> = dict
+            .get_item("weighted_mass_error")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
+        let log10_b_ion: Vec<f32> = dict
+            .get_item("log10_b_ion_intensity")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
+        let log10_y_ion: Vec<f32> = dict
+            .get_item("log10_y_ion_intensity")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
 
         assert_eq!(precursor_idx, vec![5u64]);
         assert_eq!(rank, vec![2u64]);
@@ -307,10 +339,14 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         assert!((num_over_50[0] - 15.0).abs() < 1e-6);
         assert!((hypo_obs[0] - 100.0).abs() < 1e-6);
         assert!((hypo_lib[0] - 120.0).abs() < 1e-6);
+        assert!((hypo_inv_error[0] - 80.0).abs() < 1e-6);
         assert!((rt_observed[0] - 123.4).abs() < 1e-6);
         assert!((delta_rt[0] + 2.5).abs() < 1e-6);
         assert!((longest_b_series[0] - 4.0).abs() < 1e-6);
         assert!((longest_y_series[0] - 6.0).abs() < 1e-6);
         assert!((naa[0] - 10.0).abs() < 1e-6);
+        assert!((weighted_mass_error[0] - 2.5).abs() < 1e-6);
+        assert!((log10_b_ion[0] - 3.2).abs() < 1e-6);
+        assert!((log10_y_ion[0] - 3.8).abs() < 1e-6);
     });
 }

@@ -442,14 +442,14 @@ fn test_speclib_flat_creation_sorting() {
         let speclib = SpecLibFlat::from_arrays(
             precursor_idx.readonly(),
             precursor_mz.readonly(), // library
-            precursor_mz.readonly(), // observed
+            precursor_mz.readonly(), // observed - reusing library values for test
             precursor_rt.readonly(), // library
-            precursor_rt.readonly(), // observed
+            precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
             precursor_start_idx.readonly(),
             precursor_stop_idx.readonly(),
             fragment_mz.readonly(), // library
-            fragment_mz.readonly(), // observed
+            fragment_mz.readonly(), // observed - reusing library values for test
             fragment_intensity.readonly(),
             fragment_cardinality.readonly(),
             fragment_charge.readonly(),

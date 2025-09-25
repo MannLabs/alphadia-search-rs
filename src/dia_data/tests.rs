@@ -1,7 +1,8 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
-use numpy::ndarray::{Array4, ArrayView1, ArrayView4};
-use numpy::PyUntypedArrayMethods;
+use numpy::ndarray::{ArrayView1, ArrayView4};
+use numpy::{PyArrayMethods, PyUntypedArrayMethods};
+use pyo3::Python;
 
 fn create_mock_alpha_raw_view<'a>(
     spectrum_delta_scan_idx: &'a [i64],
@@ -240,9 +241,13 @@ fn test_mobility_values() {
 
 #[test]
 fn test_rt_values() {
-    let dia_data = DIAData::new();
-    let rt_values = dia_data.rt_values();
-    assert_eq!(rt_values, Vec::<f32>::new()); // New DIAData should have empty RT values
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let dia_data = DIAData::new();
+        let rt_values = dia_data.rt_values(py);
+        // New DIAData should have empty RT values
+        assert_eq!(rt_values.len(), 0);
+    });
 }
 
 #[test]
@@ -275,8 +280,12 @@ fn test_rt_values_with_data() {
     use crate::dia_data_builder::DIADataBuilder;
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
-    let rt_values = dia_data.rt_values();
-    assert!(!rt_values.is_empty());
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let rt_values = dia_data.rt_values(py);
+        let rt_vec: Vec<f32> = rt_values.to_vec().unwrap();
+        assert_eq!(rt_vec, vec![1.0f32, 1.1]);
+    });
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
 use crate::dia_data_builder::DIADataBuilder;
-use numpy::ndarray::{Array4, ArrayView1, ArrayView4};
+use numpy::ndarray::{ArrayView1, ArrayView4};
 
 fn create_simple_alpha_raw() -> AlphaRawView<'static> {
     static SPECTRUM_DELTA_SCAN_IDX: [i64; 1] = [0];

@@ -123,8 +123,12 @@ def create_dia_data_next_gen(ms_data):
         ms_data.peak_df["intensity"].values.astype(np.float32),
     )
 
+    # Create a dummy cycle array - this appears to be mobility data which is not available in this dataset
+    cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
+    cycle_array = np.zeros((cycle_len, 1, 1, 1), dtype=np.float32)
+
     start_time = time.perf_counter()
-    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays)
+    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays, cycle_array)
     end_time = time.perf_counter()
     creation_time = end_time - start_time
     logger.info(f"DIAData creation time: {creation_time:.4f} seconds")

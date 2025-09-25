@@ -36,8 +36,9 @@ High-performance alphaDIA backend
 
 4. **Build the Rust extension:**
    ```bash
-   maturin develop
+   maturin develop --release
    ```
+Omit the `--release` extension for a developer build.
 
 5. **Run tests:**
    ```bash

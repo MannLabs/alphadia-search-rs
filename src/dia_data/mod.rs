@@ -12,6 +12,7 @@ pub struct AlphaRawView<'py> {
     pub spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    pub cycle_len: i64,
 }
 
 impl<'py> AlphaRawView<'py> {
@@ -26,6 +27,7 @@ impl<'py> AlphaRawView<'py> {
         spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        cycle_len: i64,
     ) -> Self {
         Self {
             spectrum_delta_scan_idx,
@@ -37,6 +39,7 @@ impl<'py> AlphaRawView<'py> {
             spectrum_rt,
             peak_mz,
             peak_intensity,
+            cycle_len,
         }
     }
 }
@@ -54,6 +57,7 @@ pub struct DIAData {
     pub mz_index: MZIndex,
     pub rt_index: RTIndex,
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
+    pub cycle_len: i64,
 }
 
 impl Default for DIAData {
@@ -70,6 +74,7 @@ impl DIAData {
             mz_index: MZIndex::new(),
             rt_index: RTIndex::new(),
             quadrupole_observations: Vec::new(),
+            cycle_len: 0,
         }
     }
 
@@ -85,6 +90,7 @@ impl DIAData {
         spectrum_rt: PyReadonlyArray1<'py, f32>,
         peak_mz: PyReadonlyArray1<'py, f32>,
         peak_intensity: PyReadonlyArray1<'py, f32>,
+        cycle_len: i64,
         _py: Python<'py>,
     ) -> PyResult<Self> {
         let alpha_raw_view = AlphaRawView::new(
@@ -97,6 +103,7 @@ impl DIAData {
             spectrum_rt.as_array(),
             peak_mz.as_array(),
             peak_intensity.as_array(),
+            cycle_len,
         );
 
         // Use optimized builder
@@ -141,6 +148,24 @@ impl DIAData {
     /// Returns the memory footprint in megabytes for easier reading
     pub fn memory_footprint_mb(&self) -> f64 {
         self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
+    }
+
+    #[getter]
+    pub fn has_ms1(&self) -> bool {
+        // required only to fulfil the same contract as AlphaDIA's DiaData object
+        false
+    }
+
+    #[getter]
+    pub fn has_mobility(&self) -> bool {
+        // required only to fulfil the same contract as AlphaDIA's DiaData object
+        false
+    }
+
+    #[getter]
+    pub fn cycle_len(&self) -> i64 {
+        // required only to fulfil the same contract as AlphaDIA's DiaData object
+        self.cycle_len
     }
 }
 

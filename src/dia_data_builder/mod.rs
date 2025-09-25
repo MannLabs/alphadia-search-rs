@@ -20,6 +20,7 @@ impl DIADataBuilder {
             mz_index,
             rt_index,
             quadrupole_observations,
+            cycle_len: alpha_raw_view.cycle_len,
         }
     }
 

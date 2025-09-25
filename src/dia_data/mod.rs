@@ -142,6 +142,41 @@ impl DIAData {
     pub fn memory_footprint_mb(&self) -> f64 {
         self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
     }
+
+    #[getter]
+    pub fn has_mobility(&self) -> bool {
+        false
+    }
+
+    #[getter]
+    pub fn has_ms1(&self) -> bool {
+        false
+    }
+
+    #[getter]
+    pub fn mobility_values(&self) -> Vec<f32> {
+        vec![1e-6, 0.0]
+    }
+
+    #[getter]
+    pub fn rt_values(&self) -> Vec<f32> {
+        self.rt_index.rt.to_vec()
+    }
+
+    #[getter]
+    pub fn cycle(&self) -> Vec<Vec<f64>> {
+        // TODO: Implement cycle information extraction
+        // Should return cycle information in shape (n, 4) as nested Vec
+        vec![]
+    }
+
+    pub fn to_jitclass(&self) -> PyResult<PyObject> {
+        // TODO: Implement conversion to JIT-compatible class
+        // This should return either TimsTOFTransposeJIT or AlphaRawJIT
+        Err(pyo3::exceptions::PyNotImplementedError::new_err(
+            "alphaDIA-ng DIAData does not support to_jitclass",
+        ))
+    }
 }
 
 // Implement the DIADataTrait for DIAData

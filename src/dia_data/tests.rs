@@ -209,3 +209,84 @@ fn test_empty_data_handling() {
     assert_eq!(dia_data.num_observations(), 0);
     assert_eq!(dia_data.get_valid_observations(100.0), Vec::<usize>::new());
 }
+
+#[test]
+fn test_has_mobility() {
+    let dia_data = DIAData::new();
+    assert_eq!(dia_data.has_mobility(), false);
+}
+
+#[test]
+fn test_has_ms1() {
+    let dia_data = DIAData::new();
+    assert_eq!(dia_data.has_ms1(), false);
+}
+
+#[test]
+fn test_mobility_values() {
+    let dia_data = DIAData::new();
+    let expected_mobility_values = vec![1e-6, 0.0];
+    assert_eq!(dia_data.mobility_values(), expected_mobility_values);
+}
+
+#[test]
+fn test_rt_values() {
+    let dia_data = DIAData::new();
+    let rt_values = dia_data.rt_values();
+    assert_eq!(rt_values, Vec::<f32>::new()); // New DIAData should have empty RT values
+}
+
+#[test]
+fn test_rt_values_with_data() {
+    // Create DIAData with some data to test RT values extraction
+    let spectrum_delta_scan_idx = [0i64, 0];
+    let isolation_lower_mz = [100.0f32, 100.0];
+    let isolation_upper_mz = [125.0f32, 125.0];
+    let spectrum_peak_start_idx = [0i64, 2];
+    let spectrum_peak_stop_idx = [2i64, 4];
+    let spectrum_cycle_idx = [0i64, 1];
+    let spectrum_rt = [1.0f32, 1.1];
+    let peak_mz = [110.0f32, 115.0, 111.0, 116.0];
+    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0];
+
+    let alpha_raw_view = create_mock_alpha_raw_view(
+        &spectrum_delta_scan_idx,
+        &isolation_lower_mz,
+        &isolation_upper_mz,
+        &spectrum_peak_start_idx,
+        &spectrum_peak_stop_idx,
+        &spectrum_cycle_idx,
+        &spectrum_rt,
+        &peak_mz,
+        &peak_intensity,
+    );
+
+    use crate::dia_data_builder::DIADataBuilder;
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
+
+    let rt_values = dia_data.rt_values();
+    assert!(!rt_values.is_empty());
+}
+
+#[test]
+fn test_cycle() {
+    let dia_data = DIAData::new();
+    let cycle_info = dia_data.cycle();
+    assert_eq!(cycle_info, Vec::<Vec<f64>>::new()); // Should return empty nested Vec
+}
+
+#[test]
+fn test_to_jitclass() {
+    pyo3::prepare_freethreaded_python();
+
+    let dia_data = DIAData::new();
+    let result = dia_data.to_jitclass();
+
+    // Should return a PyNotImplementedError
+    assert!(result.is_err());
+
+    if let Err(err) = result {
+        let error_message = format!("{}", err);
+        assert!(error_message.contains("alphaDIA-ng DIAData does not support to_jitclass"));
+    }
+}

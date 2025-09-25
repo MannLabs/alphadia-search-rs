@@ -9,9 +9,9 @@ use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
-    calculate_longest_ion_series, correlation_axis_0, intensity_ion_series, median_axis_0,
-    normalize_profiles,
+    calculate_correlation_safe, calculate_fwhm_rt, calculate_hyperscore,
+    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
+    intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -129,8 +129,10 @@ impl PeakGroupScoring {
         let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
         let median_profile = median_axis_0(&normalized_xic);
 
+        let fwhm_rt = calculate_fwhm_rt(&median_profile, cycle_start_idx, &dia_data.rt_index().rt);
+
         // Calculate correlations of each profile with the median profile
-        let correlations = correlation_axis_0(&median_profile, &normalized_xic);
+        let correlations: Vec<f32> = correlation_axis_0(&median_profile, &normalized_xic);
 
         let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
 
@@ -285,6 +287,7 @@ impl PeakGroupScoring {
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
+            fwhm_rt,
         ))
     }
 }

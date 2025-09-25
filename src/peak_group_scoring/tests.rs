@@ -1,12 +1,12 @@
 #[allow(unused_imports)]
 use super::utils::{
-    calculate_hyperscore, calculate_longest_ion_series, correlation, correlation_axis_0,
-    intensity_ion_series, median_axis_0, normalize_profiles,
+    calculate_fwhm_rt, calculate_hyperscore, calculate_longest_ion_series, correlation,
+    correlation_axis_0, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
 #[allow(unused_imports)]
-use numpy::ndarray::arr2;
+use numpy::ndarray::{arr1, arr2, Array1};
 
 #[test]
 fn test_median_axis_0_basic() {
@@ -907,4 +907,37 @@ fn test_intensity_ion_series_no_matches() {
 
     // Then: Should return 0
     assert_eq!(c_intensity, 0.0);
+}
+
+#[test]
+fn test_calculate_fwhm_rt_basic() {
+    // Given: Simple XIC profile with clear peak
+    let xic_profile = vec![0.0, 50.0, 100.0, 50.0, 0.0]; // Triangular peak
+    let cycle_start_idx = 10;
+    let cycle_stop_idx = 15;
+    let rt_values = arr1(&[
+        0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+    ]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: Should return reasonable FWHM value
+    assert!(fwhm > 0.0);
+    assert!(fwhm < 5.0); // Should be within reasonable range
+}
+
+#[test]
+fn test_calculate_fwhm_rt_empty_profile() {
+    // Given: Empty XIC profile
+    let xic_profile = vec![];
+    let cycle_start_idx = 0;
+    let cycle_stop_idx = 5;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: Should return 0
+    assert_eq!(fwhm, 0.0);
 }

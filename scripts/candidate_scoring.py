@@ -124,7 +124,7 @@ def create_dia_data_next_gen(ms_data):
     )
 
     # Create a dummy cycle array - this appears to be mobility data which is not available in this dataset
-    cycle_len = ms_data.spectrum_df["cycle_idx"].max() + 1
+    cycle_len = ms_data.spectrum_df["delta_scan_idx"].max() + 1
     cycle_array = np.zeros((cycle_len, 1, 1, 1), dtype=np.float32)
 
     start_time = time.perf_counter()

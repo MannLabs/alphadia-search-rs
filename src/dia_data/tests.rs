@@ -298,19 +298,3 @@ fn test_cycle() {
         assert_eq!(cycle_array.shape(), [0, 0, 0, 0]);
     });
 }
-
-#[test]
-fn test_to_jitclass() {
-    pyo3::prepare_freethreaded_python();
-
-    let dia_data = DIAData::new();
-    let result = dia_data.to_jitclass();
-
-    // Should return a PyNotImplementedError
-    assert!(result.is_err());
-
-    if let Err(err) = result {
-        let error_message = format!("{}", err);
-        assert!(error_message.contains("alphaDIA-ng DIAData does not support to_jitclass"));
-    }
-}

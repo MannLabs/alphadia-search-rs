@@ -176,12 +176,6 @@ impl DIAData {
     pub fn cycle<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray4<f32>> {
         PyArray4::from_array(py, &self.cycle)
     }
-
-    pub fn to_jitclass(&self) -> PyResult<PyObject> {
-        Err(pyo3::exceptions::PyNotImplementedError::new_err(
-            "alphaDIA-ng DIAData does not support to_jitclass",
-        ))
-    }
 }
 
 // Implement the DIADataTrait for DIAData

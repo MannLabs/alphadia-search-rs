@@ -1,6 +1,6 @@
-use numpy::ndarray::{ArrayBase, Dim, ViewRepr};
-use numpy::PyReadonlyArray1;
-use pyo3::prelude::*;
+use numpy::ndarray::{Array4, ArrayBase, Dim, ViewRepr};
+use numpy::{PyArray4, PyReadonlyArray1, PyReadonlyArray4};
+use pyo3::{prelude::*, Bound};
 
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
@@ -12,6 +12,7 @@ pub struct AlphaRawView<'py> {
     pub spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    pub cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
 }
 
 impl<'py> AlphaRawView<'py> {
@@ -26,6 +27,7 @@ impl<'py> AlphaRawView<'py> {
         spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
     ) -> Self {
         Self {
             spectrum_delta_scan_idx,
@@ -37,6 +39,7 @@ impl<'py> AlphaRawView<'py> {
             spectrum_rt,
             peak_mz,
             peak_intensity,
+            cycle,
         }
     }
 }
@@ -54,6 +57,7 @@ pub struct DIAData {
     pub mz_index: MZIndex,
     pub rt_index: RTIndex,
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
+    pub cycle: Array4<f32>,
 }
 
 impl Default for DIAData {
@@ -70,6 +74,7 @@ impl DIAData {
             mz_index: MZIndex::new(),
             rt_index: RTIndex::new(),
             quadrupole_observations: Vec::new(),
+            cycle: Array4::zeros((0, 0, 0, 0)),
         }
     }
 
@@ -85,6 +90,7 @@ impl DIAData {
         spectrum_rt: PyReadonlyArray1<'py, f32>,
         peak_mz: PyReadonlyArray1<'py, f32>,
         peak_intensity: PyReadonlyArray1<'py, f32>,
+        cycle: PyReadonlyArray4<'py, f32>,
         _py: Python<'py>,
     ) -> PyResult<Self> {
         let alpha_raw_view = AlphaRawView::new(
@@ -97,6 +103,7 @@ impl DIAData {
             spectrum_rt.as_array(),
             peak_mz.as_array(),
             peak_intensity.as_array(),
+            cycle.as_array(),
         );
 
         // Use optimized builder
@@ -164,15 +171,11 @@ impl DIAData {
     }
 
     #[getter]
-    pub fn cycle(&self) -> Vec<Vec<f64>> {
-        // TODO: Implement cycle information extraction
-        // Should return cycle information in shape (n, 4) as nested Vec
-        vec![]
+    pub fn cycle<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray4<f32>> {
+        PyArray4::from_array(py, &self.cycle)
     }
 
     pub fn to_jitclass(&self) -> PyResult<PyObject> {
-        // TODO: Implement conversion to JIT-compatible class
-        // This should return either TimsTOFTransposeJIT or AlphaRawJIT
         Err(pyo3::exceptions::PyNotImplementedError::new_err(
             "alphaDIA-ng DIAData does not support to_jitclass",
         ))

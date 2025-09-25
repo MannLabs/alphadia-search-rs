@@ -20,6 +20,7 @@ impl DIADataBuilder {
             mz_index,
             rt_index,
             quadrupole_observations,
+            cycle: alpha_raw_view.cycle.to_owned(),
         }
     }
 

@@ -1,3 +1,5 @@
+"""Test script for peak group selection functionality."""
+
 from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
 import os
 import pandas as pd

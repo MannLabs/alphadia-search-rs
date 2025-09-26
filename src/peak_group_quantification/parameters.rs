@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 #[pyclass]
 #[derive(Clone)]
@@ -22,6 +23,16 @@ impl QuantificationParameters {
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
             top_k_fragments: 100,
         }
+    }
+
+    pub fn update(&mut self, config: &Bound<'_, PyDict>) -> PyResult<()> {
+        if let Some(value) = config.get_item("tolerance_ppm")? {
+            self.tolerance_ppm = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("top_k_fragments")? {
+            self.top_k_fragments = value.extract::<usize>()?;
+        }
+        Ok(())
     }
 }
 

@@ -1,5 +1,5 @@
 #[allow(unused_imports)]
-use super::{PeakGroupQuantification, QuantificationParameters};
+use super::*;
 
 #[test]
 fn test_peak_group_quantification_creation() {

@@ -110,7 +110,7 @@ def create_spec_lib_flat(alphabase_speclib_flat):
     Returns
     -------
     SpecLibFlat
-        SpecLibFlat object for alphadia-ng
+        SpecLibFlat object for alphadia-search-rs
     """
     logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 

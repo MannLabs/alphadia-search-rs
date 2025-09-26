@@ -9,15 +9,12 @@ pub struct DIADataBuilder;
 
 impl DIADataBuilder {
     pub fn from_alpha_raw(alpha_raw_view: &AlphaRawView) -> DIAData {
-        let mz_index = MZIndex::new();
         let rt_index = RTIndex::from_alpha_raw(alpha_raw_view);
 
         // Single-phase parallel observation building
-        let quadrupole_observations =
-            Self::build_observations_rayon_parallel(alpha_raw_view, &mz_index);
+        let quadrupole_observations = Self::build_observations_rayon_parallel(alpha_raw_view);
 
         DIAData {
-            mz_index,
             rt_index,
             quadrupole_observations,
             rt_values: alpha_raw_view.spectrum_rt.to_owned(),
@@ -29,7 +26,6 @@ impl DIADataBuilder {
     /// Iterates over all delta_scan_idx values and builds each observation in parallel
     fn build_observations_rayon_parallel(
         alpha_raw_view: &AlphaRawView,
-        mz_index: &MZIndex,
     ) -> Vec<QuadrupoleObservation> {
         use rayon::prelude::*;
 
@@ -45,7 +41,7 @@ impl DIADataBuilder {
         let observations: Vec<QuadrupoleObservation> = (0..=max_delta_scan_idx)
             .into_par_iter()
             .map(|delta_scan_idx| {
-                Self::build_single_observation_rayon(alpha_raw_view, mz_index, delta_scan_idx)
+                Self::build_single_observation_rayon(alpha_raw_view, delta_scan_idx)
             })
             .collect();
 
@@ -55,9 +51,9 @@ impl DIADataBuilder {
     /// Build a single observation for a given delta_scan_idx using rayon for internal parallelization
     fn build_single_observation_rayon(
         alpha_raw_view: &AlphaRawView,
-        mz_index: &MZIndex,
         target_delta_scan_idx: i64,
     ) -> QuadrupoleObservation {
+        let mz_index = MZIndex::global();
         // 2.1: Get all spectra with this delta_scan_idx and build list with spectra_idx
         let matching_spectra: Vec<usize> = alpha_raw_view
             .spectrum_delta_scan_idx

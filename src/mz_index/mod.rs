@@ -1,4 +1,5 @@
 use numpy::ndarray::Array1;
+use once_cell::sync::Lazy;
 
 pub const RESOLUTION_PPM: f32 = 1.0;
 pub const MZ_START: f32 = 150.0;
@@ -23,6 +24,9 @@ pub fn ppm_index(resolution_ppm: f32, mz_start: f32, mz_end: f32) -> Array1<f32>
     Array1::from_vec(index)
 }
 
+static GLOBAL_MZ_INDEX: Lazy<MZIndex> = Lazy::new(MZIndex::new);
+
+#[derive(Clone)]
 pub struct MZIndex {
     pub mz: Array1<f32>,
 }
@@ -38,6 +42,10 @@ impl MZIndex {
         Self {
             mz: ppm_index(RESOLUTION_PPM, MZ_START, MZ_END),
         }
+    }
+
+    pub fn global() -> &'static MZIndex {
+        &GLOBAL_MZ_INDEX
     }
 
     pub fn len(&self) -> usize {

@@ -77,7 +77,7 @@ fn test_optimized_builder_basic_functionality() {
     assert_eq!(dia_data.num_observations(), 3);
 
     // Check that indices were built
-    assert!(dia_data.mz_index.len() > 0);
+    assert!(MZIndex::global().len() > 0);
     assert!(dia_data.rt_index.rt.len() > 0);
 }
 
@@ -251,7 +251,7 @@ fn test_cycle_ordering_preservation() {
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Find the mz_idx for our test m/z
-    let mz_idx = dia_data.mz_index.find_closest_index(120.0);
+    let mz_idx = MZIndex::global().find_closest_index(120.0);
     let obs = &dia_data.quadrupole_observations[0];
     let (cycles, intensities) = obs.get_slice_data(mz_idx);
 

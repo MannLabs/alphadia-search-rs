@@ -17,6 +17,7 @@ dependencies = [
  "ndarray-npy",
  "num_cpus",
  "numpy",
+ "once_cell",
  "pyo3",
  "rand",
  "rayon",

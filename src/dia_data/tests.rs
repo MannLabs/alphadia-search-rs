@@ -34,14 +34,14 @@ fn create_mock_alpha_raw_view<'a>(
 fn test_dia_data_creation() {
     let dia_data = DIAData::new();
     assert_eq!(dia_data.num_observations(), 0);
-    assert!(dia_data.mz_index.len() > 0); // Should have some default mz index
+    assert!(MZIndex::global().len() > 0); // Should have some default mz index
 }
 
 #[test]
 fn test_default_implementation() {
     let dia_data = DIAData::default();
     assert_eq!(dia_data.num_observations(), 0);
-    assert!(dia_data.mz_index.len() > 0);
+    assert!(MZIndex::global().len() > 0);
     assert!(dia_data.rt_index.rt.len() == 0); // RT index should be empty for new instance
 }
 
@@ -80,7 +80,7 @@ fn test_from_alpha_raw_view() {
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     assert_eq!(dia_data.num_observations(), 2);
-    assert!(dia_data.mz_index.len() > 0);
+    assert!(MZIndex::global().len() > 0);
     assert!(dia_data.rt_index.rt.len() > 0);
 }
 

@@ -54,7 +54,6 @@ use crate::rt_index::RTIndex;
 /// by using consolidated arrays instead of millions of individual allocations.
 #[pyclass]
 pub struct DIAData {
-    pub mz_index: MZIndex,
     pub rt_index: RTIndex,
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
     pub rt_values: Array1<f32>,
@@ -72,7 +71,6 @@ impl DIAData {
     #[new]
     pub fn new() -> Self {
         Self {
-            mz_index: MZIndex::new(),
             rt_index: RTIndex::new(),
             quadrupole_observations: Vec::new(),
             rt_values: Array1::zeros((0,)),
@@ -132,8 +130,7 @@ impl DIAData {
     pub fn memory_footprint_bytes(&self) -> usize {
         let mut total_size = 0;
 
-        // Size of MZIndex and RTIndex remain the same
-        total_size += self.mz_index.mz.len() * std::mem::size_of::<f32>();
+        // Size of RTIndex (MZIndex is global and not owned by this struct)
         total_size += self.rt_index.rt.len() * std::mem::size_of::<f32>();
 
         // Size of quadrupole_observations Vec overhead
@@ -187,7 +184,7 @@ impl crate::traits::DIADataTrait for DIAData {
     }
 
     fn mz_index(&self) -> &crate::mz_index::MZIndex {
-        &self.mz_index
+        MZIndex::global()
     }
 
     fn rt_index(&self) -> &crate::rt_index::RTIndex {

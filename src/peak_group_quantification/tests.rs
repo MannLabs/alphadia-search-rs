@@ -1,5 +1,7 @@
 #[allow(unused_imports)]
 use super::*;
+#[cfg(test)]
+use pyo3::types::PyDict;
 
 #[test]
 fn test_peak_group_quantification_creation() {

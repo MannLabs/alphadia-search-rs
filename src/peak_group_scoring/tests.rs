@@ -914,7 +914,6 @@ fn test_calculate_fwhm_rt_basic() {
     // Given: Simple XIC profile with clear peak
     let xic_profile = vec![0.0, 50.0, 100.0, 50.0, 0.0]; // Triangular peak
     let cycle_start_idx = 10;
-    let cycle_stop_idx = 15;
     let rt_values = arr1(&[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     ]);
@@ -932,7 +931,6 @@ fn test_calculate_fwhm_rt_empty_profile() {
     // Given: Empty XIC profile
     let xic_profile = vec![];
     let cycle_start_idx = 0;
-    let cycle_stop_idx = 5;
     let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 
     // When: Calculating FWHM

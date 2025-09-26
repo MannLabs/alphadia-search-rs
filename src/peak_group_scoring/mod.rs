@@ -10,9 +10,8 @@ use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
-    calculate_hyperscore_inverse_mass_error, calculate_hyperscore_weighted,
-    calculate_longest_ion_series, correlation_axis_0, intensity_ion_series, median_axis_0,
-    normalize_profiles,
+    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
+    intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -258,11 +257,10 @@ impl PeakGroupScoring {
         let idf_values = lib.idf.get_idf(&precursor.fragment_mz_library);
 
         // Calculate IDF-based scores
-        let idf_hyperscore = calculate_hyperscore_weighted(
+        let idf_hyperscore = calculate_hyperscore(
             &precursor.fragment_type,
-            observation_intensities.as_slice().unwrap(),
+            &idf_values,
             &matched_mask_intensity,
-            Some(&idf_values),
         );
 
         let idf_xic_dot_product = calculate_dot_product(&idf_values, &correlations);

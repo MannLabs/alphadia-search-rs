@@ -283,6 +283,9 @@ impl CandidateFeatureCollection {
         let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
         let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
         let mut fwhm_rt = Array1::<f32>::zeros(n);
+        let mut idf_hyperscore = Array1::<f32>::zeros(n);
+        let mut idf_xic_dot_product = Array1::<f32>::zeros(n);
+        let mut idf_intensity_dot_product = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -319,6 +322,9 @@ impl CandidateFeatureCollection {
             log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
             log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
             fwhm_rt[i] = feature.fwhm_rt;
+            idf_hyperscore[i] = feature.idf_hyperscore;
+            idf_xic_dot_product[i] = feature.idf_xic_dot_product;
+            idf_intensity_dot_product[i] = feature.idf_intensity_dot_product;
         }
 
         // Create Python dictionary
@@ -396,6 +402,12 @@ impl CandidateFeatureCollection {
             log10_y_ion_intensity.into_pyarray(py),
         )?;
         dict.set_item("fwhm_rt", fwhm_rt.into_pyarray(py))?;
+        dict.set_item("idf_hyperscore", idf_hyperscore.into_pyarray(py))?;
+        dict.set_item("idf_xic_dot_product", idf_xic_dot_product.into_pyarray(py))?;
+        dict.set_item(
+            "idf_intensity_dot_product",
+            idf_intensity_dot_product.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }

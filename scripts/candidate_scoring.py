@@ -54,6 +54,9 @@ FEATURE_COLUMNS = [
     "weighted_mass_error",
     "log10_b_ion_intensity",
     "log10_y_ion_intensity",
+    "idf_hyperscore",
+    "idf_xic_dot_product",
+    "idf_intensity_dot_product",
 ]
 
 # Configure logging

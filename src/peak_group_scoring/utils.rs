@@ -391,6 +391,18 @@ pub fn intensity_ion_series(
     total_intensity
 }
 
+/// Calculate dot product between two slices of equal length
+///
+/// Returns the sum of element-wise products: sum(a_i * b_i)
+/// Returns 0.0 if slices have different lengths or are empty
+pub fn calculate_dot_product(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+
+    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
+}
+
 /// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile
 ///
 /// Finds the maximum peak in the XIC slice and calculates the FWHM by finding points

@@ -9,9 +9,10 @@ use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_fwhm_rt, calculate_hyperscore,
-    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
-    intensity_ion_series, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
+    calculate_hyperscore_inverse_mass_error, calculate_hyperscore_weighted,
+    calculate_longest_ion_series, correlation_axis_0, intensity_ion_series, median_axis_0,
+    normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -72,7 +73,7 @@ impl PeakGroupScoring {
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
+                        self.score_candidate_generic(dia_data, lib, &precursor, candidate)
                     }
                     None => {
                         eprintln!(
@@ -105,6 +106,7 @@ impl PeakGroupScoring {
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
+        lib: &SpecLibFlat,
         precursor: &Precursor,
         candidate: &Candidate,
     ) -> Option<CandidateFeature> {
@@ -252,6 +254,21 @@ impl PeakGroupScoring {
         let log10_b_ion_intensity = (intensity_b_raw + EPSILON).log10();
         let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
 
+        // Calculate IDF values for this precursor's fragments
+        let idf_values = lib.idf.get_idf(&precursor.fragment_mz_library);
+
+        // Calculate IDF-based scores
+        let idf_hyperscore = calculate_hyperscore_weighted(
+            &precursor.fragment_type,
+            observation_intensities.as_slice().unwrap(),
+            &matched_mask_intensity,
+            Some(&idf_values),
+        );
+
+        let idf_xic_dot_product = calculate_dot_product(&idf_values, &correlations);
+        let idf_intensity_dot_product =
+            calculate_dot_product(&idf_values, observation_intensities.as_slice().unwrap());
+
         // Create and return candidate feature
         Some(CandidateFeature::new(
             candidate.precursor_idx,
@@ -288,6 +305,9 @@ impl PeakGroupScoring {
             log10_b_ion_intensity,
             log10_y_ion_intensity,
             fwhm_rt,
+            idf_hyperscore,
+            idf_xic_dot_product,
+            idf_intensity_dot_product,
         ))
     }
 }

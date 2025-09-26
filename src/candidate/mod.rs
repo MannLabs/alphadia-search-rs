@@ -125,6 +125,12 @@ pub struct CandidateFeature {
     pub log10_y_ion_intensity: f32,
     /// Full Width at Half Maximum of the retention time peak
     pub fwhm_rt: f32,
+    /// IDF-weighted hyperscore emphasizing rare fragments
+    pub idf_hyperscore: f32,
+    /// Dot product of IDF values with XIC correlations
+    pub idf_xic_dot_product: f32,
+    /// Dot product of IDF values with observed intensities
+    pub idf_intensity_dot_product: f32,
 }
 
 impl CandidateFeature {
@@ -164,6 +170,9 @@ impl CandidateFeature {
         log10_b_ion_intensity: f32,
         log10_y_ion_intensity: f32,
         fwhm_rt: f32,
+        idf_hyperscore: f32,
+        idf_xic_dot_product: f32,
+        idf_intensity_dot_product: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -200,6 +209,9 @@ impl CandidateFeature {
             log10_b_ion_intensity,
             log10_y_ion_intensity,
             fwhm_rt,
+            idf_hyperscore,
+            idf_xic_dot_product,
+            idf_intensity_dot_product,
         }
     }
 }

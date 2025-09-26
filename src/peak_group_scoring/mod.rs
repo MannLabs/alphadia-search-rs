@@ -11,7 +11,7 @@ use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
     calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
-    intensity_ion_series, median_axis_0, normalize_profiles,
+    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -127,13 +127,29 @@ impl PeakGroupScoring {
         );
 
         // Normalize the profiles before calculating median
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
-        let median_profile = median_axis_0(&normalized_xic);
+        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 2);
 
-        let fwhm_rt = calculate_fwhm_rt(&median_profile, cycle_start_idx, &dia_data.rt_index().rt);
+        // Filter to only non-zero profiles for median calculation
+        let filtered_xic = filter_non_zero(&normalized_xic);
+
+        let median_profile = median_axis_0(&normalized_xic);
+        let median_profile_filtered = median_axis_0(&filtered_xic);
+
+        let num_profiles = normalized_xic.shape()[0];
+        let num_profiles_filtered = filtered_xic.shape()[0];
+
+        // Calculate sum of median profile
+        let median_profile_sum = median_profile.iter().sum::<f32>();
+        let median_profile_sum_filtered = median_profile_filtered.iter().sum::<f32>();
+
+        let fwhm_rt = calculate_fwhm_rt(
+            &median_profile_filtered,
+            cycle_start_idx,
+            &dia_data.rt_index().rt,
+        );
 
         // Calculate correlations of each profile with the median profile
-        let correlations: Vec<f32> = correlation_axis_0(&median_profile, &normalized_xic);
+        let correlations: Vec<f32> = correlation_axis_0(&median_profile_filtered, &normalized_xic);
 
         let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
 
@@ -267,6 +283,15 @@ impl PeakGroupScoring {
         let idf_intensity_dot_product =
             calculate_dot_product(&idf_values, observation_intensities.as_slice().unwrap());
 
+        let log_idf_intensity_dot_product = (idf_intensity_dot_product + EPSILON).log10();
+
+        // Create mask for top 6 IDF values
+        let mask_top6_idf = create_ranked_mask(&idf_values, 0, 6); // ranks 0-5 (top 6 by IDF)
+
+        // Calculate IDF-based correlation features
+        let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
+        let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
+
         // Create and return candidate feature
         Some(CandidateFeature::new(
             candidate.precursor_idx,
@@ -305,7 +330,13 @@ impl PeakGroupScoring {
             fwhm_rt,
             idf_hyperscore,
             idf_xic_dot_product,
-            idf_intensity_dot_product,
+            log_idf_intensity_dot_product,
+            median_profile_sum,
+            median_profile_sum_filtered,
+            num_profiles as f32,
+            num_profiles_filtered as f32,
+            num_over_0_top6_idf as f32,
+            num_over_50_top6_idf as f32,
         ))
     }
 }

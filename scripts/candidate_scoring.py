@@ -57,6 +57,12 @@ FEATURE_COLUMNS = [
     "idf_hyperscore",
     "idf_xic_dot_product",
     "idf_intensity_dot_product",
+    "median_profile_sum",
+    "median_profile_sum_filtered",
+    "num_profiles",
+    "num_profiles_filtered",
+    "num_over_0_top6_idf",
+    "num_over_50_top6_idf",
 ]
 
 # Configure logging

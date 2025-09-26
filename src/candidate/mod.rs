@@ -131,6 +131,18 @@ pub struct CandidateFeature {
     pub idf_xic_dot_product: f32,
     /// Dot product of IDF values with observed intensities
     pub idf_intensity_dot_product: f32,
+    /// Sum of the median profile values
+    pub median_profile_sum: f32,
+    /// Sum of the median profile values (filtered for non-zero profiles only)
+    pub median_profile_sum_filtered: f32,
+    /// Total number of profiles used
+    pub num_profiles: f32,
+    /// Number of non-zero profiles used for filtered median
+    pub num_profiles_filtered: f32,
+    /// Number of correlations above 0.0 in top 6 IDF fragments
+    pub num_over_0_top6_idf: f32,
+    /// Number of correlations above 0.50 in top 6 IDF fragments
+    pub num_over_50_top6_idf: f32,
 }
 
 impl CandidateFeature {
@@ -173,6 +185,12 @@ impl CandidateFeature {
         idf_hyperscore: f32,
         idf_xic_dot_product: f32,
         idf_intensity_dot_product: f32,
+        median_profile_sum: f32,
+        median_profile_sum_filtered: f32,
+        num_profiles: f32,
+        num_profiles_filtered: f32,
+        num_over_0_top6_idf: f32,
+        num_over_50_top6_idf: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -212,6 +230,12 @@ impl CandidateFeature {
             idf_hyperscore,
             idf_xic_dot_product,
             idf_intensity_dot_product,
+            median_profile_sum,
+            median_profile_sum_filtered,
+            num_profiles,
+            num_profiles_filtered,
+            num_over_0_top6_idf,
+            num_over_50_top6_idf,
         }
     }
 }
@@ -286,6 +310,12 @@ impl CandidateFeatureCollection {
         let mut idf_hyperscore = Array1::<f32>::zeros(n);
         let mut idf_xic_dot_product = Array1::<f32>::zeros(n);
         let mut idf_intensity_dot_product = Array1::<f32>::zeros(n);
+        let mut median_profile_sum = Array1::<f32>::zeros(n);
+        let mut median_profile_sum_filtered = Array1::<f32>::zeros(n);
+        let mut num_profiles = Array1::<f32>::zeros(n);
+        let mut num_profiles_filtered = Array1::<f32>::zeros(n);
+        let mut num_over_0_top6_idf = Array1::<f32>::zeros(n);
+        let mut num_over_50_top6_idf = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -325,6 +355,12 @@ impl CandidateFeatureCollection {
             idf_hyperscore[i] = feature.idf_hyperscore;
             idf_xic_dot_product[i] = feature.idf_xic_dot_product;
             idf_intensity_dot_product[i] = feature.idf_intensity_dot_product;
+            median_profile_sum[i] = feature.median_profile_sum;
+            median_profile_sum_filtered[i] = feature.median_profile_sum_filtered;
+            num_profiles[i] = feature.num_profiles;
+            num_profiles_filtered[i] = feature.num_profiles_filtered;
+            num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
+            num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
         }
 
         // Create Python dictionary
@@ -408,6 +444,21 @@ impl CandidateFeatureCollection {
             "idf_intensity_dot_product",
             idf_intensity_dot_product.into_pyarray(py),
         )?;
+        dict.set_item("median_profile_sum", median_profile_sum.into_pyarray(py))?;
+        dict.set_item(
+            "median_profile_sum_filtered",
+            median_profile_sum_filtered.into_pyarray(py),
+        )?;
+        dict.set_item("num_profiles", num_profiles.into_pyarray(py))?;
+        dict.set_item(
+            "num_profiles_filtered",
+            num_profiles_filtered.into_pyarray(py),
+        )?;
+        dict.set_item("num_over_0_top6_idf", num_over_0_top6_idf.into_pyarray(py))?;
+        dict.set_item(
+            "num_over_50_top6_idf",
+            num_over_50_top6_idf.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }
@@ -448,6 +499,15 @@ impl CandidateFeatureCollection {
             "log10_b_ion_intensity".to_string(),
             "log10_y_ion_intensity".to_string(),
             "fwhm_rt".to_string(),
+            "idf_hyperscore".to_string(),
+            "idf_xic_dot_product".to_string(),
+            "idf_intensity_dot_product".to_string(),
+            "median_profile_sum".to_string(),
+            "median_profile_sum_filtered".to_string(),
+            "num_profiles".to_string(),
+            "num_profiles_filtered".to_string(),
+            "num_over_0_top6_idf".to_string(),
+            "num_over_50_top6_idf".to_string(),
         ]
     }
 }
@@ -632,7 +692,7 @@ mod tests {
         let feature_names = CandidateFeatureCollection::get_feature_names();
 
         // Verify we have the expected number of f32 features
-        assert_eq!(feature_names.len(), 32);
+        assert_eq!(feature_names.len(), 36);
 
         // Verify some key feature names are present
         assert!(feature_names.contains(&"score".to_string()));

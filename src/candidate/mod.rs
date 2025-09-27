@@ -85,6 +85,22 @@ pub struct CandidateFeature {
     pub num_over_50: f32,
     /// Number of correlations above 0.0
     pub num_over_0: f32,
+    /// Number of correlations above 0.0 in rank range 0-5
+    pub num_over_0_rank_0_5: f32,
+    /// Number of correlations above 0.0 in rank range 6-11
+    pub num_over_0_rank_6_11: f32,
+    /// Number of correlations above 0.0 in rank range 12-17
+    pub num_over_0_rank_12_17: f32,
+    /// Number of correlations above 0.0 in rank range 18-23
+    pub num_over_0_rank_18_23: f32,
+    /// Number of correlations above 0.50 in rank range 0-5
+    pub num_over_50_rank_0_5: f32,
+    /// Number of correlations above 0.50 in rank range 6-11
+    pub num_over_50_rank_6_11: f32,
+    /// Number of correlations above 0.50 in rank range 12-17
+    pub num_over_50_rank_12_17: f32,
+    /// Number of correlations above 0.50 in rank range 18-23
+    pub num_over_50_rank_18_23: f32,
     /// Hyperscore calculated from observed intensities
     pub hyperscore_intensity_observation: f32,
     /// Hyperscore calculated from library intensities
@@ -107,6 +123,26 @@ pub struct CandidateFeature {
     pub log10_b_ion_intensity: f32,
     /// Log10 transformed total intensity of y-ion series
     pub log10_y_ion_intensity: f32,
+    /// Full Width at Half Maximum of the retention time peak
+    pub fwhm_rt: f32,
+    /// IDF-weighted hyperscore emphasizing rare fragments
+    pub idf_hyperscore: f32,
+    /// Dot product of IDF values with XIC correlations
+    pub idf_xic_dot_product: f32,
+    /// Dot product of IDF values with observed intensities
+    pub idf_intensity_dot_product: f32,
+    /// Sum of the median profile values
+    pub median_profile_sum: f32,
+    /// Sum of the median profile values (filtered for non-zero profiles only)
+    pub median_profile_sum_filtered: f32,
+    /// Total number of profiles used
+    pub num_profiles: f32,
+    /// Number of non-zero profiles used for filtered median
+    pub num_profiles_filtered: f32,
+    /// Number of correlations above 0.0 in top 6 IDF fragments
+    pub num_over_0_top6_idf: f32,
+    /// Number of correlations above 0.50 in top 6 IDF fragments
+    pub num_over_50_top6_idf: f32,
 }
 
 impl CandidateFeature {
@@ -126,6 +162,14 @@ impl CandidateFeature {
         num_over_80: f32,
         num_over_50: f32,
         num_over_0: f32,
+        num_over_0_rank_0_5: f32,
+        num_over_0_rank_6_11: f32,
+        num_over_0_rank_12_17: f32,
+        num_over_0_rank_18_23: f32,
+        num_over_50_rank_0_5: f32,
+        num_over_50_rank_6_11: f32,
+        num_over_50_rank_12_17: f32,
+        num_over_50_rank_18_23: f32,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
         hyperscore_inverse_mass_error: f32,
@@ -137,6 +181,16 @@ impl CandidateFeature {
         weighted_mass_error: f32,
         log10_b_ion_intensity: f32,
         log10_y_ion_intensity: f32,
+        fwhm_rt: f32,
+        idf_hyperscore: f32,
+        idf_xic_dot_product: f32,
+        idf_intensity_dot_product: f32,
+        median_profile_sum: f32,
+        median_profile_sum_filtered: f32,
+        num_profiles: f32,
+        num_profiles_filtered: f32,
+        num_over_0_top6_idf: f32,
+        num_over_50_top6_idf: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -153,6 +207,14 @@ impl CandidateFeature {
             num_over_80,
             num_over_50,
             num_over_0,
+            num_over_0_rank_0_5,
+            num_over_0_rank_6_11,
+            num_over_0_rank_12_17,
+            num_over_0_rank_18_23,
+            num_over_50_rank_0_5,
+            num_over_50_rank_6_11,
+            num_over_50_rank_12_17,
+            num_over_50_rank_18_23,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,
@@ -164,6 +226,16 @@ impl CandidateFeature {
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
+            fwhm_rt,
+            idf_hyperscore,
+            idf_xic_dot_product,
+            idf_intensity_dot_product,
+            median_profile_sum,
+            median_profile_sum_filtered,
+            num_profiles,
+            num_profiles_filtered,
+            num_over_0_top6_idf,
+            num_over_50_top6_idf,
         }
     }
 }
@@ -215,6 +287,14 @@ impl CandidateFeatureCollection {
         let mut num_over_80 = Array1::<f32>::zeros(n);
         let mut num_over_50 = Array1::<f32>::zeros(n);
         let mut num_over_0 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_0_5 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_6_11 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_12_17 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_18_23 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_0_5 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_6_11 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_12_17 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_18_23 = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
         let mut hyperscore_inverse_mass_errors = Array1::<f32>::zeros(n);
@@ -226,6 +306,16 @@ impl CandidateFeatureCollection {
         let mut weighted_mass_errors = Array1::<f32>::zeros(n);
         let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
         let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
+        let mut fwhm_rt = Array1::<f32>::zeros(n);
+        let mut idf_hyperscore = Array1::<f32>::zeros(n);
+        let mut idf_xic_dot_product = Array1::<f32>::zeros(n);
+        let mut idf_intensity_dot_product = Array1::<f32>::zeros(n);
+        let mut median_profile_sum = Array1::<f32>::zeros(n);
+        let mut median_profile_sum_filtered = Array1::<f32>::zeros(n);
+        let mut num_profiles = Array1::<f32>::zeros(n);
+        let mut num_profiles_filtered = Array1::<f32>::zeros(n);
+        let mut num_over_0_top6_idf = Array1::<f32>::zeros(n);
+        let mut num_over_50_top6_idf = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -242,6 +332,14 @@ impl CandidateFeatureCollection {
             num_over_80[i] = feature.num_over_80;
             num_over_50[i] = feature.num_over_50;
             num_over_0[i] = feature.num_over_0;
+            num_over_0_rank_0_5[i] = feature.num_over_0_rank_0_5;
+            num_over_0_rank_6_11[i] = feature.num_over_0_rank_6_11;
+            num_over_0_rank_12_17[i] = feature.num_over_0_rank_12_17;
+            num_over_0_rank_18_23[i] = feature.num_over_0_rank_18_23;
+            num_over_50_rank_0_5[i] = feature.num_over_50_rank_0_5;
+            num_over_50_rank_6_11[i] = feature.num_over_50_rank_6_11;
+            num_over_50_rank_12_17[i] = feature.num_over_50_rank_12_17;
+            num_over_50_rank_18_23[i] = feature.num_over_50_rank_18_23;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
             hyperscore_inverse_mass_errors[i] = feature.hyperscore_inverse_mass_error;
@@ -253,6 +351,16 @@ impl CandidateFeatureCollection {
             weighted_mass_errors[i] = feature.weighted_mass_error;
             log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
             log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
+            fwhm_rt[i] = feature.fwhm_rt;
+            idf_hyperscore[i] = feature.idf_hyperscore;
+            idf_xic_dot_product[i] = feature.idf_xic_dot_product;
+            idf_intensity_dot_product[i] = feature.idf_intensity_dot_product;
+            median_profile_sum[i] = feature.median_profile_sum;
+            median_profile_sum_filtered[i] = feature.median_profile_sum_filtered;
+            num_profiles[i] = feature.num_profiles;
+            num_profiles_filtered[i] = feature.num_profiles_filtered;
+            num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
+            num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
         }
 
         // Create Python dictionary
@@ -274,6 +382,35 @@ impl CandidateFeatureCollection {
         dict.set_item("num_over_80", num_over_80.into_pyarray(py))?;
         dict.set_item("num_over_50", num_over_50.into_pyarray(py))?;
         dict.set_item("num_over_0", num_over_0.into_pyarray(py))?;
+        dict.set_item("num_over_0_rank_0_5", num_over_0_rank_0_5.into_pyarray(py))?;
+        dict.set_item(
+            "num_over_0_rank_6_11",
+            num_over_0_rank_6_11.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_0_rank_12_17",
+            num_over_0_rank_12_17.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_0_rank_18_23",
+            num_over_0_rank_18_23.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_0_5",
+            num_over_50_rank_0_5.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_6_11",
+            num_over_50_rank_6_11.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_12_17",
+            num_over_50_rank_12_17.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_18_23",
+            num_over_50_rank_18_23.into_pyarray(py),
+        )?;
         dict.set_item(
             "hyperscore_intensity_observation",
             hyperscore_intensity_observations.into_pyarray(py),
@@ -300,6 +437,28 @@ impl CandidateFeatureCollection {
             "log10_y_ion_intensity",
             log10_y_ion_intensity.into_pyarray(py),
         )?;
+        dict.set_item("fwhm_rt", fwhm_rt.into_pyarray(py))?;
+        dict.set_item("idf_hyperscore", idf_hyperscore.into_pyarray(py))?;
+        dict.set_item("idf_xic_dot_product", idf_xic_dot_product.into_pyarray(py))?;
+        dict.set_item(
+            "idf_intensity_dot_product",
+            idf_intensity_dot_product.into_pyarray(py),
+        )?;
+        dict.set_item("median_profile_sum", median_profile_sum.into_pyarray(py))?;
+        dict.set_item(
+            "median_profile_sum_filtered",
+            median_profile_sum_filtered.into_pyarray(py),
+        )?;
+        dict.set_item("num_profiles", num_profiles.into_pyarray(py))?;
+        dict.set_item(
+            "num_profiles_filtered",
+            num_profiles_filtered.into_pyarray(py),
+        )?;
+        dict.set_item("num_over_0_top6_idf", num_over_0_top6_idf.into_pyarray(py))?;
+        dict.set_item(
+            "num_over_50_top6_idf",
+            num_over_50_top6_idf.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }
@@ -320,6 +479,14 @@ impl CandidateFeatureCollection {
             "num_over_80".to_string(),
             "num_over_50".to_string(),
             "num_over_0".to_string(),
+            "num_over_0_rank_0_5".to_string(),
+            "num_over_0_rank_6_11".to_string(),
+            "num_over_0_rank_12_17".to_string(),
+            "num_over_0_rank_18_23".to_string(),
+            "num_over_50_rank_0_5".to_string(),
+            "num_over_50_rank_6_11".to_string(),
+            "num_over_50_rank_12_17".to_string(),
+            "num_over_50_rank_18_23".to_string(),
             "hyperscore_intensity_observation".to_string(),
             "hyperscore_intensity_library".to_string(),
             "hyperscore_inverse_mass_error".to_string(),
@@ -331,6 +498,16 @@ impl CandidateFeatureCollection {
             "weighted_mass_error".to_string(),
             "log10_b_ion_intensity".to_string(),
             "log10_y_ion_intensity".to_string(),
+            "fwhm_rt".to_string(),
+            "idf_hyperscore".to_string(),
+            "idf_xic_dot_product".to_string(),
+            "idf_intensity_dot_product".to_string(),
+            "median_profile_sum".to_string(),
+            "median_profile_sum_filtered".to_string(),
+            "num_profiles".to_string(),
+            "num_profiles_filtered".to_string(),
+            "num_over_0_top6_idf".to_string(),
+            "num_over_50_top6_idf".to_string(),
         ]
     }
 }
@@ -515,7 +692,7 @@ mod tests {
         let feature_names = CandidateFeatureCollection::get_feature_names();
 
         // Verify we have the expected number of f32 features
-        assert_eq!(feature_names.len(), 23);
+        assert_eq!(feature_names.len(), 36);
 
         // Verify some key feature names are present
         assert!(feature_names.contains(&"score".to_string()));
@@ -534,6 +711,7 @@ mod tests {
         assert!(feature_names.contains(&"weighted_mass_error".to_string()));
         assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
         assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
+        assert!(feature_names.contains(&"fwhm_rt".to_string()));
 
         // Verify that non-f32 columns are NOT included
         assert!(!feature_names.contains(&"precursor_idx".to_string()));

@@ -1,6 +1,6 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
-use numpy::ndarray::ArrayView1;
+use numpy::ndarray::{ArrayView1, ArrayView4};
 
 fn create_mock_alpha_raw_view<'a>(
     spectrum_delta_scan_idx: &'a [i64],
@@ -12,6 +12,7 @@ fn create_mock_alpha_raw_view<'a>(
     spectrum_rt: &'a [f32],
     peak_mz: &'a [f32],
     peak_intensity: &'a [f32],
+    cycle: &'a [f32],
 ) -> AlphaRawView<'a> {
     AlphaRawView {
         spectrum_delta_scan_idx: ArrayView1::from(spectrum_delta_scan_idx),
@@ -23,6 +24,7 @@ fn create_mock_alpha_raw_view<'a>(
         spectrum_rt: ArrayView1::from(spectrum_rt),
         peak_mz: ArrayView1::from(peak_mz),
         peak_intensity: ArrayView1::from(peak_intensity),
+        cycle: ArrayView4::from_shape([1, 1, 1, 1], cycle).unwrap(),
     }
 }
 
@@ -55,6 +57,7 @@ fn test_optimized_builder_basic_functionality() {
         3200.0, 3300.0, // spectrum 5
     ];
 
+    let cycle_data = [8.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -65,6 +68,7 @@ fn test_optimized_builder_basic_functionality() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
@@ -73,7 +77,7 @@ fn test_optimized_builder_basic_functionality() {
     assert_eq!(dia_data.num_observations(), 3);
 
     // Check that indices were built
-    assert!(dia_data.mz_index.len() > 0);
+    assert!(MZIndex::global().len() > 0);
     assert!(dia_data.rt_index.rt.len() > 0);
 }
 
@@ -94,6 +98,7 @@ fn test_observation_isolation_windows() {
         3300.0,
     ];
 
+    let cycle_data = [8.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -104,6 +109,7 @@ fn test_observation_isolation_windows() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
@@ -139,6 +145,7 @@ fn test_valid_observations() {
         3300.0,
     ];
 
+    let cycle_data = [8.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -149,6 +156,7 @@ fn test_valid_observations() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
@@ -181,6 +189,7 @@ fn test_parallel_building_deterministic() {
         1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0,
     ];
 
+    let cycle_data = [8.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -191,6 +200,7 @@ fn test_parallel_building_deterministic() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     // Build multiple times to ensure deterministic results
@@ -224,6 +234,7 @@ fn test_cycle_ordering_preservation() {
     let peak_mz = [120.0f32, 120.0, 120.0];
     let peak_intensity = [1000.0f32, 2000.0, 3000.0];
 
+    let cycle_data = [8.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -234,12 +245,13 @@ fn test_cycle_ordering_preservation() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
     // Find the mz_idx for our test m/z
-    let mz_idx = dia_data.mz_index.find_closest_index(120.0);
+    let mz_idx = MZIndex::global().find_closest_index(120.0);
     let obs = &dia_data.quadrupole_observations[0];
     let (cycles, intensities) = obs.get_slice_data(mz_idx);
 

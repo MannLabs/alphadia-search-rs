@@ -1,6 +1,6 @@
-use numpy::ndarray::{ArrayBase, Dim, ViewRepr};
-use numpy::PyReadonlyArray1;
-use pyo3::prelude::*;
+use numpy::ndarray::{Array1, Array4, ArrayBase, Dim, ViewRepr};
+use numpy::{PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray4};
+use pyo3::{prelude::*, Bound};
 
 pub struct AlphaRawView<'py> {
     pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
@@ -12,6 +12,7 @@ pub struct AlphaRawView<'py> {
     pub spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    pub cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
 }
 
 impl<'py> AlphaRawView<'py> {
@@ -26,6 +27,7 @@ impl<'py> AlphaRawView<'py> {
         spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
     ) -> Self {
         Self {
             spectrum_delta_scan_idx,
@@ -37,6 +39,7 @@ impl<'py> AlphaRawView<'py> {
             spectrum_rt,
             peak_mz,
             peak_intensity,
+            cycle,
         }
     }
 }
@@ -51,9 +54,10 @@ use crate::rt_index::RTIndex;
 /// by using consolidated arrays instead of millions of individual allocations.
 #[pyclass]
 pub struct DIAData {
-    pub mz_index: MZIndex,
     pub rt_index: RTIndex,
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
+    pub rt_values: Array1<f32>,
+    pub cycle: Array4<f32>,
 }
 
 impl Default for DIAData {
@@ -67,9 +71,10 @@ impl DIAData {
     #[new]
     pub fn new() -> Self {
         Self {
-            mz_index: MZIndex::new(),
             rt_index: RTIndex::new(),
             quadrupole_observations: Vec::new(),
+            rt_values: Array1::zeros((0,)),
+            cycle: Array4::zeros((0, 0, 0, 0)),
         }
     }
 
@@ -85,6 +90,7 @@ impl DIAData {
         spectrum_rt: PyReadonlyArray1<'py, f32>,
         peak_mz: PyReadonlyArray1<'py, f32>,
         peak_intensity: PyReadonlyArray1<'py, f32>,
+        cycle: PyReadonlyArray4<'py, f32>,
         _py: Python<'py>,
     ) -> PyResult<Self> {
         let alpha_raw_view = AlphaRawView::new(
@@ -97,6 +103,7 @@ impl DIAData {
             spectrum_rt.as_array(),
             peak_mz.as_array(),
             peak_intensity.as_array(),
+            cycle.as_array(),
         );
 
         // Use optimized builder
@@ -123,8 +130,7 @@ impl DIAData {
     pub fn memory_footprint_bytes(&self) -> usize {
         let mut total_size = 0;
 
-        // Size of MZIndex and RTIndex remain the same
-        total_size += self.mz_index.mz.len() * std::mem::size_of::<f32>();
+        // Size of RTIndex (MZIndex is global and not owned by this struct)
         total_size += self.rt_index.rt.len() * std::mem::size_of::<f32>();
 
         // Size of quadrupole_observations Vec overhead
@@ -142,6 +148,31 @@ impl DIAData {
     pub fn memory_footprint_mb(&self) -> f64 {
         self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
     }
+
+    #[getter]
+    pub fn has_mobility(&self) -> bool {
+        false
+    }
+
+    #[getter]
+    pub fn has_ms1(&self) -> bool {
+        false
+    }
+
+    #[getter]
+    pub fn mobility_values(&self) -> Vec<f32> {
+        vec![1e-6, 0.0]
+    }
+
+    #[getter]
+    pub fn rt_values<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
+        PyArray1::from_array(py, &self.rt_values)
+    }
+
+    #[getter]
+    pub fn cycle<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray4<f32>> {
+        PyArray4::from_array(py, &self.cycle)
+    }
 }
 
 // Implement the DIADataTrait for DIAData
@@ -153,7 +184,7 @@ impl crate::traits::DIADataTrait for DIAData {
     }
 
     fn mz_index(&self) -> &crate::mz_index::MZIndex {
-        &self.mz_index
+        MZIndex::global()
     }
 
     fn rt_index(&self) -> &crate::rt_index::RTIndex {

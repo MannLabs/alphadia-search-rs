@@ -9,13 +9,16 @@ use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
-    calculate_longest_ion_series, correlation_axis_0, intensity_ion_series, median_axis_0,
-    normalize_profiles,
+    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
+    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
+    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
-use crate::utils::{calculate_fragment_mz_and_errors, calculate_weighted_mean_absolute_error};
+use crate::utils::{
+    calculate_fragment_mz_and_errors, calculate_median, calculate_std,
+    calculate_weighted_mean_absolute_error, count_values_above, create_ranked_mask,
+};
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
@@ -69,7 +72,7 @@ impl PeakGroupScoring {
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
+                        self.score_candidate_generic(dia_data, lib, &precursor, candidate)
                     }
                     None => {
                         eprintln!(
@@ -102,6 +105,7 @@ impl PeakGroupScoring {
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
+        lib: &SpecLibFlat,
         precursor: &Precursor,
         candidate: &Candidate,
     ) -> Option<CandidateFeature> {
@@ -123,11 +127,29 @@ impl PeakGroupScoring {
         );
 
         // Normalize the profiles before calculating median
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
+        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 2);
+
+        // Filter to only non-zero profiles for median calculation
+        let filtered_xic = filter_non_zero(&normalized_xic);
+
         let median_profile = median_axis_0(&normalized_xic);
+        let median_profile_filtered = median_axis_0(&filtered_xic);
+
+        let num_profiles = normalized_xic.shape()[0];
+        let num_profiles_filtered = filtered_xic.shape()[0];
+
+        // Calculate sum of median profile
+        let median_profile_sum = median_profile.iter().sum::<f32>();
+        let median_profile_sum_filtered = median_profile_filtered.iter().sum::<f32>();
+
+        let fwhm_rt = calculate_fwhm_rt(
+            &median_profile_filtered,
+            cycle_start_idx,
+            &dia_data.rt_index().rt,
+        );
 
         // Calculate correlations of each profile with the median profile
-        let correlations = correlation_axis_0(&median_profile, &normalized_xic);
+        let correlations: Vec<f32> = correlation_axis_0(&median_profile_filtered, &normalized_xic);
 
         let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
 
@@ -145,35 +167,34 @@ impl PeakGroupScoring {
             0.0
         };
 
-        let mut sorted_correlations = correlations.clone();
-        sorted_correlations.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let median_correlation = if !sorted_correlations.is_empty() {
-            let mid = sorted_correlations.len() / 2;
-            if sorted_correlations.len() % 2 == 0 {
-                (sorted_correlations[mid - 1] + sorted_correlations[mid]) / 2.0
-            } else {
-                sorted_correlations[mid]
-            }
-        } else {
-            0.0
-        };
+        let median_correlation = calculate_median(&correlations);
 
-        let correlation_std = if correlations.len() > 1 {
-            let variance = correlations
-                .iter()
-                .map(|&x| (x - mean_correlation).powi(2))
-                .sum::<f32>()
-                / (correlations.len() - 1) as f32;
-            variance.sqrt()
-        } else {
-            0.0
-        };
+        let correlation_std = calculate_std(&correlations);
 
-        let num_over_95 = correlations.iter().filter(|&x| *x > 0.95).count();
-        let num_over_90 = correlations.iter().filter(|&x| *x > 0.90).count();
-        let num_over_80 = correlations.iter().filter(|&x| *x > 0.80).count();
-        let num_over_50 = correlations.iter().filter(|&x| *x > 0.50).count();
-        let num_over_0 = correlations.iter().filter(|&x| *x > 0.0).count();
+        let num_over_95 = count_values_above(&correlations, 0.95, None);
+        let num_over_90 = count_values_above(&correlations, 0.90, None);
+        let num_over_80 = count_values_above(&correlations, 0.80, None);
+        let num_over_50 = count_values_above(&correlations, 0.50, None);
+        let num_over_0 = count_values_above(&correlations, 0.0, None);
+
+        // Calculate ranked features using masks based on library intensities
+        // Create masks selecting specific rank ranges
+        let mask_0_5 = create_ranked_mask(&precursor.fragment_intensity, 0, 6); // ranks 0-5 (top 6)
+        let mask_6_11 = create_ranked_mask(&precursor.fragment_intensity, 6, 12); // ranks 6-11 (next 6)
+        let mask_12_17 = create_ranked_mask(&precursor.fragment_intensity, 12, 18); // ranks 12-17 (next 6)
+        let mask_18_23 = create_ranked_mask(&precursor.fragment_intensity, 18, 24); // ranks 18-23 (next 6)
+
+        // Calculate num_over_0 for each rank range
+        let num_over_0_rank_0_5 = count_values_above(&correlations, 0.0, Some(&mask_0_5));
+        let num_over_0_rank_6_11 = count_values_above(&correlations, 0.0, Some(&mask_6_11));
+        let num_over_0_rank_12_17 = count_values_above(&correlations, 0.0, Some(&mask_12_17));
+        let num_over_0_rank_18_23 = count_values_above(&correlations, 0.0, Some(&mask_18_23));
+
+        // Calculate num_over_50 for each rank range
+        let num_over_50_rank_0_5 = count_values_above(&correlations, 0.50, Some(&mask_0_5));
+        let num_over_50_rank_6_11 = count_values_above(&correlations, 0.50, Some(&mask_6_11));
+        let num_over_50_rank_12_17 = count_values_above(&correlations, 0.50, Some(&mask_12_17));
+        let num_over_50_rank_18_23 = count_values_above(&correlations, 0.50, Some(&mask_18_23));
 
         let intensity_correlation = intensity_correlations;
         let num_fragments = precursor.fragment_mz.len();
@@ -248,6 +269,29 @@ impl PeakGroupScoring {
         let log10_b_ion_intensity = (intensity_b_raw + EPSILON).log10();
         let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
 
+        // Calculate IDF values for this precursor's fragments
+        let idf_values = lib.idf.get_idf(&precursor.fragment_mz_library);
+
+        // Calculate IDF-based scores
+        let idf_hyperscore = calculate_hyperscore(
+            &precursor.fragment_type,
+            &idf_values,
+            &matched_mask_intensity,
+        );
+
+        let idf_xic_dot_product = calculate_dot_product(&idf_values, &correlations);
+        let idf_intensity_dot_product =
+            calculate_dot_product(&idf_values, observation_intensities.as_slice().unwrap());
+
+        let log_idf_intensity_dot_product = (idf_intensity_dot_product + EPSILON).log10();
+
+        // Create mask for top 6 IDF values
+        let mask_top6_idf = create_ranked_mask(&idf_values, 0, 6); // ranks 0-5 (top 6 by IDF)
+
+        // Calculate IDF-based correlation features
+        let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
+        let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
+
         // Create and return candidate feature
         Some(CandidateFeature::new(
             candidate.precursor_idx,
@@ -264,6 +308,14 @@ impl PeakGroupScoring {
             num_over_80 as f32,
             num_over_50 as f32,
             num_over_0 as f32,
+            num_over_0_rank_0_5 as f32,
+            num_over_0_rank_6_11 as f32,
+            num_over_0_rank_12_17 as f32,
+            num_over_0_rank_18_23 as f32,
+            num_over_50_rank_0_5 as f32,
+            num_over_50_rank_6_11 as f32,
+            num_over_50_rank_12_17 as f32,
+            num_over_50_rank_18_23 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,
@@ -275,6 +327,16 @@ impl PeakGroupScoring {
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
+            fwhm_rt,
+            idf_hyperscore,
+            idf_xic_dot_product,
+            log_idf_intensity_dot_product,
+            median_profile_sum,
+            median_profile_sum_filtered,
+            num_profiles as f32,
+            num_profiles_filtered as f32,
+            num_over_0_top6_idf as f32,
+            num_over_50_top6_idf as f32,
         ))
     }
 }

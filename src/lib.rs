@@ -9,6 +9,7 @@ mod convolution;
 mod dense_xic_observation;
 pub mod dia_data;
 pub mod dia_data_builder;
+pub mod idf;
 mod kernel;
 mod mz_index;
 pub mod peak_group_quantification;

@@ -1,4 +1,5 @@
 use super::*;
+use numpy::ndarray::{Array1, Array4};
 
 // Test fixtures for RT index tests
 struct RTTestParams {
@@ -53,6 +54,7 @@ struct TestAlphaRawData {
     rt_array: Array1<f32>,
     peak_mz_array: Array1<f32>,
     peak_intensity_array: Array1<f32>,
+    cycle_data: Array4<f32>,
 }
 
 impl TestAlphaRawData {
@@ -81,6 +83,7 @@ impl TestAlphaRawData {
             rt_array: Array1::from_vec(rt_values),
             peak_mz_array: Array1::from_vec(peak_mz),
             peak_intensity_array: Array1::from_vec(peak_intensity),
+            cycle_data: Array4::zeros((1, 1, 1, 1)),
         }
     }
 
@@ -97,6 +100,7 @@ impl TestAlphaRawData {
             self.rt_array.view(),
             self.peak_mz_array.view(),
             self.peak_intensity_array.view(),
+            self.cycle_data.view(),
         )
     }
 }

@@ -23,6 +23,49 @@ from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 import alphadia_ng
 
+FEATURE_COLUMNS = [
+    "score",
+    "mean_correlation",
+    "median_correlation",
+    "correlation_std",
+    "intensity_correlation",
+    "num_fragments",
+    "num_scans",
+    "num_over_95",
+    "num_over_90",
+    "num_over_80",
+    "num_over_50",
+    "num_over_0",
+    "num_over_0_rank_0_5",
+    "num_over_0_rank_6_11",
+    "num_over_0_rank_12_17",
+    "num_over_0_rank_18_23",
+    "num_over_50_rank_0_5",
+    "num_over_50_rank_6_11",
+    "num_over_50_rank_12_17",
+    "num_over_50_rank_18_23",
+    "hyperscore_intensity_observation",
+    "hyperscore_intensity_library",
+    "hyperscore_inverse_mass_error",
+    "rt_observed",
+    "delta_rt",
+    "longest_b_series",
+    "longest_y_series",
+    "naa",
+    "weighted_mass_error",
+    "log10_b_ion_intensity",
+    "log10_y_ion_intensity",
+    "idf_hyperscore",
+    "idf_xic_dot_product",
+    "idf_intensity_dot_product",
+    "median_profile_sum",
+    "median_profile_sum_filtered",
+    "num_profiles",
+    "num_profiles_filtered",
+    "num_over_0_top6_idf",
+    "num_over_50_top6_idf",
+]
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
@@ -361,8 +404,12 @@ def create_dia_data_next_gen(ms_data):
         ms_data.peak_df["intensity"].values.astype(np.float32),
     )
 
+    # Create a dummy cycle array - this appears to be mobility data which is not available in this dataset
+    cycle_len = ms_data.spectrum_df["delta_scan_idx"].max() + 1
+    cycle_array = np.zeros((cycle_len, 1, 1, 1), dtype=np.float32)
+
     start_time = time.perf_counter()
-    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays)
+    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays, cycle_array)
     end_time = time.perf_counter()
     creation_time = end_time - start_time
     logger.info(f"DIAData creation time: {creation_time:.4f} seconds")
@@ -525,35 +572,7 @@ def run_fdr_filtering(
     )
     logger.info(f"Running FDR filtering ({method_name})")
 
-    available_columns = [
-        "score",
-        "mean_correlation",
-        "median_correlation",
-        "correlation_std",
-        "intensity_correlation",
-        "num_fragments",
-        "num_scans",
-        "num_over_95",
-        "num_over_90",
-        "num_over_80",
-        "num_over_50",
-        "num_over_0",
-        "hyperscore_intensity_observation",
-        "hyperscore_intensity_library",
-        "hyperscore_inverse_mass_error",
-        "rt_observed",
-        "delta_rt",
-        "longest_b_series",
-        "longest_y_series",
-        "naa",
-        "weighted_mass_error",
-        "charge",
-        "mz_library",
-        "log10_b_ion_intensity",
-        "log10_y_ion_intensity",
-    ]
-
-    logger.info(f"Using {len(available_columns)} features for FDR calculation")
+    logger.info(f"Performing NN based FDR with {len(FEATURE_COLUMNS)} features")
 
     # Create composite index for proper matching
     psm_scored_df["precursor_idx_rank"] = (
@@ -570,6 +589,7 @@ def run_fdr_filtering(
     features_raw_output_path = os.path.join(
         output_folder, "candidate_features_raw.parquet"
     )
+
     psm_scored_df.to_parquet(features_raw_output_path)
     logger.info(f"Saved raw features to: {features_raw_output_path}")
 
@@ -578,12 +598,10 @@ def run_fdr_filtering(
 
     if use_svm_nn:
         # Use hybrid SVM-NN method
-        psm_df = perform_svm_nn_hybrid_fdr(target_df, decoy_df, available_columns)
+        psm_df = perform_svm_nn_hybrid_fdr(target_df, decoy_df, FEATURE_COLUMNS)
     elif use_svm:
         # Use SVM-based semi-supervised FDR calculation
-        psm_df = perform_svm_fdr(
-            target_df, decoy_df, available_columns, competitive=True
-        )
+        psm_df = perform_svm_fdr(target_df, decoy_df, FEATURE_COLUMNS, competitive=True)
     else:
         # Use neural network-based FDR calculation
         classifier = BinaryClassifierLegacyNewBatching(
@@ -596,7 +614,7 @@ def run_fdr_filtering(
 
         psm_df = perform_fdr(
             classifier,
-            available_columns,
+            FEATURE_COLUMNS,
             target_df,
             decoy_df,
             competetive=True,
@@ -722,37 +740,10 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     sns.set_palette("husl")
 
     # Define features to plot (excluding non-numeric columns)
-    feature_columns = [
-        "score",
-        "mean_correlation",
-        "median_correlation",
-        "correlation_std",
-        "intensity_correlation",
-        "num_fragments",
-        "num_scans",
-        "num_over_95",
-        "num_over_90",
-        "num_over_80",
-        "num_over_50",
-        "num_over_0",
-        "hyperscore_intensity_observation",
-        "hyperscore_intensity_library",
-        "hyperscore_inverse_mass_error",
-        "rt_observed",
-        "delta_rt",
-        "longest_b_series",
-        "longest_y_series",
-        "naa",
-        "weighted_mass_error",
-        "charge",
-        "mz_library",
-        "log10_b_ion_intensity",
-        "log10_y_ion_intensity",
-    ]
 
     # Filter to only include columns that exist in the DataFrame
     available_features = [
-        col for col in feature_columns if col in diagnosis_features_df.columns
+        col for col in FEATURE_COLUMNS if col in diagnosis_features_df.columns
     ]
 
     if not available_features:

@@ -692,7 +692,7 @@ mod tests {
         let feature_names = CandidateFeatureCollection::get_feature_names();
 
         // Verify we have the expected number of f32 features
-        assert_eq!(feature_names.len(), 36);
+        assert_eq!(feature_names.len(), 41);
 
         // Verify some key feature names are present
         assert!(feature_names.contains(&"score".to_string()));

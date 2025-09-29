@@ -125,7 +125,7 @@ pub fn correlation_axis_0(median_profile: &[f32], dense_xic: &Array2<f32>) -> Ve
 /// Returns 0.0 if correlation cannot be calculated safely
 pub fn calculate_correlation_safe(x: &[f32], y: &[f32]) -> f32 {
     if x.len() != y.len() || x.is_empty() {
-        panic!("x.len() != y.len() || x.is_empty()");
+        return 0.0;
     }
 
     // Check for all zeros or constant values

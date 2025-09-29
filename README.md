@@ -36,8 +36,9 @@ High-performance alphaDIA backend
 
 4. **Build the Rust extension:**
    ```bash
-   maturin develop
+   maturin develop --release
    ```
+Omit the `--release` extension for a developer build.
 
 5. **Run tests:**
    ```bash
@@ -105,8 +106,15 @@ cargo run --bin score-benchmark
 **Library Loading Error on macOS:**
 If you encounter the error `dyld[xxxxx]: Library not loaded: @rpath/libpython3.11.dylib` when running `cargo test`, set the library path:
 
+Mac:
 ```bash
 export DYLD_LIBRARY_PATH=$(realpath $(which python)/../../lib)
+cargo test
+```
+
+Linux:
+```bash
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 cargo test
 ```
 

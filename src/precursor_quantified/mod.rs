@@ -4,7 +4,7 @@
 //! precursor ions with their associated fragment data and quantification results.
 
 pub struct PrecursorQuantified {
-    pub idx: usize,
+    pub precursor_idx: usize,
     pub mz_library: f32,
     pub mz: f32,
     pub rt_library: f32,
@@ -72,7 +72,7 @@ impl PrecursorQuantified {
         }
 
         Some(PrecursorQuantified {
-            idx: self.idx,
+            precursor_idx: self.precursor_idx,
             mz_library: self.mz_library,
             mz: self.mz,
             rt_library: self.rt_library,

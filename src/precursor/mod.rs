@@ -1,5 +1,5 @@
 pub struct Precursor {
-    pub idx: usize,
+    pub precursor_idx: usize,
     pub mz: f32,
     pub mz_library: f32,
     pub rt: f32,

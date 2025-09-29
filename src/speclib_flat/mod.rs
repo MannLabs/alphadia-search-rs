@@ -366,7 +366,7 @@ impl SpecLibFlat {
         let fragment_type = self.fragment_type[start_idx..stop_idx].to_vec();
 
         Precursor {
-            idx: precursor_idx,
+            precursor_idx,
             mz: precursor_mz,
             mz_library: precursor_mz_library,
             rt: precursor_rt,
@@ -436,7 +436,7 @@ impl SpecLibFlat {
         );
 
         Precursor {
-            idx: precursor_idx,
+            precursor_idx,
             mz: precursor_mz,
             mz_library: precursor_mz_library,
             rt: precursor_rt,

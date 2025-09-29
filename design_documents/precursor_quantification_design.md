@@ -144,7 +144,7 @@ impl QuantificationEngine {
         let fragment_mass_error_observed = self.calculate_mass_errors(&fragment_mz_observed, &precursor.fragment_mz);
 
         PrecursorQuantified {
-            idx: precursor.idx,
+            precursor_idx: precursor.precursor_idx,
             mz: precursor.mz,
             rt: precursor.rt,
             naa: precursor.naa,

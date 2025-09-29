@@ -3,7 +3,7 @@ use crate::precursor_quantified::PrecursorQuantified;
 
 fn test_precursor_quantified() -> PrecursorQuantified {
     PrecursorQuantified {
-        idx: 0,
+        precursor_idx: 0,
         mz_library: 499.8,
         mz: 500.0,
         rt_library: 99.5,
@@ -53,10 +53,10 @@ fn test_from_precursor_quantified_vec_single() {
 #[test]
 fn test_from_precursor_quantified_vec_multiple() {
     let mut precursor1 = test_precursor_quantified();
-    precursor1.idx = 5;
+    precursor1.precursor_idx = 5;
 
     let mut precursor2 = test_precursor_quantified();
-    precursor2.idx = 2;
+    precursor2.precursor_idx = 2;
     precursor2.mz_library = 599.7;
     precursor2.mz = 600.0;
     precursor2.fragment_mz_library = vec![249.8, 349.9];
@@ -84,10 +84,10 @@ fn test_from_precursor_quantified_vec_multiple() {
 #[test]
 fn test_basic_functionality() {
     let mut precursor1 = test_precursor_quantified();
-    precursor1.idx = 10;
+    precursor1.precursor_idx = 10;
 
     let mut precursor2 = test_precursor_quantified();
-    precursor2.idx = 5;
+    precursor2.precursor_idx = 5;
     precursor2.mz = 600.0;
 
     let spec_lib =
@@ -111,11 +111,11 @@ fn test_quantified_data_structure() {
 #[test]
 fn test_fragment_precursor_columns() {
     let mut precursor1 = test_precursor_quantified();
-    precursor1.idx = 5;
+    precursor1.precursor_idx = 5;
     precursor1.rank = 2;
 
     let mut precursor2 = test_precursor_quantified();
-    precursor2.idx = 10;
+    precursor2.precursor_idx = 10;
     precursor2.rank = 1;
     precursor2.fragment_mz_library = vec![249.8, 349.9];
     precursor2.fragment_mz = vec![250.0, 350.0];

@@ -22,7 +22,7 @@ on:
         type: choice
         options:
         - testpypi
-        - pypi
+        - testpypi_and_pypi
 
 permissions:
   contents: read
@@ -80,31 +80,31 @@ jobs:
           name: wheels-windows-${{ matrix.platform.target }}
           path: dist
 
-#  macos:
-#    runs-on: ${{ matrix.platform.runner }}
-#    strategy:
-#      matrix:
-#        platform:
-#          - runner: macos-13
-#            target: x86_64
-#          - runner: macos-14
-#            target: aarch64
-#    steps:
-#      - uses: actions/checkout@v4
-#      - uses: actions/setup-python@v5
-#        with:
-#          python-version: 3.x
-#      - name: Build wheels
-#        uses: PyO3/maturin-action@v1
-#        with:
-#          target: ${{ matrix.platform.target }}
-#          args: --release --out dist --find-interpreter
-#          sccache: 'true'
-#      - name: Upload wheels
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: wheels-macos-${{ matrix.platform.target }}
-#          path: dist
+  macos:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-13
+            target: x86_64
+          - runner: macos-14
+            target: aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}
+          path: dist
 
   test:
     if: ${{ github.event_name != 'workflow_dispatch' }}
@@ -143,7 +143,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    needs: [linux, windows, sdist] # macos,
+    needs: [linux, windows, macos, test, sdist]
     permissions:
       # Use to sign the release artifacts
       id-token: write
@@ -159,7 +159,7 @@ jobs:
 #        with:
 #          subject-path: 'wheels-*/*'
       - name: Publish to Test-PyPI
-        if: ${{ github.event.inputs.pypi_target == 'testpypi' }}
+        if: ${{ github.event.inputs.pypi_target == 'testpypi' || github.event.inputs.pypi_target == 'testpypi_and_pypi' }}
         uses: PyO3/maturin-action@v1
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
@@ -167,7 +167,7 @@ jobs:
           command: upload
           args: --repository-url=https://test.pypi.org/legacy/ --non-interactive --skip-existing wheels-*/*
       - name: Publish to PyPI
-        if: ${{ github.event.inputs.pypi_target == 'pypi' }}
+        if: ${{ github.event.inputs.pypi_target == 'testpypi_and_pypi' }}
         uses: PyO3/maturin-action@v1
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

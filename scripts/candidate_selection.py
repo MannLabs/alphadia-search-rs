@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Script for selecting peptide candidates from MS data and spectral libraries."""
 
-from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
+from alphadia_search_rs import (
+    SpecLibFlat,
+    PeakGroupSelection,
+    DIAData,
+    SelectionParameters,
+)
 import pandas as pd
 import numpy as np
 import logging

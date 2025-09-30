@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Script for scoring peptide candidates using MS data and spectral libraries."""
 
-from alphadia_ng import (
+from alphadia_search_rs import (
     SpecLibFlat,
     PeakGroupScoring,
     DIAData,

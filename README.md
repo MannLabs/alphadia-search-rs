@@ -1,4 +1,4 @@
-# AlphaDIA-NG
+# alphadia-search-rs
 
 High-performance alphaDIA backend
 
@@ -14,7 +14,7 @@ High-performance alphaDIA backend
 1. **Clone and enter the repository:**
    ```bash
    git clone <repository-url>
-   cd alphadia-ng
+   cd alphadia-search-rs
    ```
 
 2. **Set up pre-commit hooks (recommended):**
@@ -30,7 +30,7 @@ High-performance alphaDIA backend
 
 3. **Install Python dependencies:**
    ```bash
-   conda activate alphadia-ng  # or create environment if it doesn't exist
+   conda activate alphadia-search-rs  # or create environment if it doesn't exist
    pip install maturin
    ```
 
@@ -57,7 +57,7 @@ python ./scripts/test_search.py
 ```
 
 The script will automatically:
-1. Use existing test data in `/Users/georgwallmann/Documents/data/alphadia-ng` if available
+1. Use existing test data in `/Users/georgwallmann/Documents/data/alphadia-search-rs` if available
 2. Otherwise create a temporary directory and download required files:
    - `spectrum_df.parquet` - Mass spectrometry spectra data
    - `peak_df.parquet` - Peak detection results

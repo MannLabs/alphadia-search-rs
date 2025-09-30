@@ -3,7 +3,7 @@ requires = ["maturin>=1.8,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "alphadia-ng"
+name = "alphadia-search-rs"
 requires-python = ">=3.10"
 
 authors = [
@@ -47,9 +47,9 @@ dev = ["alphabase", "pytest", "numpy"]
 
 [project.urls]
 
-#repository = "https://github.com/MannLabs/alphadia-ng"
-#issues = "https://github.com/MannLabs/alphadia-ng/issues"
-#download = "https://github.com/MannLabs/alphadia-ng/releases"
+#repository = "https://github.com/MannLabs/alphadia-search-rs"
+#issues = "https://github.com/MannLabs/alphadia-search-rs/issues"
+#download = "https://github.com/MannLabs/alphadia-search-rs/releases"
 homepage = "https://www.alphapept.org"
 "Mann Labs Homepage" = "https://www.biochem.mpg.de/mann"
 #"Paper preprint" = "https://doi.org/10.1101/2024.05.28.596182"

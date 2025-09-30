@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Script for processing raw MS files and saving as parquet files."""
 
 import numpy as np
 import argparse
@@ -63,6 +64,7 @@ def process_raw_file(raw_file_path, output_folder):
 
 
 def main():
+    """Process raw files."""
     parser = argparse.ArgumentParser(
         description="Process a raw file and save as parquet files"
     )

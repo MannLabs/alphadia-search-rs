@@ -13,7 +13,7 @@ pub struct SpecLibFlat {
 
     /// Precursor m/z values, sorted according to precursor_idx order
     /// Used for extraction of precursor XICs and selection of quadrupole windows
-    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// It's left to the caller if these are precursor_mz_library or precursor_mz_calibrated values, depending on optimization and calibration
     precursor_mz: Vec<f32>,
 
     /// Precursor retention times, as originally stored in the library
@@ -21,16 +21,17 @@ pub struct SpecLibFlat {
     precursor_rt_library: Vec<f32>,
 
     /// Precursor retention times, sorted according to precursor_idx order
+    /// It's left to the caller if these are precursor_rt_library or precursor_rt_calibrated values, depending on optimization and calibration
     precursor_rt: Vec<f32>,
 
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
     precursor_naa: Vec<u8>,
 
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
-    precursor_start_idx: Vec<usize>,
+    flat_frag_start_idx: Vec<usize>,
 
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
-    precursor_stop_idx: Vec<usize>,
+    flat_frag_stop_idx: Vec<usize>,
 
     /// Fragment m/z values, as originally stored in the library
     /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
@@ -38,7 +39,7 @@ pub struct SpecLibFlat {
 
     /// Fragment m/z values, sorted as originally stored in the library
     /// These mz values are used for extraction of the fragment XIC
-    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// It's left to the caller if these are fragment_mz_library or fragment_mz_calibrated values, depending on optimization and calibration
     /// Mass errors etc. will be calculated against these values
     fragment_mz: Vec<f32>,
 
@@ -75,8 +76,8 @@ impl SpecLibFlat {
             precursor_rt_library: Vec::new(),
             precursor_rt: Vec::new(),
             precursor_naa: Vec::new(),
-            precursor_start_idx: Vec::new(),
-            precursor_stop_idx: Vec::new(),
+            flat_frag_start_idx: Vec::new(),
+            flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
             fragment_mz: Vec::new(),
             fragment_intensity: Vec::new(),
@@ -98,8 +99,8 @@ impl SpecLibFlat {
         precursor_rt_library: PyReadonlyArray1<'_, f32>,
         precursor_rt: PyReadonlyArray1<'_, f32>,
         precursor_naa: PyReadonlyArray1<'_, u8>,
-        precursor_start_idx: PyReadonlyArray1<'_, usize>,
-        precursor_stop_idx: PyReadonlyArray1<'_, usize>,
+        flat_frag_start_idx: PyReadonlyArray1<'_, usize>,
+        flat_frag_stop_idx: PyReadonlyArray1<'_, usize>,
         fragment_mz_library: PyReadonlyArray1<'_, f32>,
         fragment_mz: PyReadonlyArray1<'_, f32>,
         fragment_intensity: PyReadonlyArray1<'_, f32>,
@@ -117,8 +118,8 @@ impl SpecLibFlat {
         let precursor_rt_library_vec = precursor_rt_library.as_array().to_vec();
         let precursor_rt_vec = precursor_rt.as_array().to_vec();
         let precursor_naa_vec = precursor_naa.as_array().to_vec();
-        let precursor_start_idx_vec = precursor_start_idx.as_array().to_vec();
-        let precursor_stop_idx_vec = precursor_stop_idx.as_array().to_vec();
+        let flat_frag_start_idx_vec = flat_frag_start_idx.as_array().to_vec();
+        let flat_frag_stop_idx_vec = flat_frag_stop_idx.as_array().to_vec();
         let fragment_mz_library_vec = fragment_mz_library.as_array().to_vec();
         let fragment_mz_vec = fragment_mz.as_array().to_vec();
         let fragment_intensity_vec = fragment_intensity.as_array().to_vec();
@@ -149,12 +150,12 @@ impl SpecLibFlat {
             .collect();
         let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt_vec[i]).collect();
         let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa_vec[i]).collect();
-        let sorted_precursor_start_idx: Vec<usize> = indices
+        let sorted_flat_frag_start_idx: Vec<usize> = indices
             .iter()
-            .map(|&i| precursor_start_idx_vec[i])
+            .map(|&i| flat_frag_start_idx_vec[i])
             .collect();
-        let sorted_precursor_stop_idx: Vec<usize> =
-            indices.iter().map(|&i| precursor_stop_idx_vec[i]).collect();
+        let sorted_flat_frag_stop_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_stop_idx_vec[i]).collect();
 
         Self {
             precursor_idx: sorted_precursor_idx,
@@ -163,8 +164,8 @@ impl SpecLibFlat {
             precursor_rt_library: sorted_precursor_rt_library,
             precursor_rt: sorted_precursor_rt,
             precursor_naa: sorted_precursor_naa,
-            precursor_start_idx: sorted_precursor_start_idx,
-            precursor_stop_idx: sorted_precursor_stop_idx,
+            flat_frag_start_idx: sorted_flat_frag_start_idx,
+            flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library: fragment_mz_library_vec,
             fragment_mz: fragment_mz_vec,
             fragment_intensity: fragment_intensity_vec,
@@ -343,8 +344,8 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
-        let start_idx = self.precursor_start_idx[index];
-        let stop_idx = self.precursor_stop_idx[index];
+        let start_idx = self.flat_frag_start_idx[index];
+        let stop_idx = self.flat_frag_stop_idx[index];
 
         let fragment_mz = self.fragment_mz[start_idx..stop_idx].to_vec();
         let fragment_mz_library = self.fragment_mz_library[start_idx..stop_idx].to_vec();
@@ -388,8 +389,8 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
-        let start_idx = self.precursor_start_idx[index];
-        let stop_idx = self.precursor_stop_idx[index];
+        let start_idx = self.flat_frag_start_idx[index];
+        let stop_idx = self.flat_frag_stop_idx[index];
 
         let raw_fragment_mz = &self.fragment_mz[start_idx..stop_idx];
         let raw_fragment_mz_library = &self.fragment_mz_library[start_idx..stop_idx];

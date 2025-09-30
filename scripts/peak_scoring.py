@@ -1,3 +1,5 @@
+"""Script for scoring peaks in MS data using spectral libraries."""
+
 import numpy as np
 import pandas as pd
 
@@ -5,6 +7,8 @@ from alphadia_ng import SpecLibFlat, DIAData, PeakGroupSelection
 
 
 class PeakScoring:
+    """Peak scoring class for MS2 extraction based on MS1 features."""
+
     def __init__(
         self,
         dia_data,
@@ -18,32 +22,25 @@ class PeakScoring:
         fwhm_rt=5.0,
         fwhm_mobility=0.012,
     ):
-        """select candidates for MS2 extraction based on MS1 features
+        """Select candidates for MS2 extraction based on MS1 features.
 
         Parameters
         ----------
-
         dia_data : alphadia.data.bruker.TimsTOFDIA
             dia data object
-
         precursors_flat : pandas.DataFrame
             flattened precursor dataframe
-
         rt_column : str, optional
             name of the rt column in the precursor dataframe, by default 'rt_library'
-
         mobility_column : str, optional
             name of the mobility column in the precursor dataframe, by default 'mobility_library'
-
         precursor_mz_column : str, optional
             name of the precursor mz column in the precursor dataframe, by default 'mz_library'
-
         fragment_mz_column : str, optional
             name of the fragment mz column in the fragment dataframe, by default 'mz_library'
 
         Returns
         -------
-
         pandas.DataFrame
             dataframe containing the extracted candidates
         """
@@ -61,6 +58,7 @@ class PeakScoring:
         self.precursor_df = precursor_df
 
     def prepare_dia_data(self, dia_data):
+        """Prepare DIA data for peak scoring."""
         cycle_len = dia_data.cycle.shape[1]
         delta_scan_idx = np.tile(
             np.arange(cycle_len), int(len(dia_data.spectrum_df) / cycle_len + 1)
@@ -97,6 +95,7 @@ class PeakScoring:
         fragment_mz_column,
         mobility_column,
     ):
+        """Prepare spectral library for peak scoring."""
         self.speclib = SpecLibFlat.from_arrays(
             precursor_df["precursor_idx"].values.astype(np.uint64),
             precursor_df[precursor_mz_column].values.astype(np.float32),
@@ -114,6 +113,7 @@ class PeakScoring:
         )
 
     def parse_candidates(self, candidates):
+        """Parse candidates and convert to DataFrame."""
         result = candidates.to_arrays()
 
         precursor_idx = result[0]
@@ -157,6 +157,7 @@ class PeakScoring:
         return candidates_df
 
     def __call__(self):
+        """Execute peak scoring pipeline."""
         fwhm_rt = self.config_dict.get("fwhm_rt", 3.0)
         kernel_size = self.config_dict.get("kernel_size", 15)
         peak_length = self.config_dict.get("peak_length", 5)

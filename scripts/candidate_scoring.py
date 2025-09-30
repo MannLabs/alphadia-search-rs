@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Script for scoring peptide candidates using MS data and spectral libraries."""
 
 from alphadia_ng import (
     SpecLibFlat,
@@ -144,7 +145,7 @@ def create_spec_lib_flat(alphabase_speclib_flat):
     Returns
     -------
     SpecLibFlat
-        SpecLibFlat object for alphadia-ng
+        SpecLibFlat object for alphadia-search-rs
     """
     logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 
@@ -330,7 +331,8 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
 
 
 def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
-    """
+    """Get best scoring target and decoy for each unique elution group from FDR-filtered results.
+
     Get best scoring target and decoy for each unique elution group from FDR-filtered results.
     Uses the original psm_scored_df to get paired decoys, not just FDR-filtered decoys.
 
@@ -598,6 +600,7 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered_df
 
 
 def main():
+    """Run candidate scoring pipeline."""
     parser = argparse.ArgumentParser(
         description="Run candidate scoring with MS data, spectral library, and candidates"
     )

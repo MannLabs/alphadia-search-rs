@@ -1,3 +1,5 @@
+"""Test script for peak group selection functionality."""
+
 from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
 import os
 import pandas as pd
@@ -18,8 +20,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--path",
         type=str,
-        default="/Users/georgwallmann/Documents/data/alphadia-ng",
-        help="Path to data folder (default: /Users/georgwallmann/Documents/data/alphadia-ng)",
+        default="/Users/georgwallmann/Documents/data/alphadia-search-rs",
+        help="Path to data folder (default: /Users/georgwallmann/Documents/data/alphadia-search-rs)",
     )
     args = parser.parse_args()
 

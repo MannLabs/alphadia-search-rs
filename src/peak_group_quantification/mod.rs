@@ -12,7 +12,7 @@ use crate::candidate::{Candidate, CandidateCollection};
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
@@ -118,7 +118,10 @@ impl PeakGroupQuantification {
         );
 
         let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
-        let median_profile = median_axis_0(&normalized_xic);
+        
+        // Filter to only non-zero profiles for median calculation (same as in scoring)
+        let filtered_xic = filter_non_zero(&normalized_xic);
+        let median_profile = median_axis_0(&filtered_xic);
 
         for fragment_idx in 0..num_fragments {
             let fragment_profile = normalized_xic.row(fragment_idx);

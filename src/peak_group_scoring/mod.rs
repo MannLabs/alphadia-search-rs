@@ -17,7 +17,7 @@ use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::utils::{
     calculate_fragment_mz_and_errors, calculate_median, calculate_std,
-    calculate_weighted_mean_absolute_error,
+    calculate_weighted_mean_absolute_error, count_values_above, create_ranked_mask,
 };
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
@@ -152,11 +152,30 @@ impl PeakGroupScoring {
 
         let correlation_std = calculate_std(&correlations);
 
-        let num_over_95 = correlations.iter().filter(|&x| *x > 0.95).count();
-        let num_over_90 = correlations.iter().filter(|&x| *x > 0.90).count();
-        let num_over_80 = correlations.iter().filter(|&x| *x > 0.80).count();
-        let num_over_50 = correlations.iter().filter(|&x| *x > 0.50).count();
-        let num_over_0 = correlations.iter().filter(|&x| *x > 0.0).count();
+        let num_over_95 = count_values_above(&correlations, 0.95, None);
+        let num_over_90 = count_values_above(&correlations, 0.90, None);
+        let num_over_80 = count_values_above(&correlations, 0.80, None);
+        let num_over_50 = count_values_above(&correlations, 0.50, None);
+        let num_over_0 = count_values_above(&correlations, 0.0, None);
+
+        // Calculate ranked features using masks based on library intensities
+        // Create masks selecting specific rank ranges
+        let mask_0_5 = create_ranked_mask(&precursor.fragment_intensity, 0, 6); // ranks 0-5 (top 6)
+        let mask_6_11 = create_ranked_mask(&precursor.fragment_intensity, 6, 12); // ranks 6-11 (next 6)
+        let mask_12_17 = create_ranked_mask(&precursor.fragment_intensity, 12, 18); // ranks 12-17 (next 6)
+        let mask_18_23 = create_ranked_mask(&precursor.fragment_intensity, 18, 24); // ranks 18-23 (next 6)
+
+        // Calculate num_over_0 for each rank range
+        let num_over_0_rank_0_5 = count_values_above(&correlations, 0.0, Some(&mask_0_5));
+        let num_over_0_rank_6_11 = count_values_above(&correlations, 0.0, Some(&mask_6_11));
+        let num_over_0_rank_12_17 = count_values_above(&correlations, 0.0, Some(&mask_12_17));
+        let num_over_0_rank_18_23 = count_values_above(&correlations, 0.0, Some(&mask_18_23));
+
+        // Calculate num_over_50 for each rank range
+        let num_over_50_rank_0_5 = count_values_above(&correlations, 0.50, Some(&mask_0_5));
+        let num_over_50_rank_6_11 = count_values_above(&correlations, 0.50, Some(&mask_6_11));
+        let num_over_50_rank_12_17 = count_values_above(&correlations, 0.50, Some(&mask_12_17));
+        let num_over_50_rank_18_23 = count_values_above(&correlations, 0.50, Some(&mask_18_23));
 
         let intensity_correlation = intensity_correlations;
         let num_fragments = precursor.fragment_mz.len();
@@ -247,6 +266,14 @@ impl PeakGroupScoring {
             num_over_80 as f32,
             num_over_50 as f32,
             num_over_0 as f32,
+            num_over_0_rank_0_5 as f32,
+            num_over_0_rank_6_11 as f32,
+            num_over_0_rank_12_17 as f32,
+            num_over_0_rank_18_23 as f32,
+            num_over_50_rank_0_5 as f32,
+            num_over_50_rank_6_11 as f32,
+            num_over_50_rank_12_17 as f32,
+            num_over_50_rank_18_23 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,

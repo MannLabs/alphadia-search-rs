@@ -152,10 +152,11 @@ jobs:
       attestations: write
     steps:
       - uses: actions/download-artifact@v4
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: 'wheels-*/*'
+        # TODO re-enable once repo is public
+#      - name: Generate artifact attestation
+#        uses: actions/attest-build-provenance@v1
+#        with:
+#          subject-path: 'wheels-*/*'
       - name: Publish to Test-PyPI
         if: ${{ github.event.inputs.pypi_target == 'testpypi' }}
         uses: PyO3/maturin-action@v1

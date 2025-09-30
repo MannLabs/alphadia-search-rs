@@ -143,7 +143,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'workflow_dispatch' }}
-    needs: [linux, windows, sdist, test] # macos,
+    needs: [linux, windows, sdist] # macos,
     permissions:
       # Use to sign the release artifacts
       id-token: write

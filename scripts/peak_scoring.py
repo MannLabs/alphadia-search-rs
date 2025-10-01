@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from alphadia_ng import SpecLibFlat, DIAData, PeakGroupSelection
+from alphadia_search_rs import SpecLibFlat, DIAData, PeakGroupSelection
 
 
 class PeakScoring:

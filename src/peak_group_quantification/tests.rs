@@ -1,8 +1,6 @@
 #[allow(unused_imports)]
 use super::{PeakGroupQuantification, QuantificationParameters};
 #[allow(unused_imports)]
-use pyo3::types::PyDictMethods;
-#[allow(unused_imports)]
 use pyo3::{types::PyDict, Python};
 
 #[test]
@@ -18,7 +16,7 @@ fn test_parameter_defaults() {
 
     // Verify all default values
     assert_eq!(params.tolerance_ppm, 7.0);
-    assert_eq!(params.top_k_fragments, 100);
+    assert_eq!(params.top_k_fragments, 10000);
 }
 
 #[test]
@@ -48,7 +46,7 @@ fn test_update_method_partial() {
 
         // Verify only the updated parameter changed
         assert_eq!(params.tolerance_ppm, 15.0);
-        assert_eq!(params.top_k_fragments, 100); // Should remain unchanged
+        assert_eq!(params.top_k_fragments, 10000); // Should remain unchanged
     });
 }
 

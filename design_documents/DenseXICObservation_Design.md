@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the design for a `DenseXICObservation` struct to encapsulate the common pattern of creating dense XIC (Extracted Ion Chromatogram) matrices with associated observation indices found throughout the alphadia-ng codebase.
+This document outlines the design for a `DenseXICObservation` struct to encapsulate the common pattern of creating dense XIC (Extracted Ion Chromatogram) matrices with associated observation indices found throughout the alphadia-search-rs codebase.
 
 ## Current Pattern Analysis
 

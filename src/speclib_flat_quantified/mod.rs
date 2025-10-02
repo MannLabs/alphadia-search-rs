@@ -26,7 +26,7 @@ pub struct SpecLibFlatQuantified {
 
     /// Precursor m/z values, sorted according to precursor_idx order
     /// Used for extraction of precursor XICs and selection of quadrupole windows
-    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// It's left to the caller if these are precursor_mz_library or precursor_mz_calibrated values, depending on optimization and calibration
     precursor_mz: Vec<f32>,
 
     /// Precursor retention times, as originally stored in the library
@@ -34,6 +34,7 @@ pub struct SpecLibFlatQuantified {
     precursor_rt_library: Vec<f32>,
 
     /// Precursor retention times, sorted according to precursor_idx order
+    /// It's left to the caller if these are precursor_rt_library or precursor_rt_calibrated values, depending on optimization and calibration
     precursor_rt: Vec<f32>,
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
     precursor_naa: Vec<u8>,
@@ -42,16 +43,16 @@ pub struct SpecLibFlatQuantified {
     /// Observed retention time, sorted according to precursor_idx order
     precursor_rt_observed: Vec<f32>,
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
-    precursor_start_idx: Vec<usize>,
+    flat_frag_start_idx: Vec<usize>,
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
-    precursor_stop_idx: Vec<usize>,
+    flat_frag_stop_idx: Vec<usize>,
     /// Fragment m/z values, as originally stored in the library
     /// Needed for downstream optimizations where a calibration model learns mz_observed as function of mz_library
     fragment_mz_library: Vec<f32>,
 
     /// Fragment m/z values, expected to be sorted in ascending order within each precursor upon creation
     /// These mz values are used for extraction of the fragment XIC
-    /// It's left to the caller if these are mz_library or mz_calibrated values
+    /// It's left to the caller if these are fragment_mz_library or fragment_mz_calibrated values, depending on optimization and calibration
     /// Mass errors etc. will be calculated against these values
     fragment_mz: Vec<f32>,
     /// Fragment intensity values in original library order (NOT sorted, maintains original order within each precursor)
@@ -93,8 +94,8 @@ impl SpecLibFlatQuantified {
             precursor_naa: Vec::new(),
             precursor_rank: Vec::new(),
             precursor_rt_observed: Vec::new(),
-            precursor_start_idx: Vec::new(),
-            precursor_stop_idx: Vec::new(),
+            flat_frag_start_idx: Vec::new(),
+            flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
             fragment_mz: Vec::new(),
             fragment_intensity: Vec::new(),
@@ -130,7 +131,7 @@ impl SpecLibFlatQuantified {
         let fragment_dict = PyDict::new(py);
 
         // Precursor arrays
-        precursor_dict.set_item("idx", self.precursor_idx.clone().into_pyarray(py))?;
+        precursor_dict.set_item("precursor_idx", self.precursor_idx.clone().into_pyarray(py))?;
         precursor_dict.set_item(
             "mz_library",
             self.precursor_mz_library.clone().into_pyarray(py),
@@ -149,11 +150,11 @@ impl SpecLibFlatQuantified {
         )?;
         precursor_dict.set_item(
             "flat_frag_start_idx",
-            self.precursor_start_idx.clone().into_pyarray(py),
+            self.flat_frag_start_idx.clone().into_pyarray(py),
         )?;
         precursor_dict.set_item(
-            "flat_frag_start_idx",
-            self.precursor_stop_idx.clone().into_pyarray(py),
+            "flat_frag_stop_idx",
+            self.flat_frag_stop_idx.clone().into_pyarray(py),
         )?;
 
         // Fragment arrays (library data)
@@ -222,8 +223,8 @@ impl SpecLibFlatQuantified {
         let mut precursor_naa = Vec::new();
         let mut precursor_rank = Vec::new();
         let mut precursor_rt_observed = Vec::new();
-        let mut precursor_start_idx = Vec::new();
-        let mut precursor_stop_idx = Vec::new();
+        let mut flat_frag_start_idx = Vec::new();
+        let mut flat_frag_stop_idx = Vec::new();
         let mut fragment_mz_library = Vec::new();
         let mut fragment_mz = Vec::new();
         let mut fragment_intensity = Vec::new();
@@ -255,8 +256,8 @@ impl SpecLibFlatQuantified {
             current_fragment_idx += precursor.fragment_mz.len();
             let stop_idx = current_fragment_idx;
 
-            precursor_start_idx.push(start_idx);
-            precursor_stop_idx.push(stop_idx);
+            flat_frag_start_idx.push(start_idx);
+            flat_frag_stop_idx.push(stop_idx);
 
             // Calculate fragment count before moving fragment_mz
             let fragment_count = precursor.fragment_mz.len();
@@ -298,10 +299,10 @@ impl SpecLibFlatQuantified {
             indices.iter().map(|&i| precursor_rank[i]).collect();
         let sorted_precursor_rt_observed: Vec<f32> =
             indices.iter().map(|&i| precursor_rt_observed[i]).collect();
-        let sorted_precursor_start_idx: Vec<usize> =
-            indices.iter().map(|&i| precursor_start_idx[i]).collect();
-        let sorted_precursor_stop_idx: Vec<usize> =
-            indices.iter().map(|&i| precursor_stop_idx[i]).collect();
+        let sorted_flat_frag_start_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_start_idx[i]).collect();
+        let sorted_flat_frag_stop_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_stop_idx[i]).collect();
 
         Self {
             precursor_idx: sorted_precursor_idx,
@@ -312,8 +313,8 @@ impl SpecLibFlatQuantified {
             precursor_naa: sorted_precursor_naa,
             precursor_rank: sorted_precursor_rank,
             precursor_rt_observed: sorted_precursor_rt_observed,
-            precursor_start_idx: sorted_precursor_start_idx,
-            precursor_stop_idx: sorted_precursor_stop_idx,
+            flat_frag_start_idx: sorted_flat_frag_start_idx,
+            flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library,
             fragment_mz,
             fragment_intensity,

@@ -21,7 +21,8 @@ impl QuantificationParameters {
             // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
             tolerance_ppm: 7.0,
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
-            top_k_fragments: 100,
+            // very large number to capture them all by default
+            top_k_fragments: 10000,
         }
     }
 

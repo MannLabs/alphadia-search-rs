@@ -1,4 +1,4 @@
-# Pre-commit configuration for alphadia-ng
+# Pre-commit configuration for alphadia-search-rs
 # See https://pre-commit.com for more information
 
 repos:

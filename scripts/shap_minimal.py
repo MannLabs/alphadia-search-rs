@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-Minimal SHAP analysis - generates only the complete summary plot with all features
-"""
+"""Minimal SHAP analysis - generates only the complete summary plot with all features."""
 
 import argparse
 import logging
@@ -19,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
+    """Run minimal SHAP analysis."""
     parser = argparse.ArgumentParser(description="Minimal SHAP analysis")
     parser.add_argument(
         "diagnosis_features", help="Path to diagnosis_features.parquet file"

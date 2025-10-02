@@ -60,7 +60,9 @@ if __name__ == "__main__":
     speclib = SpecLibFlat.from_arrays(
         precursor_df["precursor_idx"].values.astype(np.uint64),
         precursor_df["precursor_mz"].values.astype(np.float32),  # library
-        precursor_df["precursor_mz"].values.astype(np.float32),  # calibrated (same as library as this is the first round)
+        precursor_df["precursor_mz"].values.astype(
+            np.float32
+        ),  # calibrated (same as library as this is the first round)
         precursor_df["rt_pred"].values.astype(np.float32),  # library
         precursor_df["rt_pred"].values.astype(np.float32),  # calibrated
         precursor_df["nAA"].values.astype(np.uint8),

@@ -1,7 +1,7 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
 use crate::dia_data_builder::DIADataBuilder;
-use numpy::ndarray::ArrayView1;
+use numpy::ndarray::{ArrayView1, ArrayView4};
 
 fn create_simple_alpha_raw() -> AlphaRawView<'static> {
     static SPECTRUM_DELTA_SCAN_IDX: [i64; 1] = [0];
@@ -13,6 +13,7 @@ fn create_simple_alpha_raw() -> AlphaRawView<'static> {
     static SPECTRUM_RT: [f32; 1] = [100.0];
     static PEAK_MZ: [f32; 2] = [200.0, 200.1];
     static PEAK_INTENSITY: [f32; 2] = [1000.0, 2000.0];
+    static CYCLE_DATA: [f32; 1] = [5.0];
 
     AlphaRawView {
         spectrum_delta_scan_idx: ArrayView1::from(&SPECTRUM_DELTA_SCAN_IDX),
@@ -24,6 +25,7 @@ fn create_simple_alpha_raw() -> AlphaRawView<'static> {
         spectrum_rt: ArrayView1::from(&SPECTRUM_RT),
         peak_mz: ArrayView1::from(&PEAK_MZ),
         peak_intensity: ArrayView1::from(&PEAK_INTENSITY),
+        cycle: ArrayView4::from_shape([1, 1, 1, 1], &CYCLE_DATA).unwrap(),
     }
 }
 
@@ -152,6 +154,7 @@ fn test_dense_xic_mz_weighted_average() {
     static SPECTRUM_RT: [f32; 1] = [50.0];
     static PEAK_MZ: [f32; 3] = [249.9, 250.0, 250.1];
     static PEAK_INTENSITY: [f32; 3] = [500.0, 1000.0, 1500.0];
+    static CYCLE_DATA: [f32; 1] = [6.0];
 
     let alpha_raw = AlphaRawView {
         spectrum_delta_scan_idx: ArrayView1::from(&SPECTRUM_DELTA_SCAN_IDX),
@@ -163,6 +166,7 @@ fn test_dense_xic_mz_weighted_average() {
         spectrum_rt: ArrayView1::from(&SPECTRUM_RT),
         peak_mz: ArrayView1::from(&PEAK_MZ),
         peak_intensity: ArrayView1::from(&PEAK_INTENSITY),
+        cycle: ArrayView4::from_shape([1, 1, 1, 1], &CYCLE_DATA).unwrap(),
     };
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
@@ -191,6 +195,7 @@ fn test_dense_xic_mz_zero_intensity_handling() {
     static SPECTRUM_RT: [f32; 2] = [10.0, 20.0];
     static PEAK_MZ: [f32; 4] = [300.0, 300.1, 300.0, 300.1];
     static PEAK_INTENSITY: [f32; 4] = [1000.0, 0.0, 0.0, 2000.0]; // Zero intensities
+    static CYCLE_DATA: [f32; 1] = [7.0];
 
     let alpha_raw = AlphaRawView {
         spectrum_delta_scan_idx: ArrayView1::from(&SPECTRUM_DELTA_SCAN_IDX),
@@ -202,6 +207,7 @@ fn test_dense_xic_mz_zero_intensity_handling() {
         spectrum_rt: ArrayView1::from(&SPECTRUM_RT),
         peak_mz: ArrayView1::from(&PEAK_MZ),
         peak_intensity: ArrayView1::from(&PEAK_INTENSITY),
+        cycle: ArrayView4::from_shape([1, 1, 1, 1], &CYCLE_DATA).unwrap(),
     };
 
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);

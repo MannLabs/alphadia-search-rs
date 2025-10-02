@@ -17,6 +17,7 @@ pub struct AlphaRawView<'py> {
     pub spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
     pub peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+    pub cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
 }
 
 impl<'py> AlphaRawView<'py> {
@@ -31,6 +32,7 @@ impl<'py> AlphaRawView<'py> {
         spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
         peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
+        cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
     ) -> Self {
         Self {
             spectrum_delta_scan_idx,
@@ -42,6 +44,7 @@ impl<'py> AlphaRawView<'py> {
             spectrum_rt,
             peak_mz,
             peak_intensity,
+            cycle,
         }
     }
 }

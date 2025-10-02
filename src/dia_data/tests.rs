@@ -1,6 +1,8 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
-use numpy::ndarray::ArrayView1;
+use numpy::ndarray::{ArrayView1, ArrayView4};
+use numpy::{PyArrayMethods, PyUntypedArrayMethods};
+use pyo3::Python;
 
 fn create_mock_alpha_raw_view<'a>(
     spectrum_delta_scan_idx: &'a [i64],
@@ -12,6 +14,7 @@ fn create_mock_alpha_raw_view<'a>(
     spectrum_rt: &'a [f32],
     peak_mz: &'a [f32],
     peak_intensity: &'a [f32],
+    cycle: &'a [f32],
 ) -> AlphaRawView<'a> {
     AlphaRawView {
         spectrum_delta_scan_idx: ArrayView1::from(spectrum_delta_scan_idx),
@@ -23,6 +26,7 @@ fn create_mock_alpha_raw_view<'a>(
         spectrum_rt: ArrayView1::from(spectrum_rt),
         peak_mz: ArrayView1::from(peak_mz),
         peak_intensity: ArrayView1::from(peak_intensity),
+        cycle: ArrayView4::from_shape([1, 1, 1, 1], cycle).unwrap(),
     }
 }
 
@@ -57,6 +61,7 @@ fn test_from_alpha_raw_view() {
         1000.0f32, 1100.0, 1200.0, 1300.0, 2000.0, 2100.0, 2200.0, 2300.0,
     ];
 
+    let cycle_data = [1.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -67,6 +72,7 @@ fn test_from_alpha_raw_view() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     // Test that we can build DIAData from AlphaRawView directly
@@ -97,6 +103,7 @@ fn test_get_valid_observations() {
         3300.0,
     ];
 
+    let cycle_data = [2.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -107,6 +114,7 @@ fn test_get_valid_observations() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     use crate::dia_data_builder::DIADataBuilder;
@@ -154,6 +162,7 @@ fn test_observation_consistency() {
         3300.0,
     ];
 
+    let cycle_data = [3.0f32];
     let alpha_raw_view = create_mock_alpha_raw_view(
         &spectrum_delta_scan_idx,
         &isolation_lower_mz,
@@ -164,6 +173,7 @@ fn test_observation_consistency() {
         &spectrum_rt,
         &peak_mz,
         &peak_intensity,
+        &cycle_data,
     );
 
     use crate::dia_data_builder::DIADataBuilder;
@@ -208,4 +218,83 @@ fn test_empty_data_handling() {
     // Test empty data behavior
     assert_eq!(dia_data.num_observations(), 0);
     assert_eq!(dia_data.get_valid_observations(100.0), Vec::<usize>::new());
+}
+
+#[test]
+fn test_has_mobility() {
+    let dia_data = DIAData::new();
+    assert_eq!(dia_data.has_mobility(), false);
+}
+
+#[test]
+fn test_has_ms1() {
+    let dia_data = DIAData::new();
+    assert_eq!(dia_data.has_ms1(), false);
+}
+
+#[test]
+fn test_mobility_values() {
+    let dia_data = DIAData::new();
+    let expected_mobility_values = vec![1e-6, 0.0];
+    assert_eq!(dia_data.mobility_values(), expected_mobility_values);
+}
+
+#[test]
+fn test_rt_values() {
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let dia_data = DIAData::new();
+        let rt_values = dia_data.rt_values(py);
+        // New DIAData should have empty RT values
+        assert_eq!(rt_values.len(), 0);
+    });
+}
+
+#[test]
+fn test_rt_values_with_data() {
+    // Create DIAData with some data to test RT values extraction
+    let spectrum_delta_scan_idx = [0i64, 0];
+    let isolation_lower_mz = [100.0f32, 100.0];
+    let isolation_upper_mz = [125.0f32, 125.0];
+    let spectrum_peak_start_idx = [0i64, 2];
+    let spectrum_peak_stop_idx = [2i64, 4];
+    let spectrum_cycle_idx = [0i64, 1];
+    let spectrum_rt = [1.0f32, 1.1];
+    let peak_mz = [110.0f32, 115.0, 111.0, 116.0];
+    let peak_intensity = [1000.0f32, 1100.0, 1200.0, 1300.0];
+
+    let cycle_data = [4.0f32];
+    let alpha_raw_view = create_mock_alpha_raw_view(
+        &spectrum_delta_scan_idx,
+        &isolation_lower_mz,
+        &isolation_upper_mz,
+        &spectrum_peak_start_idx,
+        &spectrum_peak_stop_idx,
+        &spectrum_cycle_idx,
+        &spectrum_rt,
+        &peak_mz,
+        &peak_intensity,
+        &cycle_data,
+    );
+
+    use crate::dia_data_builder::DIADataBuilder;
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
+
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let rt_values = dia_data.rt_values(py);
+        let rt_vec: Vec<f32> = rt_values.to_vec().unwrap();
+        assert_eq!(rt_vec, vec![1.0f32, 1.1]);
+    });
+}
+
+#[test]
+fn test_cycle() {
+    pyo3::prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let dia_data = DIAData::new();
+        let cycle_array = dia_data.cycle(py);
+        // Should return a PyArray4 with shape (0, 0, 0, 0)
+        assert_eq!(cycle_array.shape(), [0, 0, 0, 0]);
+    });
 }

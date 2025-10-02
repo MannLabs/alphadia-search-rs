@@ -3,7 +3,7 @@
 High-performance alphaDIA backend.
 
 ## Notes for users
-This repository contains the high-performance backend for alphaDIA. This 
+This repository contains the high-performance backend for alphaDIA. This
 code should to used as part of [alphaDIA](https://github.com/MannLabs/alphadia).
 
 

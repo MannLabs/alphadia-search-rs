@@ -60,14 +60,14 @@ if __name__ == "__main__":
     speclib = SpecLibFlat.from_arrays(
         precursor_df["precursor_idx"].values.astype(np.uint64),
         precursor_df["precursor_mz"].values.astype(np.float32),  # library
-        precursor_df["precursor_mz"].values.astype(np.float32),  # observed
+        precursor_df["precursor_mz"].values.astype(np.float32),  # calibrated (same as library as this is the first round)
         precursor_df["rt_pred"].values.astype(np.float32),  # library
-        precursor_df["rt_pred"].values.astype(np.float32),  # observed
+        precursor_df["rt_pred"].values.astype(np.float32),  # calibrated
         precursor_df["nAA"].values.astype(np.uint8),
         precursor_df["flat_frag_start_idx"].values.astype(np.uint64),
         precursor_df["flat_frag_stop_idx"].values.astype(np.uint64),
         fragment_df["mz"].values.astype(np.float32),  # library
-        fragment_df["mz"].values.astype(np.float32),  # observed
+        fragment_df["mz"].values.astype(np.float32),  # calibrated
         fragment_df["intensity"].values.astype(np.float32),
         fragment_df["cardinality"].values.astype(np.uint8),
         fragment_df["charge"].values.astype(np.uint8),

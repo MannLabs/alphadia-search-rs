@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 
 #[pyclass]
 #[derive(Clone)]
@@ -20,8 +21,19 @@ impl QuantificationParameters {
             // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
             tolerance_ppm: 7.0,
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
-            top_k_fragments: 100,
+            // very large number to capture them all by default
+            top_k_fragments: 10000,
         }
+    }
+
+    pub fn update(&mut self, config: &Bound<'_, PyDict>) -> PyResult<()> {
+        if let Some(value) = config.get_item("tolerance_ppm")? {
+            self.tolerance_ppm = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("top_k_fragments")? {
+            self.top_k_fragments = value.extract::<usize>()?;
+        }
+        Ok(())
     }
 }
 

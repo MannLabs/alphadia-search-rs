@@ -278,3 +278,26 @@ mod mz_range_indices_tests {
         assert_eq!(indices, (start_idx..mz_index.len()).collect::<Vec<_>>());
     }
 }
+
+#[test]
+fn test_global_mz_index_singleton() {
+    // Test that global() returns the same instance
+    let index1 = MZIndex::global();
+    let index2 = MZIndex::global();
+
+    // Should be the same reference (same address)
+    assert_eq!(index1 as *const _, index2 as *const _);
+
+    // Should have the expected properties
+    assert_eq!(index1.mz[0], MZ_START.max(50.0));
+    assert!(index1.mz[index1.len() - 1] <= MZ_END * 1.01);
+    assert!(!index1.mz.is_empty());
+
+    // Test basic functionality works
+    let closest = index1.find_closest_index(500.0);
+    assert!(closest < index1.len());
+
+    // Test range functionality works
+    let range_indices: Vec<usize> = index1.mz_range_indices(400.0, 600.0).collect();
+    assert!(!range_indices.is_empty());
+}

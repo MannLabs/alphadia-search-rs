@@ -6,8 +6,8 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (23 base + 8 ranked)
-    assert_eq!(feature_names.len(), 31);
+    // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
+    assert_eq!(feature_names.len(), 32);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -27,6 +27,7 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"weighted_mass_error".to_string()));
     assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
     assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
+    assert!(feature_names.contains(&"fwhm_rt".to_string()));
 
     // Verify that non-f32 columns are NOT included
     assert!(!feature_names.contains(&"precursor_idx".to_string()));
@@ -192,6 +193,7 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         2.5,   // weighted_mass_error
         3.2,   // log10_b_ion_intensity
         3.8,   // log10_y_ion_intensity
+        15.5,  // fwhm_rt
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 
@@ -339,6 +341,12 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
             .unwrap()
             .extract()
             .unwrap();
+        let fwhm_rt: Vec<f32> = dict
+            .get_item("fwhm_rt")
+            .unwrap()
+            .unwrap()
+            .extract()
+            .unwrap();
 
         assert_eq!(precursor_idx, vec![5u64]);
         assert_eq!(rank, vec![2u64]);
@@ -365,5 +373,6 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         assert!((weighted_mass_error[0] - 2.5).abs() < 1e-6);
         assert!((log10_b_ion[0] - 3.2).abs() < 1e-6);
         assert!((log10_y_ion[0] - 3.8).abs() < 1e-6);
+        assert!((fwhm_rt[0] - 15.5).abs() < 1e-6);
     });
 }

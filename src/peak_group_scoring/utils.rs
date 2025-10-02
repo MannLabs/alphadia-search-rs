@@ -1,5 +1,5 @@
 use crate::constants::FragmentType;
-use numpy::ndarray::Array2;
+use numpy::ndarray::{Array1, Array2};
 use std::f32;
 
 /// Calculate the median along axis 0 (first axis) of a 2D array
@@ -388,4 +388,43 @@ pub fn intensity_ion_series(
     }
 
     total_intensity
+}
+
+/// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile
+///
+/// Finds the maximum peak in the XIC slice and calculates the FWHM by finding points
+/// where the intensity is half of the maximum. The slice should be centered at the maximum
+/// and have an odd number of elements.
+///
+/// Parameters:
+/// - xic_profile: Intensity profile (median profile across fragments)
+/// - cycle_start_idx: Starting cycle index in the RT array
+/// - cycle_stop_idx: Ending cycle index in the RT array (exclusive)
+/// - rt_values: Array of retention time values
+///
+/// Returns:
+/// - FWHM in retention time units, or 0.0 if cannot be calculated
+pub fn calculate_fwhm_rt(
+    xic_profile: &[f32],
+    cycle_start_idx: usize,
+    rt_values: &Array1<f32>,
+) -> f32 {
+    if xic_profile.is_empty() {
+        return 0.0;
+    }
+
+    let half_size = xic_profile.len() / 2;
+    let center_intensity = xic_profile[half_size];
+
+    for i in 0..half_size {
+        let mean_intensity = (xic_profile[half_size - i] + xic_profile[half_size + i]) / 2.0;
+
+        if mean_intensity <= center_intensity / 2.0 {
+            let left_rt = rt_values[cycle_start_idx + half_size - i];
+            let right_rt = rt_values[cycle_start_idx + half_size + i];
+            return right_rt - left_rt;
+        }
+    }
+
+    0.0
 }

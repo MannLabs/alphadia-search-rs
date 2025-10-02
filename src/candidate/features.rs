@@ -26,15 +26,16 @@ pub const FEATURE_NAMES: &[&str] = &[
     "num_over_50_rank_18_23",
     "hyperscore_intensity_observation",
     "hyperscore_intensity_library",
+    "hyperscore_inverse_mass_error",
     "rt_observed",
     "delta_rt",
     "longest_b_series",
     "longest_y_series",
     "naa",
-    "hyperscore_inverse_mass_error",
     "weighted_mass_error",
     "log10_b_ion_intensity",
     "log10_y_ion_intensity",
+    "fwhm_rt",
 ];
 
 #[derive(Debug, Clone)]
@@ -72,6 +73,7 @@ pub struct CandidateFeature {
     pub weighted_mass_error: f32,
     pub log10_b_ion_intensity: f32,
     pub log10_y_ion_intensity: f32,
+    pub fwhm_rt: f32,
 }
 
 impl CandidateFeature {
@@ -110,6 +112,7 @@ impl CandidateFeature {
         weighted_mass_error: f32,
         log10_b_ion_intensity: f32,
         log10_y_ion_intensity: f32,
+        fwhm_rt: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -145,6 +148,7 @@ impl CandidateFeature {
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
+            fwhm_rt,
         }
     }
 }
@@ -213,6 +217,7 @@ impl CandidateFeatureCollection {
         let mut weighted_mass_errors = Array1::<f32>::zeros(n);
         let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
         let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
+        let mut fwhm_rt = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -248,6 +253,7 @@ impl CandidateFeatureCollection {
             weighted_mass_errors[i] = feature.weighted_mass_error;
             log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
             log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
+            fwhm_rt[i] = feature.fwhm_rt;
         }
 
         let dict = PyDict::new(py);
@@ -323,6 +329,7 @@ impl CandidateFeatureCollection {
             "log10_y_ion_intensity",
             log10_y_ion_intensity.into_pyarray(py),
         )?;
+        dict.set_item("fwhm_rt", fwhm_rt.into_pyarray(py))?;
 
         Ok(dict.into())
     }

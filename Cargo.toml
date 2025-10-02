@@ -1,11 +1,11 @@
 [package]
-name = "alphadia-ng"
-version = "0.1.0"
+name = "alphadia-search-rs"
+version = "0.1.1-dev0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
-name = "alphadia_ng"
+name = "alphadia_search_rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

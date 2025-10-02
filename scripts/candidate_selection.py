@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
+"""Script for selecting peptide candidates from MS data and spectral libraries."""
 
-from alphadia_ng import SpecLibFlat, PeakGroupSelection, DIAData, SelectionParameters
+from alphadia_search_rs import (
+    SpecLibFlat,
+    PeakGroupSelection,
+    DIAData,
+    SelectionParameters,
+)
 import pandas as pd
 import numpy as np
 import logging
@@ -113,6 +119,7 @@ def run_candidate_selection(ms_data, alphabase_speclib_flat):
 
 
 def parse_candidates(candidates, ms_data, alphabase_speclib_flat):
+    """Parse candidates and create DataFrame with MS data and spectral library information."""
     result = candidates.to_arrays()
 
     precursor_idx = result[0]
@@ -161,6 +168,7 @@ def parse_candidates(candidates, ms_data, alphabase_speclib_flat):
 
 
 def main():
+    """Run candidate selection pipeline."""
     parser = argparse.ArgumentParser(
         description="Run candidate selection with alphaRaw MSData_Base and SpecLibFlat"
     )

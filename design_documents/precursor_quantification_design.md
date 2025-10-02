@@ -362,7 +362,7 @@ impl QuantificationWorkflow {
 3. **Memory pool allocation**: Pre-allocate fragment arrays to avoid allocation overhead
 4. **Streaming quantification**: Process candidates in chunks to bound memory usage
 
-This approach provides the best balance of memory efficiency, thread safety, and maintainability while leveraging the existing high-performance infrastructure in alphadia-ng.
+This approach provides the best balance of memory efficiency, thread safety, and maintainability while leveraging the existing high-performance infrastructure in alphadia-search-rs.
 
 ## Implementation Roadmap
 
@@ -386,4 +386,4 @@ This approach provides the best balance of memory efficiency, thread safety, and
 2. Add Python bindings for `SpecLibFlatQuantified`
 3. Create comprehensive Python API documentation
 
-This roadmap ensures a systematic implementation that maintains the high-performance characteristics of the existing alphadia-ng codebase.
+This roadmap ensures a systematic implementation that maintains the high-performance characteristics of the existing alphadia-search-rs codebase.

@@ -18,7 +18,7 @@ pub mod parameters;
 pub use parameters::SelectionParameters;
 
 /// Finds local maxima in a 1D array.
-/// A local maximum is defined as a point that is higher than the 2 points to its left and right.
+/// A local maximum is defined as a point that is higher than the 2 points to its left and right. NOT COMPLETELY
 /// Returns a tuple of two vectors: (indices, values) sorted by value in descending order.
 fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32>) {
     let mut indices = Vec::new();

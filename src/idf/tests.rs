@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_idf_creation_and_calculation() {
     let library_mz = vec![100.0, 100.0];
-    let idf = Idf::new(&library_mz);
+    let idf = InverseDocumentFrequency::new(&library_mz);
 
     let idf_values = idf.get_idf(&[100.0, 200.0]);
 
@@ -17,7 +17,7 @@ fn test_idf_creation_and_calculation() {
 #[test]
 fn test_empty_library() {
     let library_mz: Vec<f32> = vec![];
-    let idf = Idf::new(&library_mz);
+    let idf = InverseDocumentFrequency::new(&library_mz);
 
     assert_eq!(idf.total_fragments, 0.0);
 
@@ -32,7 +32,7 @@ fn test_empty_library() {
 #[test]
 fn test_single_fragment() {
     let library_mz = vec![150.0];
-    let idf = Idf::new(&library_mz);
+    let idf = InverseDocumentFrequency::new(&library_mz);
 
     let idf_values = idf.get_idf(&[150.0]);
 

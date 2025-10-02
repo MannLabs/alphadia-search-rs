@@ -3,20 +3,59 @@ requires = ["maturin>=1.8,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "alphadia-ng"
-requires-python = ">=3.8"
+name = "alphadia-search-rs"
+requires-python = ">=3.10"
+
+authors = [
+    {name = "Mann Labs", email = "wallmann@biochem.mpg.de"}
+]
+description = "A next-generation search backend for AlphaDIA."
+readme = "README.md"
+keywords = [
+    "mass spectrometry",
+    "proteomics",
+    "search engine",
+    "DIA",
+    "data-independent acquisition",
+    "bioinformatics",
+    "AlphaPept",
+    "AlphaPept ecosystem",
+    "alphapept.org",
+]
+license = {file = "LICENSE.txt"}
 classifiers = [
+    "Development Status :: 4 - Beta",
+    # "Development Status :: 5 - Production/Stable",
+    # "Development Status :: 6 - Mature",
+    # "Development Status :: 7 - Inactive"
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
+
 dynamic = ["version"]
 dependencies = [
-    "alphabase",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "numpy"]
+dev = ["alphabase", "pytest", "numpy"]
+
+
+[project.urls]
+
+#repository = "https://github.com/MannLabs/alphadia-search-rs"
+#issues = "https://github.com/MannLabs/alphadia-search-rs/issues"
+#download = "https://github.com/MannLabs/alphadia-search-rs/releases"
+homepage = "https://www.alphapept.org"
+"Mann Labs Homepage" = "https://www.biochem.mpg.de/mann"
+#"Paper preprint" = "https://doi.org/10.1101/2024.05.28.596182"
+#publication = "https://www.biochem.mpg.de/mann"
+#documentation = "https://alphapeptdeep.readthedocs.io/en/latest/"
+
 
 [tool.maturin]
 features = ["pyo3/extension-module"]

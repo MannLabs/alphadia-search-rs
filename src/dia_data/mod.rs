@@ -1,52 +1,12 @@
-use numpy::ndarray::{Array1, Array4, ArrayBase, Dim, ViewRepr};
+use numpy::ndarray::{Array1, Array4};
 use numpy::{PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::{prelude::*, Bound};
-
-pub struct AlphaRawView<'py> {
-    pub spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-    pub isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-    pub isolation_upper_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-    pub spectrum_peak_start_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-    pub spectrum_peak_stop_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-    pub spectrum_cycle_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-    pub spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-    pub peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-    pub peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-    pub cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
-}
-
-impl<'py> AlphaRawView<'py> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        spectrum_delta_scan_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-        isolation_lower_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-        isolation_upper_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-        spectrum_peak_start_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-        spectrum_peak_stop_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-        spectrum_cycle_idx: ArrayBase<ViewRepr<&'py i64>, Dim<[usize; 1]>>,
-        spectrum_rt: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-        peak_mz: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-        peak_intensity: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 1]>>,
-        cycle: ArrayBase<ViewRepr<&'py f32>, Dim<[usize; 4]>>,
-    ) -> Self {
-        Self {
-            spectrum_delta_scan_idx,
-            isolation_lower_mz,
-            isolation_upper_mz,
-            spectrum_peak_start_idx,
-            spectrum_peak_stop_idx,
-            spectrum_cycle_idx,
-            spectrum_rt,
-            peak_mz,
-            peak_intensity,
-            cycle,
-        }
-    }
-}
+mod alpha_raw_view;
 use crate::dia_data_builder::DIADataBuilder;
 use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
+pub use alpha_raw_view::AlphaRawView;
 
 /// DIAData structure using optimized memory layout
 ///

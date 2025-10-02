@@ -24,7 +24,7 @@ fn test_filter_sort_fragments_no_filtering() {
         &fragment_position,
         &fragment_type,
         false,
-        false, // Don't filter Y1 ions in basic tests
+        true, // Filter Y1 ions to broaden test scope
         usize::MAX,
     );
 
@@ -55,7 +55,7 @@ fn test_filter_sort_fragments_non_zero_only() {
         &fragment_position,
         &fragment_type,
         true,
-        false, // Don't filter Y1 ions in basic tests
+        true, // Filter Y1 ions to broaden test scope
         usize::MAX,
     );
 
@@ -274,7 +274,7 @@ fn test_filter_sort_fragments_all_zero_intensities() {
         &fragment_position,
         &fragment_type,
         true,
-        false, // Don't filter Y1 ions in basic tests
+        true, // Filter Y1 ions to broaden test scope
         usize::MAX,
     );
 
@@ -423,8 +423,8 @@ fn test_speclib_flat_creation_sorting() {
         let precursor_mz = PyArray1::from_slice(py, &[300.0f32, 100.0, 400.0, 200.0]);
         let precursor_rt = PyArray1::from_slice(py, &[30.0f32, 10.0, 40.0, 20.0]);
         let precursor_naa = PyArray1::from_slice(py, &[15u8, 10, 20, 12]);
-        let precursor_start_idx = PyArray1::from_slice(py, &[6usize, 0, 9, 3]);
-        let precursor_stop_idx = PyArray1::from_slice(py, &[9usize, 3, 12, 6]);
+        let flat_frag_start_idx = PyArray1::from_slice(py, &[6usize, 0, 9, 3]);
+        let flat_frag_stop_idx = PyArray1::from_slice(py, &[9usize, 3, 12, 6]);
         let fragment_mz = PyArray1::from_slice(
             py,
             &[
@@ -454,14 +454,14 @@ fn test_speclib_flat_creation_sorting() {
         let speclib = SpecLibFlat::from_arrays(
             precursor_idx.readonly(),
             precursor_mz.readonly(), // library
-            precursor_mz.readonly(), // observed
+            precursor_mz.readonly(), // observed - reusing library values for test
             precursor_rt.readonly(), // library
-            precursor_rt.readonly(), // observed
+            precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
-            precursor_start_idx.readonly(),
-            precursor_stop_idx.readonly(),
+            flat_frag_start_idx.readonly(),
+            flat_frag_stop_idx.readonly(),
             fragment_mz.readonly(), // library
-            fragment_mz.readonly(), // observed
+            fragment_mz.readonly(), // observed - reusing library values for test
             fragment_intensity.readonly(),
             fragment_cardinality.readonly(),
             fragment_charge.readonly(),

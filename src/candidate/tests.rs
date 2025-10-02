@@ -6,8 +6,8 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features
-    assert_eq!(feature_names.len(), 23);
+    // Verify we have the expected number of f32 features (23 base + 8 ranked)
+    assert_eq!(feature_names.len(), 31);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -173,6 +173,14 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         8.0,   // num_over_80
         15.0,  // num_over_50
         20.0,  // num_over_0
+        5.0,   // num_over_0_rank_0_5
+        6.0,   // num_over_0_rank_6_11
+        5.0,   // num_over_0_rank_12_17
+        4.0,   // num_over_0_rank_18_23
+        3.0,   // num_over_50_rank_0_5
+        4.0,   // num_over_50_rank_6_11
+        4.0,   // num_over_50_rank_12_17
+        4.0,   // num_over_50_rank_18_23
         100.0, // hyperscore_intensity_observation
         120.0, // hyperscore_intensity_library
         80.0,  // hyperscore_inverse_mass_error

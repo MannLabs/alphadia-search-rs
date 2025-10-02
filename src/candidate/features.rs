@@ -16,6 +16,14 @@ pub const FEATURE_NAMES: &[&str] = &[
     "num_over_80",
     "num_over_50",
     "num_over_0",
+    "num_over_0_rank_0_5",
+    "num_over_0_rank_6_11",
+    "num_over_0_rank_12_17",
+    "num_over_0_rank_18_23",
+    "num_over_50_rank_0_5",
+    "num_over_50_rank_6_11",
+    "num_over_50_rank_12_17",
+    "num_over_50_rank_18_23",
     "hyperscore_intensity_observation",
     "hyperscore_intensity_library",
     "rt_observed",
@@ -45,6 +53,14 @@ pub struct CandidateFeature {
     pub num_over_80: f32,
     pub num_over_50: f32,
     pub num_over_0: f32,
+    pub num_over_0_rank_0_5: f32,
+    pub num_over_0_rank_6_11: f32,
+    pub num_over_0_rank_12_17: f32,
+    pub num_over_0_rank_18_23: f32,
+    pub num_over_50_rank_0_5: f32,
+    pub num_over_50_rank_6_11: f32,
+    pub num_over_50_rank_12_17: f32,
+    pub num_over_50_rank_18_23: f32,
     pub hyperscore_intensity_observation: f32,
     pub hyperscore_intensity_library: f32,
     pub hyperscore_inverse_mass_error: f32,
@@ -75,6 +91,14 @@ impl CandidateFeature {
         num_over_80: f32,
         num_over_50: f32,
         num_over_0: f32,
+        num_over_0_rank_0_5: f32,
+        num_over_0_rank_6_11: f32,
+        num_over_0_rank_12_17: f32,
+        num_over_0_rank_18_23: f32,
+        num_over_50_rank_0_5: f32,
+        num_over_50_rank_6_11: f32,
+        num_over_50_rank_12_17: f32,
+        num_over_50_rank_18_23: f32,
         hyperscore_intensity_observation: f32,
         hyperscore_intensity_library: f32,
         hyperscore_inverse_mass_error: f32,
@@ -102,6 +126,14 @@ impl CandidateFeature {
             num_over_80,
             num_over_50,
             num_over_0,
+            num_over_0_rank_0_5,
+            num_over_0_rank_6_11,
+            num_over_0_rank_12_17,
+            num_over_0_rank_18_23,
+            num_over_50_rank_0_5,
+            num_over_50_rank_6_11,
+            num_over_50_rank_12_17,
+            num_over_50_rank_18_23,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,
@@ -162,6 +194,14 @@ impl CandidateFeatureCollection {
         let mut num_over_80 = Array1::<f32>::zeros(n);
         let mut num_over_50 = Array1::<f32>::zeros(n);
         let mut num_over_0 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_0_5 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_6_11 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_12_17 = Array1::<f32>::zeros(n);
+        let mut num_over_0_rank_18_23 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_0_5 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_6_11 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_12_17 = Array1::<f32>::zeros(n);
+        let mut num_over_50_rank_18_23 = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_observations = Array1::<f32>::zeros(n);
         let mut hyperscore_intensity_libraries = Array1::<f32>::zeros(n);
         let mut hyperscore_inverse_mass_errors = Array1::<f32>::zeros(n);
@@ -189,6 +229,14 @@ impl CandidateFeatureCollection {
             num_over_80[i] = feature.num_over_80;
             num_over_50[i] = feature.num_over_50;
             num_over_0[i] = feature.num_over_0;
+            num_over_0_rank_0_5[i] = feature.num_over_0_rank_0_5;
+            num_over_0_rank_6_11[i] = feature.num_over_0_rank_6_11;
+            num_over_0_rank_12_17[i] = feature.num_over_0_rank_12_17;
+            num_over_0_rank_18_23[i] = feature.num_over_0_rank_18_23;
+            num_over_50_rank_0_5[i] = feature.num_over_50_rank_0_5;
+            num_over_50_rank_6_11[i] = feature.num_over_50_rank_6_11;
+            num_over_50_rank_12_17[i] = feature.num_over_50_rank_12_17;
+            num_over_50_rank_18_23[i] = feature.num_over_50_rank_18_23;
             hyperscore_intensity_observations[i] = feature.hyperscore_intensity_observation;
             hyperscore_intensity_libraries[i] = feature.hyperscore_intensity_library;
             hyperscore_inverse_mass_errors[i] = feature.hyperscore_inverse_mass_error;
@@ -220,6 +268,35 @@ impl CandidateFeatureCollection {
         dict.set_item("num_over_80", num_over_80.into_pyarray(py))?;
         dict.set_item("num_over_50", num_over_50.into_pyarray(py))?;
         dict.set_item("num_over_0", num_over_0.into_pyarray(py))?;
+        dict.set_item("num_over_0_rank_0_5", num_over_0_rank_0_5.into_pyarray(py))?;
+        dict.set_item(
+            "num_over_0_rank_6_11",
+            num_over_0_rank_6_11.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_0_rank_12_17",
+            num_over_0_rank_12_17.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_0_rank_18_23",
+            num_over_0_rank_18_23.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_0_5",
+            num_over_50_rank_0_5.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_6_11",
+            num_over_50_rank_6_11.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_12_17",
+            num_over_50_rank_12_17.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_rank_18_23",
+            num_over_50_rank_18_23.into_pyarray(py),
+        )?;
         dict.set_item(
             "hyperscore_intensity_observation",
             hyperscore_intensity_observations.into_pyarray(py),

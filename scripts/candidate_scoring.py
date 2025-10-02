@@ -9,6 +9,7 @@ from alphadia_search_rs import (
     CandidateCollection,
     PeakGroupQuantification,
     QuantificationParameters,
+    CandidateFeatureCollection,
 )
 import os
 import pandas as pd
@@ -22,6 +23,8 @@ from alpharaw.ms_data_base import MSData_Base
 from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
+
+FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names()
 
 # Configure logging
 logging.basicConfig(
@@ -249,32 +252,7 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         experimental_hyperparameter_tuning=True,
     )
 
-    available_columns = [
-        "score",
-        "mean_correlation",
-        "median_correlation",
-        "correlation_std",
-        "intensity_correlation",
-        "num_fragments",
-        "num_scans",
-        "num_over_95",
-        "num_over_90",
-        "num_over_80",
-        "num_over_50",
-        "num_over_0",
-        "hyperscore_intensity_observation",
-        "hyperscore_intensity_library",
-        "rt_observed",
-        "delta_rt",
-        "longest_b_series",
-        "longest_y_series",
-        "naa",
-        "weighted_mass_error",
-        "log10_b_ion_intensity",
-        "log10_y_ion_intensity",
-    ]
-
-    logger.info(f"Performing NN based FDR with {len(available_columns)} features")
+    logger.info(f"Performing NN based FDR with {len(FEATURE_COLUMNS)} features")
 
     # Create composite index for proper matching
     psm_scored_df["precursor_idx_rank"] = (
@@ -290,7 +268,7 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
 
     psm_df = perform_fdr(
         classifier,
-        available_columns,
+        FEATURE_COLUMNS,
         psm_scored_df[psm_scored_df["decoy"] == 0].copy(),
         psm_scored_df[psm_scored_df["decoy"] == 1].copy(),
         competetive=True,
@@ -417,34 +395,10 @@ def plot_diagnosis_feature_histograms(diagnosis_features_df, output_folder):
     sns.set_palette("husl")
 
     # Define features to plot (excluding non-numeric columns)
-    feature_columns = [
-        "score",
-        "mean_correlation",
-        "median_correlation",
-        "correlation_std",
-        "intensity_correlation",
-        "num_fragments",
-        "num_scans",
-        "num_over_95",
-        "num_over_90",
-        "num_over_80",
-        "num_over_50",
-        "num_over_0",
-        "hyperscore_intensity_observation",
-        "hyperscore_intensity_library",
-        "rt_observed",
-        "delta_rt",
-        "longest_b_series",
-        "longest_y_series",
-        "naa",
-        "weighted_mass_error",
-        "log10_b_ion_intensity",
-        "log10_y_ion_intensity",
-    ]
 
     # Filter to only include columns that exist in the DataFrame
     available_features = [
-        col for col in feature_columns if col in diagnosis_features_df.columns
+        col for col in FEATURE_COLUMNS if col in diagnosis_features_df.columns
     ]
 
     if not available_features:

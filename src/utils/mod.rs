@@ -106,3 +106,132 @@ pub fn calculate_weighted_mean_absolute_error(
         0.0
     }
 }
+
+/// Calculate median of a slice of f32 values
+///
+/// Returns the median value. For even-length slices, returns the average of the two middle values.
+/// Returns 0.0 if the slice is empty.
+///
+/// Parameters:
+/// - values: Slice of values to find median of
+///
+/// Returns:
+/// - Median value
+pub fn calculate_median(values: &[f32]) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+
+    let mut sorted_values = values.to_vec();
+    sorted_values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mid = sorted_values.len() / 2;
+    if sorted_values.len() % 2 == 0 {
+        (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
+    } else {
+        sorted_values[mid]
+    }
+}
+
+/// Calculate standard deviation of a slice of f32 values
+///
+/// Uses the sample standard deviation formula (dividing by n-1).
+/// Returns 0.0 if there are fewer than 2 values.
+///
+/// Parameters:
+/// - values: Slice of values to calculate standard deviation for
+///
+/// Returns:
+/// - Sample standard deviation
+pub fn calculate_std(values: &[f32]) -> f32 {
+    if values.len() < 2 {
+        return 0.0;
+    }
+
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let variance =
+        values.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / (values.len() - 1) as f32;
+    variance.sqrt()
+}
+
+/// Create a boolean mask for the top k highest intensity values
+///
+/// Analyzes the intensity array and creates a mask that selects the k highest values.
+/// In case of ties, the first occurrences are selected. If k exceeds the array length,
+/// all elements are selected.
+///
+/// Parameters:
+/// - intensities: Slice of intensity values to rank
+/// - r1: index of lowest rank to select
+/// - r2: index of highest rank not to select
+///
+/// Returns:
+/// - Boolean vector where true indicates top k intensity values
+///
+/// Examples:
+/// - `create_ranked_mask(&[1.0, 3.0, 2.0], 0, 2)` → `[false, true, true]` (selects 3.0, 2.0)
+/// - `create_ranked_mask(&[5.0, 1.0, 3.0, 2.0], 1, 2)` → `[false, false, true, false]` (selects rank 1, which is 3.0)
+/// - `create_ranked_mask(&[1.0, 1.0, 1.0], 0, 2)` → `[true, true, false]` (first two in case of ties)
+pub fn create_ranked_mask(intensities: &[f32], r1: usize, r2: usize) -> Vec<bool> {
+    if intensities.is_empty() || r1 >= r2 {
+        return vec![false; intensities.len()];
+    }
+
+    // Create pairs of (value, original_index) and sort by value (descending), then by index (ascending)
+    let mut indexed_values: Vec<(f32, usize)> = intensities
+        .iter()
+        .enumerate()
+        .map(|(i, &val)| (val, i))
+        .collect();
+
+    // Sort by value descending, then by index ascending (for tie-breaking)
+    indexed_values.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
+
+    // Create mask selecting ranks from r1 to r2-1 (inclusive r1, exclusive r2)
+    let mut mask = vec![false; intensities.len()];
+    let start_rank = r1.min(indexed_values.len());
+    let end_rank = r2.min(indexed_values.len());
+
+    for i in start_rank..end_rank {
+        let original_index = indexed_values[i].1;
+        mask[original_index] = true;
+    }
+
+    mask
+}
+
+/// Count values above a threshold, optionally with a boolean mask
+///
+/// Counts how many values in the slice are greater than the threshold.
+/// If a mask is provided, only values where the mask is true are considered.
+///
+/// Parameters:
+/// - values: Slice of values to check
+/// - threshold: Threshold value (exclusive)
+/// - mask: Optional boolean mask to filter which values to consider
+///
+/// Returns:
+/// - Count of values above threshold
+///
+/// Examples:
+/// - `count_values_above(&[1.0, 2.0, 3.0], 1.5, None)` → 2 (values 2.0, 3.0)
+/// - `count_values_above(&[1.0, 2.0, 3.0], 1.5, Some(&[true, false, true]))` → 1 (only 3.0)
+pub fn count_values_above(values: &[f32], threshold: f32, mask: Option<&[bool]>) -> usize {
+    match mask {
+        Some(m) => {
+            if m.len() != values.len() {
+                return 0; // Mismatched lengths
+            }
+            values
+                .iter()
+                .enumerate()
+                .filter(|(i, &x)| m[*i] && x > threshold)
+                .count()
+        }
+        None => values.iter().filter(|&x| *x > threshold).count(),
+    }
+}

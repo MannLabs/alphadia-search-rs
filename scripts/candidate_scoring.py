@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
+"""Script for scoring peptide candidates using MS data and spectral libraries."""
 
-from alphadia_ng import (
+from alphadia_search_rs import (
     SpecLibFlat,
     PeakGroupScoring,
     DIAData,
@@ -8,6 +9,7 @@ from alphadia_ng import (
     CandidateCollection,
     PeakGroupQuantification,
     QuantificationParameters,
+    CandidateFeatureCollection,
 )
 import os
 import pandas as pd
@@ -22,39 +24,7 @@ from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 
-FEATURE_COLUMNS = [
-    "score",
-    "mean_correlation",
-    "median_correlation",
-    "correlation_std",
-    "intensity_correlation",
-    "num_fragments",
-    "num_scans",
-    "num_over_95",
-    "num_over_90",
-    "num_over_80",
-    "num_over_50",
-    "num_over_0",
-    "num_over_0_rank_0_5",
-    "num_over_0_rank_6_11",
-    "num_over_0_rank_12_17",
-    "num_over_0_rank_18_23",
-    "num_over_50_rank_0_5",
-    "num_over_50_rank_6_11",
-    "num_over_50_rank_12_17",
-    "num_over_50_rank_18_23",
-    "hyperscore_intensity_observation",
-    "hyperscore_intensity_library",
-    "hyperscore_inverse_mass_error",
-    "rt_observed",
-    "delta_rt",
-    "longest_b_series",
-    "longest_y_series",
-    "naa",
-    "weighted_mass_error",
-    "log10_b_ion_intensity",
-    "log10_y_ion_intensity",
-]
+FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names()
 
 # Configure logging
 logging.basicConfig(
@@ -149,7 +119,7 @@ def create_spec_lib_flat(alphabase_speclib_flat):
     Returns
     -------
     SpecLibFlat
-        SpecLibFlat object for alphadia-ng
+        SpecLibFlat object for alphadia-search-rs
     """
     logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 
@@ -335,7 +305,8 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
 
 
 def get_diagnosis_features(psm_scored_df, psm_fdr_passed_df):
-    """
+    """Get best scoring target and decoy for each unique elution group from FDR-filtered results.
+
     Get best scoring target and decoy for each unique elution group from FDR-filtered results.
     Uses the original psm_scored_df to get paired decoys, not just FDR-filtered decoys.
 
@@ -603,6 +574,7 @@ def run_peak_group_quantification(ms_data, spec_lib_flat, candidates_filtered_df
 
 
 def main():
+    """Run candidate scoring pipeline."""
     parser = argparse.ArgumentParser(
         description="Run candidate scoring with MS data, spectral library, and candidates"
     )

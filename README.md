@@ -1,6 +1,11 @@
 # AlphaDIA-NG
 
-High-performance alphaDIA backend
+High-performance alphaDIA backend.
+
+## Notes for users
+This repository contains the high-performance backend for alphaDIA. This 
+code should to used as part of [alphaDIA](https://github.com/MannLabs/alphadia).
+
 
 ## Development Setup
 
@@ -52,12 +57,12 @@ High-performance alphaDIA backend
 The `scripts/test_search.py` script provides a comprehensive integration test.
 ```bash
 # Run the integration test
-python ./scripts/test_search.py
+python ./scripts/test_search.py --path ./test_data
 ```
 
 The script will automatically:
-1. Use existing test data in `/Users/georgwallmann/Documents/data/alphadia-ng` if available
-2. Otherwise create a temporary directory and download required files:
+1. Use existing test data in `./test_data` if available (using a temporary directory if `--path` not specified).
+2. Otherwise download required files:
    - `spectrum_df.parquet` - Mass spectrometry spectra data
    - `peak_df.parquet` - Peak detection results
    - `precursor_df.parquet` - Precursor ion information

@@ -9,6 +9,7 @@ from alphadia_ng import (
     CandidateCollection,
     PeakGroupQuantification,
     QuantificationParameters,
+    CandidateFeatureCollection,
 )
 import os
 import pandas as pd
@@ -23,39 +24,7 @@ from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 
-FEATURE_COLUMNS = [
-    "score",
-    "mean_correlation",
-    "median_correlation",
-    "correlation_std",
-    "intensity_correlation",
-    "num_fragments",
-    "num_scans",
-    "num_over_95",
-    "num_over_90",
-    "num_over_80",
-    "num_over_50",
-    "num_over_0",
-    "num_over_0_rank_0_5",
-    "num_over_0_rank_6_11",
-    "num_over_0_rank_12_17",
-    "num_over_0_rank_18_23",
-    "num_over_50_rank_0_5",
-    "num_over_50_rank_6_11",
-    "num_over_50_rank_12_17",
-    "num_over_50_rank_18_23",
-    "hyperscore_intensity_observation",
-    "hyperscore_intensity_library",
-    "hyperscore_inverse_mass_error",
-    "rt_observed",
-    "delta_rt",
-    "longest_b_series",
-    "longest_y_series",
-    "naa",
-    "weighted_mass_error",
-    "log10_b_ion_intensity",
-    "log10_y_ion_intensity",
-]
+FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names()
 
 # Configure logging
 logging.basicConfig(

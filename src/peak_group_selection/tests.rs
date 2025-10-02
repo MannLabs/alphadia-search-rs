@@ -1,7 +1,7 @@
 use super::parameters::SelectionParameters;
 use super::*;
 use numpy::ndarray::arr1;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyDictMethods};
 use pyo3::Python;
 
 #[test]

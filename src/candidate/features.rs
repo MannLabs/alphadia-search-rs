@@ -1,6 +1,6 @@
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyDictMethods};
 
 // Single source of truth for feature names (f32 features)
 pub const FEATURE_NAMES: &[&str] = &[

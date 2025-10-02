@@ -673,3 +673,74 @@ fn test_filter_sort_fragments_y1_ion_filtering() {
     );
     assert_eq!(number, vec![2, 3, 2]); // y2, b3, b2
 }
+
+#[test]
+fn test_speclib_flat_idf_creation() {
+    use numpy::PyArray1;
+    use pyo3::{prepare_freethreaded_python, Python};
+
+    prepare_freethreaded_python();
+    Python::with_gil(|py| {
+        let precursor_idx = PyArray1::from_slice(py, &[1usize]);
+        let precursor_mz = PyArray1::from_slice(py, &[300.0f32]);
+        let precursor_rt = PyArray1::from_slice(py, &[30.0f32]);
+        let precursor_naa = PyArray1::from_slice(py, &[10u8]);
+        let precursor_start_idx = PyArray1::from_slice(py, &[0usize]);
+        let precursor_stop_idx = PyArray1::from_slice(py, &[2usize]);
+
+        let fragment_mz_library = PyArray1::from_slice(py, &[100.0f32, 100.0]);
+        let fragment_mz = PyArray1::from_slice(py, &[100.0f32, 100.0]);
+        let fragment_intensity = PyArray1::from_slice(py, &[10.0f32, 20.0]);
+        let fragment_cardinality = PyArray1::from_slice(py, &[1u8; 2]);
+        let fragment_charge = PyArray1::from_slice(py, &[1u8; 2]);
+        let fragment_loss_type = PyArray1::from_slice(py, &[Loss::NONE; 2]);
+        let fragment_number = PyArray1::from_slice(py, &[1u8; 2]);
+        let fragment_position = PyArray1::from_slice(py, &[1u8; 2]);
+        let fragment_type = PyArray1::from_slice(py, &[FragmentType::B; 2]);
+
+        let speclib = SpecLibFlat::from_arrays(
+            precursor_idx.readonly(),
+            precursor_mz.readonly(),
+            precursor_mz.readonly(),
+            precursor_rt.readonly(),
+            precursor_rt.readonly(),
+            precursor_naa.readonly(),
+            precursor_start_idx.readonly(),
+            precursor_stop_idx.readonly(),
+            fragment_mz_library.readonly(),
+            fragment_mz.readonly(),
+            fragment_intensity.readonly(),
+            fragment_cardinality.readonly(),
+            fragment_charge.readonly(),
+            fragment_loss_type.readonly(),
+            fragment_number.readonly(),
+            fragment_position.readonly(),
+            fragment_type.readonly(),
+        );
+
+        let idf_values = speclib.idf.get_idf(&[100.0, 300.0]);
+
+        assert_eq!(idf_values.len(), 2);
+
+        // 100.0 appears twice in library (df=2), so IDF = ln(2/2) = ln(1) = 0
+        assert!((idf_values[0] - 1.0_f32.ln()).abs() < 1e-6);
+
+        // 300.0 is not in library (df=1 due to max(1)), so IDF = ln(2/1) = ln(2)
+        assert!((idf_values[1] - 2.0_f32.ln()).abs() < 1e-6);
+
+        assert_eq!(speclib.idf.total_fragments, 2.0);
+    });
+}
+
+#[test]
+fn test_speclib_flat_empty_idf() {
+    // Test that empty SpecLibFlat has empty IDF that returns 1.0 values
+    let empty_speclib = SpecLibFlat::new();
+
+    let query_mz = vec![100.0, 200.0, 300.0];
+    let idf_values = empty_speclib.idf.get_idf(&query_mz);
+
+    // Empty library should return all 1.0 values
+    assert_eq!(idf_values, vec![1.0, 1.0, 1.0]);
+    assert_eq!(empty_speclib.idf.total_fragments, 0.0);
+}

@@ -1,8 +1,8 @@
-# Performance Optimization Recommendations for alphadia-ng
+# Performance Optimization Recommendations for alphadia-search-rs
 
 ## Executive Summary
 
-This document outlines specific performance optimization opportunities identified in the alphadia-ng Rust codebase, ranked by implementation value versus compiler optimization likelihood. The recommendations focus on memory efficiency improvements and more idiomatic Rust patterns while maintaining existing logic and API contracts.
+This document outlines specific performance optimization opportunities identified in the alphadia-search-rs Rust codebase, ranked by implementation value versus compiler optimization likelihood. The recommendations focus on memory efficiency improvements and more idiomatic Rust patterns while maintaining existing logic and API contracts.
 
 ## Optimization Ranking by Value vs Compiler Likelihood
 

@@ -72,7 +72,7 @@ fn get_current_simd_backend() -> PyResult<String> {
 }
 
 #[pymodule]
-fn alphadia_ng(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<SpecLibFlatQuantified>()?;

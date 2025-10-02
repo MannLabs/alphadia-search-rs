@@ -14,6 +14,15 @@ on:
       - '*'
   pull_request:
   workflow_dispatch:
+    inputs:
+      pypi_target:
+        description: 'PyPI target'
+        required: true
+        default: 'testpypi'
+        type: choice
+        options:
+        - testpypi
+        - testpypi_and_pypi
 
 permissions:
   contents: read
@@ -98,18 +107,20 @@ jobs:
           path: dist
 
   test:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: ${{ matrix.python-version }}
       - name: Install Python dependencies
         run: pip install -e .[dev]
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.88.0
       - name: Run tests
         run: cargo test --all-features
 
@@ -131,8 +142,8 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [linux, windows, macos, sdist, test]
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: [linux, windows, macos, test, sdist]
     permissions:
       # Use to sign the release artifacts
       id-token: write
@@ -142,12 +153,21 @@ jobs:
       attestations: write
     steps:
       - uses: actions/download-artifact@v4
-      - name: Generate artifact attestation
-        uses: actions/attest-build-provenance@v1
+        # TODO re-enable once repo is public
+#      - name: Generate artifact attestation
+#        uses: actions/attest-build-provenance@v1
+#        with:
+#          subject-path: 'wheels-*/*'
+      - name: Publish to Test-PyPI
+        if: ${{ github.event.inputs.pypi_target == 'testpypi' || github.event.inputs.pypi_target == 'testpypi_and_pypi' }}
+        uses: PyO3/maturin-action@v1
+        env:
+          MATURIN_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
         with:
-          subject-path: 'wheels-*/*'
+          command: upload
+          args: --repository-url=https://test.pypi.org/legacy/ --non-interactive --skip-existing wheels-*/*
       - name: Publish to PyPI
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        if: ${{ github.event.inputs.pypi_target == 'testpypi_and_pypi' }}
         uses: PyO3/maturin-action@v1
         env:
           MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}

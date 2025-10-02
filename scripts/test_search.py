@@ -55,13 +55,19 @@ if __name__ == "__main__":
 
     logger.info("Creating spec lib")
 
+    fragment_df["cardinality"] = 0  # TODO add this to fragment_df.parquet
+
     speclib = SpecLibFlat.from_arrays(
         precursor_df["precursor_idx"].values.astype(np.uint64),
-        precursor_df["precursor_mz"].values.astype(np.float32),
-        precursor_df["rt_pred"].values.astype(np.float32),
+        precursor_df["precursor_mz"].values.astype(np.float32),  # library
+        precursor_df["precursor_mz"].values.astype(np.float32),  # observed
+        precursor_df["rt_pred"].values.astype(np.float32),  # library
+        precursor_df["rt_pred"].values.astype(np.float32),  # observed
+        precursor_df["nAA"].values.astype(np.uint8),
         precursor_df["flat_frag_start_idx"].values.astype(np.uint64),
         precursor_df["flat_frag_stop_idx"].values.astype(np.uint64),
-        fragment_df["mz"].values.astype(np.float32),
+        fragment_df["mz"].values.astype(np.float32),  # library
+        fragment_df["mz"].values.astype(np.float32),  # observed
         fragment_df["intensity"].values.astype(np.float32),
         fragment_df["cardinality"].values.astype(np.uint8),
         fragment_df["charge"].values.astype(np.uint8),
@@ -112,7 +118,12 @@ if __name__ == "__main__":
     # Measure creation time
     logger.info("Creating DIAData...")
     start_time = time.perf_counter()
-    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays)
+
+    cycle_len = spectrum_df["delta_scan_idx"].max() + 1
+    cycle_array = np.zeros((cycle_len, 1, 1, 1), dtype=np.float32)
+
+    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays, cycle_array)
+
     end_time = time.perf_counter()
     creation_time_next_gen = end_time - start_time
     logger.info(f"DIAData creation time: {creation_time_next_gen:.4f} seconds")

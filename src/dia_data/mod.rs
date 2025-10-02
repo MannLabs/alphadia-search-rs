@@ -1,5 +1,5 @@
-use numpy::ndarray::{Array4, ArrayBase, Dim, ViewRepr};
-use numpy::{PyArray4, PyReadonlyArray1, PyReadonlyArray4};
+use numpy::ndarray::{Array1, Array4, ArrayBase, Dim, ViewRepr};
+use numpy::{PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::{prelude::*, Bound};
 
 pub struct AlphaRawView<'py> {
@@ -57,6 +57,7 @@ pub struct DIAData {
     pub mz_index: MZIndex,
     pub rt_index: RTIndex,
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
+    pub rt_values: Array1<f32>,
     pub cycle: Array4<f32>,
 }
 
@@ -74,6 +75,7 @@ impl DIAData {
             mz_index: MZIndex::new(),
             rt_index: RTIndex::new(),
             quadrupole_observations: Vec::new(),
+            rt_values: Array1::zeros((0,)),
             cycle: Array4::zeros((0, 0, 0, 0)),
         }
     }
@@ -166,19 +168,13 @@ impl DIAData {
     }
 
     #[getter]
-    pub fn rt_values(&self) -> Vec<f32> {
-        self.rt_index.rt.to_vec()
+    pub fn rt_values<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<f32>> {
+        PyArray1::from_array(py, &self.rt_values)
     }
 
     #[getter]
     pub fn cycle<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray4<f32>> {
         PyArray4::from_array(py, &self.cycle)
-    }
-
-    pub fn to_jitclass(&self) -> PyResult<PyObject> {
-        Err(pyo3::exceptions::PyNotImplementedError::new_err(
-            "alphaDIA-ng DIAData does not support to_jitclass",
-        ))
     }
 }
 

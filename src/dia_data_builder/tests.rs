@@ -1,6 +1,6 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
-use numpy::ndarray::{Array4, ArrayView1, ArrayView4};
+use numpy::ndarray::{ArrayView1, ArrayView4};
 
 fn create_mock_alpha_raw_view<'a>(
     spectrum_delta_scan_idx: &'a [i64],

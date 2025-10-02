@@ -1,10 +1,9 @@
 #[allow(unused_imports)]
 use super::{PeakGroupQuantification, QuantificationParameters};
 #[allow(unused_imports)]
-use pyo3::{
-    types::{PyDict, PyDictMethods},
-    Python,
-};
+use pyo3::types::PyDictMethods;
+#[allow(unused_imports)]
+use pyo3::{types::PyDict, Python};
 
 #[test]
 fn test_peak_group_quantification_creation() {

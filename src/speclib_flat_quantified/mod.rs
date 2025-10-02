@@ -124,7 +124,7 @@ impl SpecLibFlatQuantified {
 
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<pyo3::PyObject> {
         use numpy::IntoPyArray;
-        use pyo3::types::{PyDict, PyTuple};
+        use pyo3::types::{PyDict, PyDictMethods, PyTuple};
 
         let precursor_dict = PyDict::new(py);
         let fragment_dict = PyDict::new(py);

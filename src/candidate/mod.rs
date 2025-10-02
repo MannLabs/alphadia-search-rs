@@ -10,7 +10,7 @@
 
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyDictMethods};
 use rayon::prelude::*;
 
 #[derive(Debug)]

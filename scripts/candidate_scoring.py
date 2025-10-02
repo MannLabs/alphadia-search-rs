@@ -109,26 +109,27 @@ def create_dia_data_next_gen(ms_data):
     """
     logger.info("Creating DIAData from MSData_Base")
 
-    spectrum_arrays = (
-        ms_data.spectrum_df["delta_scan_idx"].values,
-        ms_data.spectrum_df["isolation_lower_mz"].values.astype(np.float32),
-        ms_data.spectrum_df["isolation_upper_mz"].values.astype(np.float32),
-        ms_data.spectrum_df["peak_start_idx"].values,
-        ms_data.spectrum_df["peak_stop_idx"].values,
-        ms_data.spectrum_df["cycle_idx"].values,
-        ms_data.spectrum_df["rt"].values.astype(np.float32) * 60.0,
-    )
-    peak_arrays = (
-        ms_data.peak_df["mz"].values.astype(np.float32),
-        ms_data.peak_df["intensity"].values.astype(np.float32),
-    )
-
     # Create a dummy cycle array - this appears to be mobility data which is not available in this dataset
     cycle_len = ms_data.spectrum_df["delta_scan_idx"].max() + 1
     cycle_array = np.zeros((cycle_len, 1, 1, 1), dtype=np.float32)
 
     start_time = time.perf_counter()
-    rs_data_next_gen = DIAData.from_arrays(*spectrum_arrays, *peak_arrays, cycle_array)
+    rs_data_next_gen = DIAData.from_arrays(
+        spectrum_delta_scan_idx=ms_data.spectrum_df["delta_scan_idx"].values,
+        isolation_lower_mz=ms_data.spectrum_df["isolation_lower_mz"].values.astype(
+            np.float32
+        ),
+        isolation_upper_mz=ms_data.spectrum_df["isolation_upper_mz"].values.astype(
+            np.float32
+        ),
+        spectrum_peak_start_idx=ms_data.spectrum_df["peak_start_idx"].values,
+        spectrum_peak_stop_idx=ms_data.spectrum_df["peak_stop_idx"].values,
+        spectrum_cycle_idx=ms_data.spectrum_df["cycle_idx"].values,
+        spectrum_rt=ms_data.spectrum_df["rt"].values.astype(np.float32) * 60.0,
+        peak_mz=ms_data.peak_df["mz"].values.astype(np.float32),
+        peak_intensity=ms_data.peak_df["intensity"].values.astype(np.float32),
+        cycle=cycle_array,
+    )
     end_time = time.perf_counter()
     creation_time = end_time - start_time
     logger.info(f"DIAData creation time: {creation_time:.4f} seconds")

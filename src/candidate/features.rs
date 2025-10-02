@@ -36,6 +36,15 @@ pub const FEATURE_NAMES: &[&str] = &[
     "log10_b_ion_intensity",
     "log10_y_ion_intensity",
     "fwhm_rt",
+    "idf_hyperscore",
+    "idf_xic_dot_product",
+    "idf_intensity_dot_product",
+    "median_profile_sum",
+    "median_profile_sum_filtered",
+    "num_profiles",
+    "num_profiles_filtered",
+    "num_over_0_top6_idf",
+    "num_over_50_top6_idf",
 ];
 
 #[derive(Debug, Clone)]
@@ -74,6 +83,15 @@ pub struct CandidateFeature {
     pub log10_b_ion_intensity: f32,
     pub log10_y_ion_intensity: f32,
     pub fwhm_rt: f32,
+    pub idf_hyperscore: f32,
+    pub idf_xic_dot_product: f32,
+    pub idf_intensity_dot_product: f32,
+    pub median_profile_sum: f32,
+    pub median_profile_sum_filtered: f32,
+    pub num_profiles: f32,
+    pub num_profiles_filtered: f32,
+    pub num_over_0_top6_idf: f32,
+    pub num_over_50_top6_idf: f32,
 }
 
 impl CandidateFeature {
@@ -113,6 +131,15 @@ impl CandidateFeature {
         log10_b_ion_intensity: f32,
         log10_y_ion_intensity: f32,
         fwhm_rt: f32,
+        idf_hyperscore: f32,
+        idf_xic_dot_product: f32,
+        idf_intensity_dot_product: f32,
+        median_profile_sum: f32,
+        median_profile_sum_filtered: f32,
+        num_profiles: f32,
+        num_profiles_filtered: f32,
+        num_over_0_top6_idf: f32,
+        num_over_50_top6_idf: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -149,6 +176,15 @@ impl CandidateFeature {
             log10_b_ion_intensity,
             log10_y_ion_intensity,
             fwhm_rt,
+            idf_hyperscore,
+            idf_xic_dot_product,
+            idf_intensity_dot_product,
+            median_profile_sum,
+            median_profile_sum_filtered,
+            num_profiles,
+            num_profiles_filtered,
+            num_over_0_top6_idf,
+            num_over_50_top6_idf,
         }
     }
 }
@@ -218,6 +254,15 @@ impl CandidateFeatureCollection {
         let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
         let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
         let mut fwhm_rt = Array1::<f32>::zeros(n);
+        let mut idf_hyperscore = Array1::<f32>::zeros(n);
+        let mut idf_xic_dot_product = Array1::<f32>::zeros(n);
+        let mut idf_intensity_dot_product = Array1::<f32>::zeros(n);
+        let mut median_profile_sum = Array1::<f32>::zeros(n);
+        let mut median_profile_sum_filtered = Array1::<f32>::zeros(n);
+        let mut num_profiles = Array1::<f32>::zeros(n);
+        let mut num_profiles_filtered = Array1::<f32>::zeros(n);
+        let mut num_over_0_top6_idf = Array1::<f32>::zeros(n);
+        let mut num_over_50_top6_idf = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -254,6 +299,15 @@ impl CandidateFeatureCollection {
             log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
             log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
             fwhm_rt[i] = feature.fwhm_rt;
+            idf_hyperscore[i] = feature.idf_hyperscore;
+            idf_xic_dot_product[i] = feature.idf_xic_dot_product;
+            idf_intensity_dot_product[i] = feature.idf_intensity_dot_product;
+            median_profile_sum[i] = feature.median_profile_sum;
+            median_profile_sum_filtered[i] = feature.median_profile_sum_filtered;
+            num_profiles[i] = feature.num_profiles;
+            num_profiles_filtered[i] = feature.num_profiles_filtered;
+            num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
+            num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
         }
 
         let dict = PyDict::new(py);
@@ -330,6 +384,27 @@ impl CandidateFeatureCollection {
             log10_y_ion_intensity.into_pyarray(py),
         )?;
         dict.set_item("fwhm_rt", fwhm_rt.into_pyarray(py))?;
+        dict.set_item("idf_hyperscore", idf_hyperscore.into_pyarray(py))?;
+        dict.set_item("idf_xic_dot_product", idf_xic_dot_product.into_pyarray(py))?;
+        dict.set_item(
+            "idf_intensity_dot_product",
+            idf_intensity_dot_product.into_pyarray(py),
+        )?;
+        dict.set_item("median_profile_sum", median_profile_sum.into_pyarray(py))?;
+        dict.set_item(
+            "median_profile_sum_filtered",
+            median_profile_sum_filtered.into_pyarray(py),
+        )?;
+        dict.set_item("num_profiles", num_profiles.into_pyarray(py))?;
+        dict.set_item(
+            "num_profiles_filtered",
+            num_profiles_filtered.into_pyarray(py),
+        )?;
+        dict.set_item("num_over_0_top6_idf", num_over_0_top6_idf.into_pyarray(py))?;
+        dict.set_item(
+            "num_over_50_top6_idf",
+            num_over_50_top6_idf.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }

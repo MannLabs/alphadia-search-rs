@@ -2,10 +2,44 @@ use crate::constants::FragmentType;
 use numpy::ndarray::{Array1, Array2};
 use std::f32;
 
+/// Filter out rows that contain only zeros
+/// Returns a new Array2 with only non-zero rows
+pub fn filter_non_zero(array: &Array2<f32>) -> Array2<f32> {
+    let (rows, cols) = array.dim();
+
+    // Find indices of rows that have at least one non-zero value
+    let non_zero_rows: Vec<usize> = (0..rows)
+        .filter(|&i| {
+            let row = array.row(i);
+            row.iter().any(|&val| val != 0.0)
+        })
+        .collect();
+
+    if non_zero_rows.is_empty() {
+        // Return empty array with same number of columns if all rows are zero
+        Array2::zeros((0, cols))
+    } else {
+        // Create new array with only non-zero rows
+        let mut filtered = Array2::zeros((non_zero_rows.len(), cols));
+        for (new_idx, &old_idx) in non_zero_rows.iter().enumerate() {
+            filtered.row_mut(new_idx).assign(&array.row(old_idx));
+        }
+        filtered
+    }
+}
+
 /// Calculate the median along axis 0 (first axis) of a 2D array
+/// Works with any input array - caller can filter using filter_non_zero if needed
+/// Returns zeros for all columns if array has no rows
 /// Similar to np.median(array, axis=0) in NumPy
 pub fn median_axis_0(array: &Array2<f32>) -> Vec<f32> {
     let (rows, cols) = array.dim();
+
+    // If no rows exist, return zeros
+    if rows == 0 {
+        return vec![0.0; cols];
+    }
+
     let mut result = Vec::with_capacity(cols);
 
     for col in 0..cols {
@@ -129,7 +163,7 @@ pub fn calculate_correlation_safe(x: &[f32], y: &[f32]) -> f32 {
 
     // Check for NaN or infinite values
     if correlation.is_nan() || correlation.is_infinite() {
-        return 0.0;
+        panic!("correlation.is_nan() || correlation.is_infinite()");
     }
 
     // Clamp to valid range [-1, 1]
@@ -388,6 +422,18 @@ pub fn intensity_ion_series(
     }
 
     total_intensity
+}
+
+/// Calculate dot product between two slices of equal length
+///
+/// Returns the sum of element-wise products: sum(a_i * b_i)
+/// Returns 0.0 if slices have different lengths or are empty
+pub fn calculate_dot_product(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+
+    a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
 }
 
 /// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile

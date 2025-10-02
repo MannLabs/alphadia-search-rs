@@ -7,7 +7,7 @@ fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
     // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 32);
+    assert_eq!(feature_names.len(), 41);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -194,6 +194,15 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         3.2,   // log10_b_ion_intensity
         3.8,   // log10_y_ion_intensity
         15.5,  // fwhm_rt
+        50.0,  // idf_hyperscore
+        10.5,  // idf_xic_dot_product
+        8.2,   // idf_intensity_dot_product
+        100.0, // median_profile_sum
+        95.0,  // median_profile_sum_filtered
+        12.0,  // num_profiles
+        11.0,  // num_profiles_filtered
+        5.0,   // num_over_0_top6_idf
+        3.0,   // num_over_50_top6_idf
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 

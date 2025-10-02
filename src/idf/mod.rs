@@ -3,13 +3,13 @@ use crate::mz_index::MZIndex;
 #[cfg(test)]
 mod tests;
 
-pub struct Idf {
+pub struct InverseDocumentFrequency {
     bin_counts: Vec<u32>,
     pub total_fragments: f32,
     mz_index: &'static MZIndex,
 }
 
-impl Idf {
+impl InverseDocumentFrequency {
     pub fn new(fragment_mz: &[f32]) -> Self {
         let mz_index = MZIndex::global();
         let total_fragments = fragment_mz.len() as f32;

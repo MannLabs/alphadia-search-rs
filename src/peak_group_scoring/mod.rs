@@ -127,7 +127,7 @@ impl PeakGroupScoring {
         );
 
         // Normalize the profiles before calculating median
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 2);
+        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
 
         // Filter to only non-zero profiles for median calculation
         let filtered_xic = filter_non_zero(&normalized_xic);

@@ -180,7 +180,7 @@ impl PeakGroupSelection {
             );
 
             let candidate = Candidate::new(
-                precursor.idx,
+                precursor.precursor_idx,
                 i,
                 score,
                 cycle_start_idx,

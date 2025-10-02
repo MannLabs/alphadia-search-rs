@@ -477,10 +477,10 @@ fn test_speclib_flat_creation_sorting() {
         let precursor_3 = speclib.get_precursor(2);
         let precursor_4 = speclib.get_precursor(3);
 
-        assert_eq!(precursor_1.idx, 1);
-        assert_eq!(precursor_2.idx, 2);
-        assert_eq!(precursor_3.idx, 3);
-        assert_eq!(precursor_4.idx, 4);
+        assert_eq!(precursor_1.precursor_idx, 1);
+        assert_eq!(precursor_2.precursor_idx, 2);
+        assert_eq!(precursor_3.precursor_idx, 3);
+        assert_eq!(precursor_4.precursor_idx, 4);
 
         // Verify corresponding data was reordered correctly
         assert_eq!(precursor_1.mz, 100.0);

@@ -243,7 +243,7 @@ impl SpecLibFlatQuantified {
         let mut current_fragment_idx = 0;
 
         for precursor in precursors {
-            precursor_idx.push(precursor.idx);
+            precursor_idx.push(precursor.precursor_idx);
             precursor_mz_library.push(precursor.mz_library);
             precursor_mz.push(precursor.mz);
             precursor_rt_library.push(precursor.rt_library);
@@ -276,7 +276,7 @@ impl SpecLibFlatQuantified {
             fragment_mass_error_observed.extend(precursor.fragment_mass_error_observed);
 
             // Expand precursor values to fragment dimension
-            fragment_precursor_idx.extend(vec![precursor.idx; fragment_count]);
+            fragment_precursor_idx.extend(vec![precursor.precursor_idx; fragment_count]);
             fragment_precursor_rank.extend(vec![precursor.rank; fragment_count]);
         }
 

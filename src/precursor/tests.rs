@@ -3,7 +3,7 @@ use crate::speclib_flat::filter_sort_fragments;
 
 fn test_precursor() -> Precursor {
     Precursor {
-        idx: 0,
+        precursor_idx: 0,
         mz: 500.0,
         mz_library: 500.5,
         rt: 100.0,
@@ -118,7 +118,7 @@ fn test_combined_filtering() {
 #[test]
 fn test_ordering_preservation() {
     let precursor = Precursor {
-        idx: 0,
+        precursor_idx: 0,
         mz: 500.0,
         mz_library: 500.5,
         rt: 100.0,
@@ -163,7 +163,7 @@ fn test_ordering_preservation() {
 #[test]
 fn test_top_k_larger_than_available() {
     let small_precursor = Precursor {
-        idx: 0,
+        precursor_idx: 0,
         mz: 500.0,
         mz_library: 500.5,
         rt: 100.0,
@@ -201,7 +201,7 @@ fn test_top_k_larger_than_available() {
 #[test]
 fn test_all_zero_intensities_filtered() {
     let zero_precursor = Precursor {
-        idx: 0,
+        precursor_idx: 0,
         mz: 500.0,
         mz_library: 500.5,
         rt: 100.0,

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn test_precursor_quantified_creation() {
     let precursor = PrecursorQuantified {
-        idx: 1,
+        precursor_idx: 1,
         mz_library: 500.3,
         mz: 500.5,
         rt_library: 119.8,
@@ -25,7 +25,7 @@ fn test_precursor_quantified_creation() {
         fragment_mass_error_observed: vec![0.1, -0.1],
     };
 
-    assert_eq!(precursor.idx, 1);
+    assert_eq!(precursor.precursor_idx, 1);
     assert_eq!(precursor.mz, 500.5);
     assert_eq!(precursor.rt, 120.0);
     assert_eq!(precursor.naa, 12);
@@ -38,7 +38,7 @@ fn test_precursor_quantified_creation() {
 #[test]
 fn test_precursor_quantified_data_consistency() {
     let precursor = PrecursorQuantified {
-        idx: 0,
+        precursor_idx: 0,
         mz_library: 399.8,
         mz: 400.0,
         rt_library: 79.5,
@@ -80,7 +80,7 @@ fn test_precursor_quantified_data_consistency() {
 #[test]
 fn test_filter_fragments_by_intensity_keeps_valid_fragments() {
     let precursor = PrecursorQuantified {
-        idx: 1,
+        precursor_idx: 1,
         mz_library: 500.3,
         mz: 500.5,
         rt_library: 119.8,
@@ -114,7 +114,7 @@ fn test_filter_fragments_by_intensity_keeps_valid_fragments() {
 #[test]
 fn test_filter_fragments_by_intensity_returns_none_when_empty() {
     let precursor = PrecursorQuantified {
-        idx: 1,
+        precursor_idx: 1,
         mz_library: 500.3,
         mz: 500.5,
         rt_library: 119.8,
@@ -143,7 +143,7 @@ fn test_filter_fragments_by_intensity_returns_none_when_empty() {
 #[test]
 fn test_filter_fragments_by_intensity_with_higher_threshold() {
     let precursor = PrecursorQuantified {
-        idx: 1,
+        precursor_idx: 1,
         mz_library: 500.3,
         mz: 500.5,
         rt_library: 119.8,

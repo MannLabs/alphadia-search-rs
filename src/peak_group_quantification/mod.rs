@@ -18,11 +18,13 @@ use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
 use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
-use numpy::ndarray::Axis;
+use numpy::ndarray::{s, Axis};
 
 pub mod parameters;
 pub mod tests;
-pub use parameters::QuantificationParameters;
+pub mod utils;
+pub use parameters::{QuantificationMethod, QuantificationParameters};
+use utils::trapezoidal_integration;
 
 #[pyclass]
 pub struct PeakGroupQuantification {
@@ -80,6 +82,32 @@ impl PeakGroupQuantification {
         SpecLibFlatQuantified::from_precursor_quantified_vec(quantified_precursors)
     }
 
+    fn calculate_intensities<T: DIADataTrait>(
+        &self,
+        dia_data: &T,
+        dense_xic_mz_obs: &DenseXICMZObservation,
+        cycle_start: usize,
+        cycle_stop: usize,
+    ) -> Vec<f32> {
+        let num_fragments = dense_xic_mz_obs.dense_xic.shape()[0];
+        match self.params.method {
+            QuantificationMethod::Sum => dense_xic_mz_obs.dense_xic.sum_axis(Axis(1)).to_vec(),
+            QuantificationMethod::Trapezoidal => {
+                let rt_slice = dia_data.rt_index().rt.slice(s![cycle_start..cycle_stop]);
+                let mut intensities = Vec::with_capacity(num_fragments);
+                for fragment_idx in 0..num_fragments {
+                    let intensity_profile = dense_xic_mz_obs.dense_xic.row(fragment_idx);
+                    let area = trapezoidal_integration(
+                        rt_slice.as_slice().unwrap_or(&[]),
+                        intensity_profile.as_slice().unwrap_or(&[]),
+                    );
+                    intensities.push(area);
+                }
+                intensities
+            }
+        }
+    }
+
     fn quantify_precursor<T: DIADataTrait>(
         &self,
         dia_data: &T,
@@ -111,11 +139,12 @@ impl PeakGroupQuantification {
         let _center_cycle_idx = cycle_center - cycle_start;
 
         // Calculate observed m/z values and mass errors for all fragments
-        let (fragment_mz_observed, fragment_mass_error_observed) = calculate_fragment_mz_and_errors(
-            &dense_xic_mz_obs.dense_mz,
-            &dense_xic_mz_obs.dense_xic,
-            &precursor.fragment_mz,
-        );
+        let (fragment_mz_observed, fragment_mass_error_observed) =
+            calculate_fragment_mz_and_errors(
+                &dense_xic_mz_obs.dense_mz,
+                &dense_xic_mz_obs.dense_xic,
+                &precursor.fragment_mz,
+            );
 
         let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
 
@@ -132,8 +161,9 @@ impl PeakGroupQuantification {
             fragment_correlation_observed[fragment_idx] = correlation;
         }
 
-        // Calculate observed intensities from the dense XIC observation (sum across cycles)
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
+        // Calculate observed intensities from the dense XIC observation
+        let observation_intensities =
+            self.calculate_intensities(dia_data, &dense_xic_mz_obs, cycle_start, cycle_stop);
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
@@ -151,7 +181,7 @@ impl PeakGroupQuantification {
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
             fragment_mz_library: precursor.fragment_mz_library.clone(),
             fragment_mz: precursor.fragment_mz.clone(),
-            fragment_intensity: observation_intensities.to_vec(),
+            fragment_intensity: observation_intensities,
             fragment_cardinality: precursor.fragment_cardinality.clone(),
             fragment_charge: precursor.fragment_charge.clone(),
             fragment_loss_type: precursor.fragment_loss_type.clone(),

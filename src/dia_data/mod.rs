@@ -1,12 +1,15 @@
-use numpy::ndarray::{Array1, Array4};
+use numpy::ndarray::{Array1, Array2, Array4};
 use numpy::{PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::{prelude::*, Bound};
+
 mod alpha_raw_view;
+pub use alpha_raw_view::AlphaRawView;
+
+use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::dia_data_builder::DIADataBuilder;
 use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
-pub use alpha_raw_view::AlphaRawView;
 
 /// DIAData structure using optimized memory layout
 ///
@@ -137,10 +140,80 @@ impl DIAData {
 
 // Implement the DIADataTrait for DIAData
 impl crate::traits::DIADataTrait for DIAData {
-    type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
+    fn get_dense_xic_observation(
+        &self,
+        precursor_mz: f32,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+        fragment_mz: &[f32],
+    ) -> DenseXICObservation {
+        let mut dense_xic = Array2::zeros((fragment_mz.len(), cycle_stop_idx - cycle_start_idx));
+        let valid_obs_idxs = self.get_valid_observations(precursor_mz);
 
-    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
-        self.get_valid_observations(precursor_mz)
+        for &obs_idx in &valid_obs_idxs {
+            let obs = &self.quadrupole_observations[obs_idx];
+
+            for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
+                obs.fill_xic_slice(
+                    self.mz_index(),
+                    &mut dense_xic.row_mut(f_idx),
+                    cycle_start_idx,
+                    cycle_stop_idx,
+                    mass_tolerance,
+                    f_mz,
+                );
+            }
+        }
+
+        DenseXICObservation {
+            dense_xic,
+            contributing_obs_indices: valid_obs_idxs,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+        }
+    }
+
+    fn get_dense_xic_mz_observation(
+        &self,
+        precursor_mz: f32,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+        fragment_mz: &[f32],
+    ) -> DenseXICMZObservation {
+        let n_fragments = fragment_mz.len();
+        let n_cycles = cycle_stop_idx - cycle_start_idx;
+        let mut dense_xic = Array2::zeros((n_fragments, n_cycles));
+        let mut dense_mz = Array2::zeros((n_fragments, n_cycles));
+
+        let valid_obs_idxs = self.get_valid_observations(precursor_mz);
+
+        for &obs_idx in &valid_obs_idxs {
+            let obs = &self.quadrupole_observations[obs_idx];
+
+            for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
+                obs.fill_xic_and_mz_slice(
+                    self.mz_index(),
+                    &mut dense_xic.row_mut(f_idx),
+                    &mut dense_mz.row_mut(f_idx),
+                    cycle_start_idx,
+                    cycle_stop_idx,
+                    mass_tolerance,
+                    f_mz,
+                );
+            }
+        }
+
+        DenseXICMZObservation {
+            dense_xic,
+            dense_mz,
+            contributing_obs_indices: valid_obs_idxs,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+        }
     }
 
     fn mz_index(&self) -> &crate::mz_index::MZIndex {
@@ -149,14 +222,6 @@ impl crate::traits::DIADataTrait for DIAData {
 
     fn rt_index(&self) -> &crate::rt_index::RTIndex {
         &self.rt_index
-    }
-
-    fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
-        &self.quadrupole_observations
-    }
-
-    fn memory_footprint_bytes(&self) -> usize {
-        self.memory_footprint_bytes()
     }
 }
 

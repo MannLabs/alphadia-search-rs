@@ -106,54 +106,12 @@ impl QuadrupoleObservation {
         }
     }
 
-    /// Calculate memory footprint of this optimized observation
-    pub fn memory_footprint_bytes(&self) -> usize {
-        let mut total_size = 0;
-
-        // Fixed size components
-        total_size += std::mem::size_of::<[f32; 2]>(); // isolation_window
-        total_size += std::mem::size_of::<usize>(); // num_cycles
-
-        // Vec overheads - only 3 total!
-        total_size += std::mem::size_of::<Vec<u32>>(); // slice_starts
-        total_size += std::mem::size_of::<Vec<u16>>(); // cycle_indices
-        total_size += std::mem::size_of::<Vec<f32>>(); // intensities
-
-        // Actual data
-        total_size += self.slice_starts.len() * std::mem::size_of::<u32>();
-        total_size += self.cycle_indices.len() * std::mem::size_of::<u16>();
-        total_size += self.intensities.len() * std::mem::size_of::<f32>();
-
-        total_size
-    }
-}
-
-// Implement the QuadrupoleObservationTrait for QuadrupoleObservation
-impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
-    fn fill_xic_slice(
+    /// Fill both XIC and m/z slices for a given fragment m/z
+    pub fn fill_xic_and_mz_slice(
         &self,
-        mz_index: &crate::mz_index::MZIndex,
-        dense_xic: &mut numpy::ndarray::ArrayViewMut1<f32>,
-        cycle_start_idx: usize,
-        cycle_stop_idx: usize,
-        mass_tolerance: f32,
-        mz: f32,
-    ) {
-        self.fill_xic_slice(
-            mz_index,
-            dense_xic,
-            cycle_start_idx,
-            cycle_stop_idx,
-            mass_tolerance,
-            mz,
-        )
-    }
-
-    fn fill_xic_and_mz_slice(
-        &self,
-        mz_index: &crate::mz_index::MZIndex,
-        dense_xic: &mut numpy::ndarray::ArrayViewMut1<f32>,
-        dense_mz: &mut numpy::ndarray::ArrayViewMut1<f32>,
+        mz_index: &MZIndex,
+        dense_xic: &mut ArrayViewMut1<f32>,
+        dense_mz: &mut ArrayViewMut1<f32>,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
@@ -208,5 +166,26 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
                 }
             }
         }
+    }
+
+    /// Calculate memory footprint of this optimized observation
+    pub fn memory_footprint_bytes(&self) -> usize {
+        let mut total_size = 0;
+
+        // Fixed size components
+        total_size += std::mem::size_of::<[f32; 2]>(); // isolation_window
+        total_size += std::mem::size_of::<usize>(); // num_cycles
+
+        // Vec overheads - only 3 total!
+        total_size += std::mem::size_of::<Vec<u32>>(); // slice_starts
+        total_size += std::mem::size_of::<Vec<u16>>(); // cycle_indices
+        total_size += std::mem::size_of::<Vec<f32>>(); // intensities
+
+        // Actual data
+        total_size += self.slice_starts.len() * std::mem::size_of::<u32>();
+        total_size += self.cycle_indices.len() * std::mem::size_of::<u16>();
+        total_size += self.intensities.len() * std::mem::size_of::<f32>();
+
+        total_size
     }
 }

@@ -9,6 +9,17 @@ code should to used as part of [alphaDIA](https://github.com/MannLabs/alphadia).
 
 ## Development Setup
 
+---
+
+**📌 Versioning Policy**
+
+This repository strictly follows [**Semantic Versioning 2.0.0**](https://semver.org/). Given a version number `MAJOR.MINOR.PATCH`:
+- **MAJOR** version for incompatible API changes
+- **MINOR** version for backwards-compatible functionality additions
+- **PATCH** version for backwards-compatible bug fixes
+
+---
+
 ### Prerequisites
 
 - **Rust 1.88.0**

@@ -38,6 +38,11 @@ optional_value = "final"
 
 
 [[tool.bumpversion.files]]
+filename = "Cargo.lock"
+search = "version = \"{current_version}\""
+replace = "version = \"{new_version}\""
+
+[[tool.bumpversion.files]]
 filename = "Cargo.toml"
 search = "version = \"{current_version}\""
 replace = "version = \"{new_version}\""

@@ -23,6 +23,7 @@ pub mod score;
 mod simd;
 pub mod speclib_flat;
 pub mod speclib_flat_quantified;
+mod threadpool;
 pub mod traits;
 pub mod utils;
 
@@ -71,8 +72,25 @@ fn get_current_simd_backend() -> PyResult<String> {
     Ok(simd::get_current_backend())
 }
 
+#[pyfunction]
+fn set_num_threads(num_threads: Option<usize>) -> PyResult<()> {
+    // Rayon's global thread pool initializes on first use and cannot be changed afterward.
+    // If anything triggers a parallel operation before calling set_num_threads(), it will fail
+    // with ''Failed to configure thread pool: The global thread pool has already been initialized.'
+    threadpool::set_num_threads(num_threads).map_err(PyErr::new::<PyValueError, _>)
+}
+
+#[pyfunction]
+fn get_num_threads() -> PyResult<usize> {
+    Ok(threadpool::get_num_threads())
+}
+
 #[pymodule]
 fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Initialize thread pool early to allow configuration
+    // This respects RAYON_NUM_THREADS environment variable
+    threadpool::init_threadpool_on_load();
+
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<SpecLibFlatQuantified>()?;
@@ -89,5 +107,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(set_num_threads, m)?)?;
+    m.add_function(wrap_pyfunction!(get_num_threads, m)?)?;
     Ok(())
 }

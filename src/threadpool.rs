@@ -42,7 +42,7 @@ pub fn init_threadpool_on_load() {
 pub fn set_num_threads(num_threads: Option<usize>) -> Result<(), String> {
     let mut initialized = THREADPOOL_INIT
         .lock()
-        .map_err(|e| format!("Failed to acquire lock: {}", e))?;
+        .map_err(|e| format!("Failed to acquire lock: {e}"))?;
 
     if *initialized {
         return Err(
@@ -61,7 +61,7 @@ pub fn set_num_threads(num_threads: Option<usize>) -> Result<(), String> {
 
     builder
         .build_global()
-        .map_err(|e| format!("Failed to configure thread pool: {}", e))?;
+        .map_err(|e| format!("Failed to configure thread pool: {e}"))?;
 
     *initialized = true;
     Ok(())

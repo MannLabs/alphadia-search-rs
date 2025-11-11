@@ -39,10 +39,10 @@ optional_value = "final"
 
 [[tool.bumpversion.files]]
 filename = "Cargo.lock"
-search = "version = \"{current_version}\""
-replace = "version = \"{new_version}\""
+search = "[[package]]\nname = \"alphadia-search-rs\"\nversion = \"{current_version}\""
+replace = "[[package]]\nname = \"alphadia-search-rs\"\nversion = \"{new_version}\""
 
 [[tool.bumpversion.files]]
 filename = "Cargo.toml"
-search = "version = \"{current_version}\""
-replace = "version = \"{new_version}\""
+search = "[package]\nname = \"alphadia-search-rs\"\nversion = \"{current_version}\""
+replace = "[package]\nname = \"alphadia-search-rs\"\nversion = \"{new_version}\""

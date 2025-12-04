@@ -17,10 +17,11 @@ alphadia_search_rs.set_num_threads(4)
 ```
 
 **Option 2: Environment variable (recommended)**
-```python
-import os
-os.environ['RAYON_NUM_THREADS'] = '4'
-import alphadia_search_rs
+> ℹ️ **Note:** The environment variable `RAYON_NUM_THREADS` must be set *before* starting Python, or at least before importing `alphadia_search_rs`. Setting it at runtime will not affect the thread pool.
+
+```bash
+export RAYON_NUM_THREADS=4
+python your_script.py
 ```
 
 ## Development Setup

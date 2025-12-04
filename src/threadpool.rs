@@ -3,16 +3,8 @@ use std::sync::Mutex;
 
 static THREADPOOL_INIT: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
-/// Initialize the thread pool eagerly on module load.
-/// This is called automatically when the Python module is imported.
-///
-/// Only initializes if RAYON_NUM_THREADS environment variable is set.
-/// Otherwise, leaves initialization for set_num_threads() or first use.
-pub fn init_threadpool_on_load() {
-    // Only initialize if RAYON_NUM_THREADS is explicitly set
-    // This allows users to either:
-    // 1. Set RAYON_NUM_THREADS before import
-    // 2. Call set_num_threads() immediately after import
+pub fn init_threadpool_from_env_var() {
+    // Initialize the thread pool if RAYON_NUM_THREADS env var is explicitly set
     if std::env::var("RAYON_NUM_THREADS").is_ok() {
         let mut initialized = THREADPOOL_INIT.lock().unwrap();
 

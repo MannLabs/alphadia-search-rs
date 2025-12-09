@@ -76,6 +76,7 @@ fn get_current_simd_backend() -> PyResult<String> {
 fn set_num_threads(num_threads: Option<usize>) -> PyResult<()> {
     // Rayon's global thread pool initializes on first use and cannot be changed afterward.
     // If anything triggers a parallel operation before calling set_num_threads(), it will fail
+    // Decision: use the global thread pool for now (simplicity!).
     threadpool::set_num_threads(num_threads).map_err(PyErr::new::<PyValueError, _>)
 }
 
@@ -86,8 +87,6 @@ fn get_num_threads() -> PyResult<usize> {
 
 #[pymodule]
 fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    threadpool::init_threadpool_from_env_var();
-
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<SpecLibFlatQuantified>()?;

@@ -3,21 +3,6 @@ use std::sync::Mutex;
 
 static THREADPOOL_INIT: Lazy<Mutex<bool>> = Lazy::new(|| Mutex::new(false));
 
-pub fn init_threadpool_from_env_var() {
-    // Initialize the thread pool if RAYON_NUM_THREADS env var is explicitly set
-    if std::env::var("RAYON_NUM_THREADS").is_ok() {
-        let mut initialized = THREADPOOL_INIT.lock().unwrap();
-
-        if *initialized {
-            return; // Already initialized
-        }
-
-        // Build with RAYON_NUM_THREADS value
-        let _ = rayon::ThreadPoolBuilder::new().build_global();
-        *initialized = true;
-    }
-}
-
 /// Set the number of threads for Rayon's global thread pool.
 ///
 /// This function must be called before any parallel operations are performed.

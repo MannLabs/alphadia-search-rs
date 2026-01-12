@@ -8,10 +8,80 @@ use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 pub use alpha_raw_view::AlphaRawView;
 
-/// DIAData structure using optimized memory layout
+/// DIAData structure using optimized memory layout for peptide centric querying.
 ///
-/// This structure achieves >99.9% memory overhead reduction compared to the original
-/// by using consolidated arrays instead of millions of individual allocations.
+/// In data independant acquisition processing (DIA), the data is acquired in spectra with defined cycles of isolation windows.
+/// Data is acquired in a spectrum centric way which makes it cheap to get a whole spectrum as it's continous in memory.
+///
+/// Isolation windows [mz]:
+/// spectrum 0: 400-410
+/// spectrum 1: 410-420
+/// spectrum 2: 420-430
+/// ...
+/// spectrum 10: 410-420
+/// spectrum 11: 420-430
+///
+/// For DIA data processing, we want to query all spectral information for a single peptide in a single or few isolation windwos.
+/// We therefore need a datastructure which allows to query a mass slice fast. DIAData therefore implements an optimized transposed representation of the data.
+///
+/// Instead of spectra, we group isolation windows into a single QuadrupoleObservation and track their cycle indices.
+///
+/// QuadrupoleObservation 0: [400-410 cycle 0, 400-410 cycle 1, 400-410 cycle 2, ...]
+/// QuadrupoleObservation 1: [410-420 cycle 0, 410-420 cycle 1, 410-420 cycle 2, ...]
+/// ...
+///
+/// We can thereby select the relevant isolation windows by selecting the corresponding QuadrupoleObservation.
+/// Within each QuadrupoleObservation, we build a transposed mass index representation.
+///
+/// Each spectrum consists of tuples of (mz, intensity).
+///
+/// spectrum 0: 400-410 cycle 0
+/// mz: 201.321 intensity: 100.0
+/// mz: 254.234 intensity: 200.0
+/// ...
+/// mz: 821.321 intensity: 300.0
+///
+/// spectrum 10: 400-410 cycle 1
+/// mz: 201.321 intensity: 100.0
+/// mz: 259.234 intensity: 500.0
+/// ...
+/// mz: 725.321 intensity: 100.0
+///
+/// we map the mz values to a resolution optimized MZIndex with 1 ppm resolution.
+///
+/// spectrum 0: 400-410 cycle 0
+/// mz_index: 1020 intensity: 100.0,
+/// mz_index: 2540 intensity: 200.0,
+/// ...
+/// mz_index: 8210 intensity: 300.0,
+///
+/// spectrum 10: 400-410 cycle 1
+/// mz_index: 1020 intensity: 100.0,
+/// mz_index: 2590 intensity: 500.0,
+/// ...
+/// mz_index: 7250 intensity: 100.0,
+///
+///
+/// then we build a transposed mass index representation which tracks the start anbd the stop of each mz_index slice.
+///
+/// slice_start[1020] = 0
+/// slice_start[1021] = 2
+/// slice_start[2540] = 3
+/// slice_start[2590] = 4
+/// slice_start[7250] = 5
+/// slice_start[8210] = 6
+///
+/// cycle: [0,1,0,1,0,1,]
+/// intensity: [100.0, 500.0, 100.0, 500.0, 100.0, 500.0]
+///
+/// This allows retrieving a slice of the data for a single mz_indexing by reading a constinuous array of cycle indices and intensities.
+///
+/// my_slice_start = slice_start[1020] = 0
+/// my_slice_stop = slice_start[1020 + 1] = 2
+///
+/// cycle: [0,1]
+/// intensity: [100.0, 500.0]
+///
 #[pyclass]
 pub struct DIAData {
     pub rt_index: RTIndex,

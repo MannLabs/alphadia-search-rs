@@ -107,7 +107,7 @@ pub use alpha_raw_view::AlphaRawView;
 /// # Benefits
 ///
 /// - Memory and allocation optimized storage of sparse arrays instead of list of structs
-/// - O(1) index lookup replaces scanning through all spectra
+/// - O(1) index lookup after building transposed structure once, replacing repeated scans through all spectra
 ///
 /// # Constraints
 ///

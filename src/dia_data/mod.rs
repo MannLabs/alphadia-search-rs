@@ -107,12 +107,12 @@ pub use alpha_raw_view::AlphaRawView;
 /// # Benefits
 ///
 /// - Memory and allocation optimized storage of sparse arrays instead of list of structs
-/// - O(1) index lookup replaces repeated scans through all spectra
+/// - O(1) slice lookup with contiguous memory reads, replacing scattered access across spectra
 ///
 /// # Constraints
 ///
 /// - Requires building transposed structure once upfront
-/// - Upper limit of resolution is needed upfront
+/// - Upper limit of resolution needs to be known upfront
 /// - The DIA cycle needs to be consistent across all spectra
 #[pyclass]
 pub struct DIAData {

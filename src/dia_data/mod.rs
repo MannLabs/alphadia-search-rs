@@ -10,82 +10,106 @@ pub use alpha_raw_view::AlphaRawView;
 
 /// DIAData structure using optimized memory layout for peptide-centric querying.
 ///
-/// In data-independent acquisition (DIA) processing, data is acquired in spectra with defined
-/// cycles of isolation windows. Data is acquired in a spectrum-centric way, which makes it cheap
-/// to retrieve a whole spectrum as it is contiguous in memory.
+/// # Problem
 ///
-/// Isolation windows [m/z]:
-/// spectrum 0: 400-410
-/// spectrum 1: 410-420
-/// spectrum 2: 420-430
-/// ...
-/// spectrum 10: 410-420
-/// spectrum 11: 420-430
+/// In data-independent acquisition (DIA), spectra are acquired in cycles of isolation windows.
+/// Raw data is spectrum-centric (contiguous per spectrum), but peptide-centric analysis needs
+/// all observations of a given m/z across cycles. DIAData provides a transposed representation
+/// optimized for this access pattern.
 ///
-/// For DIA data processing, we want to query all spectral information for a single peptide in a
-/// single or few isolation windows. We therefore need a data structure that allows fast mass slice
-/// queries. DIAData implements an optimized transposed representation of the data.
+/// # Data Transformation
 ///
-/// Instead of spectra, we group isolation windows into a single QuadrupoleObservation and track
-/// their cycle indices.
+/// ## Input: AlphaRawView (spectrum-centric)
 ///
-/// QuadrupoleObservation 0: [400-410 cycle 0, 400-410 cycle 1, 400-410 cycle 2, ...]
-/// QuadrupoleObservation 1: [410-420 cycle 0, 410-420 cycle 1, 410-420 cycle 2, ...]
-/// ...
+/// Consider 1 isolation window (400-425 m/z) acquired over 3 cycles. All spectra with
+/// `spectrum_delta_scan_idx == 1` share this window:
 ///
-/// We can thereby select the relevant isolation windows by selecting the corresponding
-/// QuadrupoleObservation. Within each QuadrupoleObservation, we build a transposed mass index
-/// representation.
+/// ```text
+/// spectrum_idx | spectrum_delta_scan_idx | spectrum_cycle_idx | isolation_window
+/// -------------|-------------------------|--------------------|-----------------
+///      0       |           1             |         0          |    400-425
+///      1       |           1             |         1          |    400-425
+///      2       |           1             |         2          |    400-425
 ///
-/// Each spectrum consists of tuples of (m/z, intensity).
+/// peak_mz and peak_intensity (referenced via spectrum_peak_start/stop_idx):
 ///
-/// spectrum 0: 400-410 cycle 0
-/// m/z: 201.321, intensity: 100.0
-/// m/z: 254.234, intensity: 200.0
-/// ...
-/// m/z: 821.321, intensity: 300.0
+/// Spectrum 0 (cycle 0):        Spectrum 1 (cycle 1):        Spectrum 2 (cycle 2):
+///   peak_mz=405.2, int=100       peak_mz=405.2, int=150       peak_mz=410.0, int=80
+///   peak_mz=410.0, int=200       peak_mz=420.5, int=300
+/// ```
 ///
-/// spectrum 10: 400-410 cycle 1
-/// m/z: 201.321, intensity: 100.0
-/// m/z: 259.234, intensity: 500.0
-/// ...
-/// m/z: 725.321, intensity: 100.0
+/// ## Step 1: Group by spectrum_delta_scan_idx into QuadrupoleObservation
 ///
-/// We map the m/z values to a resolution-optimized MZIndex with 1 ppm resolution.
+/// All spectra with the same `spectrum_delta_scan_idx` are grouped:
 ///
-/// spectrum 0: 400-410 cycle 0
-/// mz_index: 1020, intensity: 100.0
-/// mz_index: 2540, intensity: 200.0
-/// ...
-/// mz_index: 8210, intensity: 300.0
+/// ```text
+/// quadrupole_observations[1] = QuadrupoleObservation {
+///     isolation_window: [400.0, 425.0],
+///     num_cycles: 3,
+///     ...
+/// }
+/// ```
 ///
-/// spectrum 10: 400-410 cycle 1
-/// mz_index: 1020, intensity: 100.0
-/// mz_index: 2590, intensity: 500.0
-/// ...
-/// mz_index: 7250, intensity: 100.0
+/// ## Step 2: Map peak_mz to mz_index via MZIndex::find_closest_index
 ///
-/// Then we build a transposed mass index representation that tracks the start and stop of each
-/// mz_index slice.
+/// Each m/z is mapped to the nearest index in the global MZIndex.
+/// For clarity, this example uses small abstract indices:
 ///
-/// slice_start[1020] = 0
-/// slice_start[1021] = 2
-/// slice_start[2540] = 3
-/// slice_start[2590] = 4
-/// slice_start[7250] = 5
-/// slice_start[8210] = 6
+/// ```text
+/// MZIndex::find_closest_index(405.2) -> mz_index 0
+/// MZIndex::find_closest_index(410.0) -> mz_index 1
+/// MZIndex::find_closest_index(420.5) -> mz_index 2
+/// ```
 ///
-/// cycle: [0, 1, 0, 1, 0, 1]
-/// intensity: [100.0, 500.0, 100.0, 500.0, 100.0, 500.0]
+/// ## Step 3: Build transposed arrays sorted by (mz_index, cycle_indices)
 ///
-/// This allows retrieving a slice of the data for a single mz_index by reading a contiguous array
-/// of cycle indices and intensities.
+/// Peaks are sorted first by mz_index, then by cycle within each mz_index:
 ///
-/// my_slice_start = slice_start[1020] = 0
-/// my_slice_stop = slice_start[1020 + 1] = 2
+/// ```text
+/// Position | mz_index | cycle_indices | intensities
+/// ---------|----------|---------------|------------
+///    0     |    0     |       0       |    100
+///    1     |    0     |       1       |    150
+///    2     |    1     |       0       |    200
+///    3     |    1     |       2       |     80
+///    4     |    2     |       1       |    300
+/// ```
 ///
-/// cycle: [0, 1]
-/// intensity: [100.0, 500.0]
+/// ## Step 4: Create slice_starts index
+///
+/// `slice_starts[i]` marks where data for mz_index `i` begins in cycle_indices/intensities.
+/// Length is `MZIndex.len() + 1`. For this 3-mz_index example:
+///
+/// ```text
+/// slice_starts: [0, 2, 4, 5]
+///                │  │  │  └── end sentinel
+///                │  │  └── mz_index 2 starts at position 4
+///                │  └── mz_index 1 starts at position 2
+///                └── mz_index 0 starts at position 0
+///
+/// cycle_indices: [0, 1, 0, 2, 1]
+/// intensities:   [100, 150, 200, 80, 300]
+/// ```
+///
+/// # Query Example
+///
+/// To retrieve all observations of m/z ~405.2 (mz_index 0):
+///
+/// ```text
+/// let (cycles, ints) = observation.get_slice_data(0);
+/// // start = slice_starts[0] = 0
+/// // stop  = slice_starts[1] = 2
+///
+/// cycles = &cycle_indices[0..2] = [0, 1]   // Observed in cycles 0 and 1
+/// ints   = &intensities[0..2]   = [100, 150]
+/// ```
+/// Benefits of this representation:
+/// O(1) index lookup replaces scanning through all spectra.
+///
+/// Constraints:
+/// Upper limit of resolution is needed upfront.
+/// The DIA cycle needs to be consistent across all spectra.
+///
 #[pyclass]
 pub struct DIAData {
     pub rt_index: RTIndex,

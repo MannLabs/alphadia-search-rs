@@ -103,13 +103,16 @@ pub use alpha_raw_view::AlphaRawView;
 /// cycles = &cycle_indices[0..2] = [0, 1]   // Observed in cycles 0 and 1
 /// ints   = &intensities[0..2]   = [100, 150]
 /// ```
-/// Benefits of this representation:
-/// O(1) index lookup replaces scanning through all spectra.
 ///
-/// Constraints:
-/// Upper limit of resolution is needed upfront.
-/// The DIA cycle needs to be consistent across all spectra.
+/// # Benefits
 ///
+/// - Memory and allocation optimized storage of sparse arrays instead of list of structs
+/// - O(1) index lookup replaces scanning through all spectra
+///
+/// # Constraints
+///
+/// - Upper limit of resolution is needed upfront
+/// - The DIA cycle needs to be consistent across all spectra
 #[pyclass]
 pub struct DIAData {
     pub rt_index: RTIndex,

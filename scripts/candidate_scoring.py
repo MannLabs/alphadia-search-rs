@@ -327,7 +327,7 @@ def perform_svm_nn_hybrid_fdr(target_df, decoy_df, feature_columns):
         feature_columns,
         filtered_targets,
         filtered_decoys,
-        competetive=True,
+        competitive=True,
     )
 
     logger.info("Hybrid SVM-NN FDR calculation completed")
@@ -344,7 +344,7 @@ def perform_svm_nn_hybrid_fdr(target_df, decoy_df, feature_columns):
     return final_results
 
 
-def load_candidates_from_parquet(candidates_path, top_n=None):
+def load_candidates_from_parquet(candidates_path, top_n=None, rank_less_than=None):
     """
     Load candidates from parquet file and return filtered DataFrame.
 
@@ -354,6 +354,8 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
         Path to the candidates parquet file
     top_n : int, optional
         Number of top candidates by score to keep
+    rank_less_than : int, optional
+        Only keep candidates with rank < this value
 
     Returns
     -------
@@ -365,12 +367,16 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
 
     logger.info(f"Loaded {len(candidates_df):,} candidates")
 
-    # Filter top N candidates by highest score if specified
+    if rank_less_than is not None:
+        candidates_df = candidates_df[candidates_df["rank"] < rank_less_than]
+        logger.info(
+            f"Filtered to {len(candidates_df):,} candidates with rank < {rank_less_than}"
+        )
+
     if top_n is not None:
         candidates_df = candidates_df.nlargest(top_n, "score")
         logger.info(f"Filtered to top {len(candidates_df):,} candidates by score")
 
-    # The function load_candidates_from_parquet returns a DataFrame, not a CandidateCollection
     return candidates_df
 
 
@@ -617,7 +623,7 @@ def run_fdr_filtering(
             FEATURE_COLUMNS,
             target_df,
             decoy_df,
-            competetive=True,
+            competitive=True,
         )
 
     psm_df = psm_df[psm_df["qval"] <= 0.01]
@@ -938,7 +944,16 @@ def main():
         help="Path to the output folder",
     )
     parser.add_argument(
-        "--top-n", type=int, default=10000, help="Top N candidates to score"
+        "--top-n",
+        type=int,
+        default=None,
+        help="Top N candidates to score (default: all)",
+    )
+    parser.add_argument(
+        "--rank-less-than",
+        type=int,
+        default=None,
+        help="Only keep candidates with rank < this value",
     )
     parser.add_argument(
         "--fdr", action="store_true", help="Run FDR filtering on scored candidates"
@@ -979,7 +994,9 @@ def main():
     spec_lib_flat.load_hdf(args.spec_lib_path)
 
     # Load candidates
-    candidates = load_candidates_from_parquet(args.candidates_path, args.top_n)
+    candidates = load_candidates_from_parquet(
+        args.candidates_path, args.top_n, args.rank_less_than
+    )
 
     # Run scoring and get features
     psm_scored_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)

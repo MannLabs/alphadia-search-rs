@@ -19,7 +19,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def load_candidates_from_parquet(candidates_path, top_n=None):
+def load_candidates_from_parquet(candidates_path, top_n=None, rank_less_than=None):
     """
     Load candidates from parquet file and return filtered DataFrame.
 
@@ -29,6 +29,8 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
         Path to the candidates parquet file
     top_n : int, optional
         Number of top candidates by score to keep
+    rank_less_than : int, optional
+        Only keep candidates with rank < this value
 
     Returns
     -------
@@ -40,12 +42,14 @@ def load_candidates_from_parquet(candidates_path, top_n=None):
 
     logger.info(f"Loaded {len(candidates_df):,} candidates")
 
-    # Filter top N candidates by highest score if specified
+    if rank_less_than is not None:
+        candidates_df = candidates_df[candidates_df['rank'] < rank_less_than]
+        logger.info(f"Filtered to {len(candidates_df):,} candidates with rank < {rank_less_than}")
+
     if top_n is not None:
         candidates_df = candidates_df.nlargest(top_n, 'score')
         logger.info(f"Filtered to top {len(candidates_df):,} candidates by score")
 
-    # The function load_candidates_from_parquet returns a DataFrame, not a CandidateCollection
     return candidates_df
 
 def create_dia_data_next_gen(ms_data):
@@ -105,14 +109,23 @@ def create_spec_lib_flat(alpha_base_spec_lib_flat):
     """
     logger.info("Creating SpecLibFlat from alphabase SpecLibFlat")
 
+    prec_df = alpha_base_spec_lib_flat.precursor_df
+    frag_df = alpha_base_spec_lib_flat.fragment_df
+
+    prec_mz_col = 'mz_calibrated' if 'mz_calibrated' in prec_df.columns else 'mz_library'
+    prec_rt_col = 'rt_calibrated' if 'rt_calibrated' in prec_df.columns else 'rt_library'
+    frag_mz_col = 'mz_calibrated' if 'mz_calibrated' in frag_df.columns else 'mz_library'
+
+    logger.info(f"Using precursor mz: {prec_mz_col}, rt: {prec_rt_col}, fragment mz: {frag_mz_col}")
+
     spec_lib_flat = SpecLibFlat.from_arrays(
-        alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32)
+        prec_df['precursor_idx'].values.astype(np.uint64),
+        prec_df[prec_mz_col].values.astype(np.float32),
+        prec_df[prec_rt_col].values.astype(np.float32),
+        prec_df['flat_frag_start_idx'].values.astype(np.uint64),
+        prec_df['flat_frag_stop_idx'].values.astype(np.uint64),
+        frag_df[frag_mz_col].values.astype(np.float32),
+        frag_df['intensity'].values.astype(np.float32)
     )
 
     return spec_lib_flat
@@ -217,7 +230,7 @@ def run_fdr_filtering(result_df, output_folder):
         available_columns,
         result_df[result_df["decoy"] == 0].copy(),
         result_df[result_df["decoy"] == 1].copy(),
-        competetive=True,
+        competitive=True,
     )
 
     psm_df = psm_df[psm_df["qval"] <= 0.01]
@@ -246,8 +259,12 @@ def main():
                        help="Path to the output folder")
     parser.add_argument("--top-n",
                        type=int,
-                       default=10000,
-                       help="Top N candidates to score")
+                       default=None,
+                       help="Top N candidates to score (default: all)")
+    parser.add_argument("--rank-less-than",
+                       type=int,
+                       default=None,
+                       help="Only keep candidates with rank < this value")
     parser.add_argument("--fdr",
                        action="store_true",
                        help="Run FDR filtering on scored candidates")
@@ -263,7 +280,7 @@ def main():
     spec_lib_flat.load_hdf(args.spec_lib_path)
 
     # Load candidates
-    candidates = load_candidates_from_parquet(args.candidates_path, args.top_n)
+    candidates = load_candidates_from_parquet(args.candidates_path, args.top_n, args.rank_less_than)
 
     # Run scoring and get features
     result_df = run_candidate_scoring(ms_data, spec_lib_flat, candidates)

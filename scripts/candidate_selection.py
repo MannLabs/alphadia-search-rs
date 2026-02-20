@@ -63,14 +63,23 @@ def run_candidate_selection(ms_data, alpha_base_spec_lib_flat):
     logger.info("Setting up scoring parameters")
     selection_params = SelectionParameters()
 
+    prec_df = alpha_base_spec_lib_flat.precursor_df
+    frag_df = alpha_base_spec_lib_flat.fragment_df
+
+    prec_mz_col = 'mz_calibrated' if 'mz_calibrated' in prec_df.columns else 'mz_library'
+    prec_rt_col = 'rt_calibrated' if 'rt_calibrated' in prec_df.columns else 'rt_library'
+    frag_mz_col = 'mz_calibrated' if 'mz_calibrated' in frag_df.columns else 'mz_library'
+
+    logger.info(f"Using precursor mz: {prec_mz_col}, rt: {prec_rt_col}, fragment mz: {frag_mz_col}")
+
     spec_lib_flat = SpecLibFlat.from_arrays(
-        alpha_base_spec_lib_flat.precursor_df['precursor_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['rt_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_start_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.precursor_df['flat_frag_stop_idx'].values.astype(np.uint64),
-        alpha_base_spec_lib_flat.fragment_df['mz_calibrated'].values.astype(np.float32),
-        alpha_base_spec_lib_flat.fragment_df['intensity'].values.astype(np.float32)
+        prec_df['precursor_idx'].values.astype(np.uint64),
+        prec_df[prec_mz_col].values.astype(np.float32),
+        prec_df[prec_rt_col].values.astype(np.float32),
+        prec_df['flat_frag_start_idx'].values.astype(np.uint64),
+        prec_df['flat_frag_stop_idx'].values.astype(np.uint64),
+        frag_df[frag_mz_col].values.astype(np.float32),
+        frag_df['intensity'].values.astype(np.float32)
     )
 
     # Default parameters

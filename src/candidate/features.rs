@@ -53,9 +53,6 @@ pub const FEATURE_NAMES: &[&str] = &[
     "xtandem_intensity",
     "xtandem_consecutive",
     "n_b_strict",
-    "n_matched_strict",
-    "n_matched_corr30",
-    "n_matched_corr70",
     "matched_intensity_fraction",
     "intensity_corr_strict",
     "apex_intensity",
@@ -126,9 +123,6 @@ pub struct CandidateFeature {
     pub xtandem_intensity: f32,
     pub xtandem_consecutive: f32,
     pub n_b_strict: f32,
-    pub n_matched_strict: f32,
-    pub n_matched_corr30: f32,
-    pub n_matched_corr70: f32,
     pub matched_intensity_fraction: f32,
     pub intensity_corr_strict: f32,
     pub apex_intensity: f32,
@@ -200,9 +194,6 @@ impl CandidateFeature {
         xtandem_intensity: f32,
         xtandem_consecutive: f32,
         n_b_strict: f32,
-        n_matched_strict: f32,
-        n_matched_corr30: f32,
-        n_matched_corr70: f32,
         matched_intensity_fraction: f32,
         intensity_corr_strict: f32,
         apex_intensity: f32,
@@ -271,9 +262,6 @@ impl CandidateFeature {
             xtandem_intensity,
             xtandem_consecutive,
             n_b_strict,
-            n_matched_strict,
-            n_matched_corr30,
-            n_matched_corr70,
             matched_intensity_fraction,
             intensity_corr_strict,
             apex_intensity,
@@ -375,9 +363,6 @@ impl CandidateFeatureCollection {
         let mut xtandem_intensitys = Array1::<f32>::zeros(n);
         let mut xtandem_consecutives = Array1::<f32>::zeros(n);
         let mut n_b_stricts = Array1::<f32>::zeros(n);
-        let mut n_matched_stricts = Array1::<f32>::zeros(n);
-        let mut n_matched_corr30s = Array1::<f32>::zeros(n);
-        let mut n_matched_corr70s = Array1::<f32>::zeros(n);
         let mut matched_intensity_fractions = Array1::<f32>::zeros(n);
         let mut intensity_corr_stricts = Array1::<f32>::zeros(n);
         let mut apex_intensitys = Array1::<f32>::zeros(n);
@@ -446,9 +431,6 @@ impl CandidateFeatureCollection {
             xtandem_intensitys[i] = feature.xtandem_intensity;
             xtandem_consecutives[i] = feature.xtandem_consecutive;
             n_b_stricts[i] = feature.n_b_strict;
-            n_matched_stricts[i] = feature.n_matched_strict;
-            n_matched_corr30s[i] = feature.n_matched_corr30;
-            n_matched_corr70s[i] = feature.n_matched_corr70;
             matched_intensity_fractions[i] = feature.matched_intensity_fraction;
             intensity_corr_stricts[i] = feature.intensity_corr_strict;
             apex_intensitys[i] = feature.apex_intensity;
@@ -575,9 +557,6 @@ impl CandidateFeatureCollection {
         dict.set_item("xtandem_intensity", xtandem_intensitys.into_pyarray(py))?;
         dict.set_item("xtandem_consecutive", xtandem_consecutives.into_pyarray(py))?;
         dict.set_item("n_b_strict", n_b_stricts.into_pyarray(py))?;
-        dict.set_item("n_matched_strict", n_matched_stricts.into_pyarray(py))?;
-        dict.set_item("n_matched_corr30", n_matched_corr30s.into_pyarray(py))?;
-        dict.set_item("n_matched_corr70", n_matched_corr70s.into_pyarray(py))?;
         dict.set_item(
             "matched_intensity_fraction",
             matched_intensity_fractions.into_pyarray(py),

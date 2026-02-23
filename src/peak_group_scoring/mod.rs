@@ -349,33 +349,20 @@ impl PeakGroupScoring {
 
         // --- Fragment matching features (strict = corr > 0.5) ---
         let mut n_b_strict = 0u32;
-        let mut n_y_strict = 0u32;
-        let mut n_matched_corr30 = 0u32;
-        let mut n_matched_corr70 = 0u32;
         let mut sum_obs_strict = 0.0f64;
         let mut sum_obs_all = 0.0f64;
 
         for i in 0..precursor.fragment_type.len() {
             if matched_mask_intensity[i] && observation_intensities_slice[i] > 0.0 {
                 sum_obs_all += observation_intensities_slice[i] as f64;
-                if correlations[i] > 0.3 {
-                    n_matched_corr30 += 1;
-                }
                 if correlations[i] > 0.5 {
-                    match precursor.fragment_type[i] {
-                        FragmentType::B => n_b_strict += 1,
-                        FragmentType::Y => n_y_strict += 1,
-                        _ => {}
+                    if precursor.fragment_type[i] == FragmentType::B {
+                        n_b_strict += 1;
                     }
                     sum_obs_strict += observation_intensities_slice[i] as f64;
                 }
-                if correlations[i] > 0.7 {
-                    n_matched_corr70 += 1;
-                }
             }
         }
-
-        let n_matched_strict = (n_b_strict + n_y_strict) as f32;
 
         let matched_intensity_fraction = if sum_obs_all > 0.0 {
             (sum_obs_strict / sum_obs_all) as f32
@@ -441,7 +428,7 @@ impl PeakGroupScoring {
             }
         }
 
-        let composite_mult = idf_xic_dot_product * (n_matched_strict + 1.0).ln();
+        let composite_mult = idf_xic_dot_product * (num_over_50 as f32 + 1.0).ln();
 
         // --- Elution profile features ---
         let profile = median_profile_filtered.as_slice();
@@ -535,9 +522,6 @@ impl PeakGroupScoring {
             xtandem_intensity,
             xtandem_consecutive,
             n_b_strict as f32,
-            n_matched_strict,
-            n_matched_corr30 as f32,
-            n_matched_corr70 as f32,
             matched_intensity_fraction,
             intensity_corr_strict,
             apex_intensity,

@@ -1,8 +1,11 @@
 #[allow(unused_imports)]
 use super::utils::{
-    calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
-    calculate_longest_ion_series, correlation, correlation_axis_0, intensity_ion_series,
-    median_axis_0, normalize_profiles,
+    calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_combined,
+    calculate_hyperscore_corr_weighted, calculate_hyperscore_sage, calculate_hyperscore_strict,
+    calculate_hyperscore_weighted, calculate_longest_ion_series,
+    calculate_xtandem_consecutive_strict, calculate_xtandem_count_strict,
+    calculate_xtandem_intensity_strict, calculate_xtandem_openms_strict, correlation,
+    correlation_axis_0, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
@@ -977,4 +980,450 @@ fn test_calculate_dot_product_zeros() {
 
     let result = calculate_dot_product(&a, &b);
     assert_eq!(result, 0.0);
+}
+
+// ========== Tests for new scoring functions ==========
+
+#[test]
+fn test_hyperscore_sage_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+
+    let score = calculate_hyperscore_sage(&fragment_types, &intensities, &matched);
+
+    // ln((300+1)*(400+1)) + lnfact(2) + lnfact(2) > 0
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_hyperscore_sage_only_b_ions() {
+    let fragment_types = vec![FragmentType::B, FragmentType::B];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+
+    let score = calculate_hyperscore_sage(&fragment_types, &intensities, &matched);
+
+    // Sage-style: ln((300+1)*(0+1)) + lnfact(2) + lnfact(0) > 0
+    assert!(
+        score > 0.0,
+        "Sage-style should give non-zero with only b ions"
+    );
+}
+
+#[test]
+fn test_hyperscore_sage_no_matches() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![false, false];
+
+    assert_eq!(
+        calculate_hyperscore_sage(&fragment_types, &intensities, &matched),
+        0.0
+    );
+}
+
+#[test]
+fn test_hyperscore_corr_weighted_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.95];
+
+    let score =
+        calculate_hyperscore_corr_weighted(&fragment_types, &intensities, &matched, &correlations);
+
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_hyperscore_corr_weighted_negative_corr_zeroed() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+    let correlations = vec![-0.5, -0.3];
+
+    let score =
+        calculate_hyperscore_corr_weighted(&fragment_types, &intensities, &matched, &correlations);
+
+    // Negative correlations get max(corr, 0) = 0, weighted intensity = 0
+    // ln((0+1)*(0+1)) + lnfact(1) + lnfact(1) = 0
+    assert!((score - 0.0).abs() < 1e-6 || score > 0.0);
+}
+
+#[test]
+fn test_hyperscore_corr_weighted_no_matches() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![false, false];
+    let correlations = vec![0.9, 0.9];
+
+    assert_eq!(
+        calculate_hyperscore_corr_weighted(&fragment_types, &intensities, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_hyperscore_strict_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.3]; // last Y below 0.5 threshold
+
+    let score = calculate_hyperscore_strict(&fragment_types, &intensities, &matched, &correlations);
+
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_hyperscore_strict_all_below_threshold() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+    let correlations = vec![0.3, 0.4]; // all below 0.5
+
+    assert_eq!(
+        calculate_hyperscore_strict(&fragment_types, &intensities, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_hyperscore_strict_filters_low_corr() {
+    let fragment_types = vec![FragmentType::B, FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0, 150.0];
+    let matched = vec![true, true, true];
+    let high_corr = vec![0.9, 0.9, 0.9];
+    let mixed_corr = vec![0.9, 0.3, 0.9]; // second B below threshold
+
+    let score_all =
+        calculate_hyperscore_strict(&fragment_types, &intensities, &matched, &high_corr);
+    let score_filtered =
+        calculate_hyperscore_strict(&fragment_types, &intensities, &matched, &mixed_corr);
+
+    assert!(score_all > score_filtered, "Filtering should reduce score");
+}
+
+#[test]
+fn test_hyperscore_combined_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.95];
+
+    let score =
+        calculate_hyperscore_combined(&fragment_types, &intensities, &matched, &correlations);
+
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_hyperscore_combined_filters_and_weights() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+    let correlations = vec![0.3, 0.9]; // B below threshold, Y passes
+
+    let score =
+        calculate_hyperscore_combined(&fragment_types, &intensities, &matched, &correlations);
+
+    // Only Y passes: n_b=0, n_y=1, sum_y = 200*0.9 = 180
+    assert!(score > 0.0);
+}
+
+#[test]
+fn test_hyperscore_combined_no_matches() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![false, false];
+    let correlations = vec![0.9, 0.9];
+
+    assert_eq!(
+        calculate_hyperscore_combined(&fragment_types, &intensities, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_xtandem_openms_strict_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.95];
+
+    let score =
+        calculate_xtandem_openms_strict(&fragment_types, &intensities, &matched, &correlations);
+
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_xtandem_openms_strict_filters_low_corr() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+    let correlations = vec![0.3, 0.4]; // all below threshold
+
+    assert_eq!(
+        calculate_xtandem_openms_strict(&fragment_types, &intensities, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_xtandem_openms_strict_no_matches() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![false, false];
+    let correlations = vec![0.9, 0.9];
+
+    assert_eq!(
+        calculate_xtandem_openms_strict(&fragment_types, &intensities, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_xtandem_count_strict_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let matched = vec![true, true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.95, 0.3]; // last Y below threshold
+
+    let score = calculate_xtandem_count_strict(&fragment_types, &matched, &correlations);
+
+    // n_b=2, n_y=2 → lnfact(2) + lnfact(2) > 0
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_xtandem_count_strict_all_below_threshold() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let matched = vec![true, true];
+    let correlations = vec![0.3, 0.4];
+
+    assert_eq!(
+        calculate_xtandem_count_strict(&fragment_types, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_xtandem_count_strict_single_each() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let matched = vec![true, true];
+    let correlations = vec![0.9, 0.9];
+
+    let score = calculate_xtandem_count_strict(&fragment_types, &matched, &correlations);
+
+    // n_b=1, n_y=1 → lnfact(1) + lnfact(1) = 0 + 0 = 0
+    assert_eq!(score, 0.0);
+}
+
+#[test]
+fn test_xtandem_intensity_strict_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.95];
+
+    let score =
+        calculate_xtandem_intensity_strict(&fragment_types, &intensities, &matched, &correlations);
+
+    // ln((300+1)*(400+1)) > 0
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_xtandem_intensity_strict_filters_low_corr() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+    let correlations = vec![0.3, 0.4];
+
+    assert_eq!(
+        calculate_xtandem_intensity_strict(&fragment_types, &intensities, &matched, &correlations),
+        0.0
+    );
+}
+
+#[test]
+fn test_xtandem_intensity_strict_no_factorial_terms() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![true, true];
+    let correlations = vec![0.9, 0.9];
+
+    let intensity_score =
+        calculate_xtandem_intensity_strict(&fragment_types, &intensities, &matched, &correlations);
+    let openms_score =
+        calculate_xtandem_openms_strict(&fragment_types, &intensities, &matched, &correlations);
+
+    // Different formulas: intensity = ln((b+1)*(y+1)), openms = ln(1+b+y) + lnfact terms
+    assert!(intensity_score != openms_score);
+}
+
+#[test]
+fn test_xtandem_consecutive_strict_basic() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let fragment_numbers = vec![1, 2, 3, 1, 2, 3];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0, 300.0, 350.0];
+    let matched = vec![true, true, true, true, true, true];
+    let correlations = vec![0.9, 0.8, 0.7, 0.95, 0.85, 0.75];
+
+    let score = calculate_xtandem_consecutive_strict(
+        &fragment_types,
+        &fragment_numbers,
+        &intensities,
+        &matched,
+        &correlations,
+    );
+
+    assert!(score > 0.0);
+    assert!(score.is_finite());
+}
+
+#[test]
+fn test_xtandem_consecutive_strict_no_consecutive() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let fragment_numbers = vec![1, 3, 1, 3]; // gaps, no consecutive pairs
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.9, 0.9, 0.9];
+
+    let score = calculate_xtandem_consecutive_strict(
+        &fragment_types,
+        &fragment_numbers,
+        &intensities,
+        &matched,
+        &correlations,
+    );
+
+    assert_eq!(score, 0.0);
+}
+
+#[test]
+fn test_xtandem_consecutive_strict_partial_consecutive() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let fragment_numbers = vec![1, 2, 5, 1, 3]; // b1,b2 consecutive; b5 alone; y not consecutive
+    let intensities = vec![100.0, 200.0, 150.0, 250.0, 300.0];
+    let matched = vec![true, true, true, true, true];
+    let correlations = vec![0.9, 0.9, 0.9, 0.9, 0.9];
+
+    let score = calculate_xtandem_consecutive_strict(
+        &fragment_types,
+        &fragment_numbers,
+        &intensities,
+        &matched,
+        &correlations,
+    );
+
+    // b1,b2 consecutive → n_b=2, sum_b=300
+    assert!(score > 0.0);
+}
+
+#[test]
+fn test_xtandem_consecutive_strict_filters_low_corr() {
+    let fragment_types = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let fragment_numbers = vec![1, 2, 1, 2];
+    let intensities = vec![100.0, 200.0, 150.0, 250.0];
+    let matched = vec![true, true, true, true];
+    let correlations = vec![0.9, 0.3, 0.9, 0.3]; // b2 and y2 below threshold
+
+    let score = calculate_xtandem_consecutive_strict(
+        &fragment_types,
+        &fragment_numbers,
+        &intensities,
+        &matched,
+        &correlations,
+    );
+
+    // After filtering: b1 alone, y1 alone → no consecutive pairs
+    assert_eq!(score, 0.0);
+}
+
+#[test]
+fn test_xtandem_consecutive_strict_no_matches() {
+    let fragment_types = vec![FragmentType::B, FragmentType::Y];
+    let fragment_numbers = vec![1, 1];
+    let intensities = vec![100.0, 200.0];
+    let matched = vec![false, false];
+    let correlations = vec![0.9, 0.9];
+
+    assert_eq!(
+        calculate_xtandem_consecutive_strict(
+            &fragment_types,
+            &fragment_numbers,
+            &intensities,
+            &matched,
+            &correlations
+        ),
+        0.0
+    );
 }

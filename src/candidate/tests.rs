@@ -28,6 +28,34 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
     assert!(feature_names.contains(&"fwhm_rt".to_string()));
 
+    // New scoring features
+    assert!(feature_names.contains(&"hyperscore_v3_corr".to_string()));
+    assert!(feature_names.contains(&"hyperscore_v4_strict".to_string()));
+    assert!(feature_names.contains(&"hyperscore_v5_combined".to_string()));
+    assert!(feature_names.contains(&"xtandem_openms".to_string()));
+    assert!(feature_names.contains(&"xtandem_count".to_string()));
+    assert!(feature_names.contains(&"xtandem_intensity".to_string()));
+    assert!(feature_names.contains(&"xtandem_consecutive".to_string()));
+    assert!(feature_names.contains(&"n_b_strict".to_string()));
+    assert!(feature_names.contains(&"n_matched_strict".to_string()));
+    assert!(feature_names.contains(&"n_matched_corr30".to_string()));
+    assert!(feature_names.contains(&"n_matched_corr70".to_string()));
+    assert!(feature_names.contains(&"matched_intensity_fraction".to_string()));
+    assert!(feature_names.contains(&"intensity_corr_strict".to_string()));
+    assert!(feature_names.contains(&"apex_intensity".to_string()));
+    assert!(feature_names.contains(&"center_to_apex_offset".to_string()));
+    assert!(feature_names.contains(&"peak_sharpness".to_string()));
+    assert!(feature_names.contains(&"peak_concentration".to_string()));
+    assert!(feature_names.contains(&"idf_weighted_count_strict".to_string()));
+    assert!(feature_names.contains(&"idf_weighted_count_corr30".to_string()));
+    assert!(feature_names.contains(&"idf_corr_weighted_strict".to_string()));
+    assert!(feature_names.contains(&"n_mass_strict_3ppm".to_string()));
+    assert!(feature_names.contains(&"n_mass_strict_5ppm".to_string()));
+    assert!(feature_names.contains(&"idf_mass_strict_3ppm".to_string()));
+    assert!(feature_names.contains(&"idf_corr_mass_gaussian".to_string()));
+    assert!(feature_names.contains(&"composite_mult".to_string()));
+    assert!(feature_names.contains(&"idf_corr_top6".to_string()));
+
     // Verify that non-f32 columns are NOT included
     assert!(!feature_names.contains(&"precursor_idx".to_string()));
     assert!(!feature_names.contains(&"rank".to_string()));

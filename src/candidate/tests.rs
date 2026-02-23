@@ -6,7 +6,7 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    assert_eq!(feature_names.len(), 67);
+    assert_eq!(feature_names.len(), 64);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -37,9 +37,6 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"xtandem_intensity".to_string()));
     assert!(feature_names.contains(&"xtandem_consecutive".to_string()));
     assert!(feature_names.contains(&"n_b_strict".to_string()));
-    assert!(feature_names.contains(&"n_matched_strict".to_string()));
-    assert!(feature_names.contains(&"n_matched_corr30".to_string()));
-    assert!(feature_names.contains(&"n_matched_corr70".to_string()));
     assert!(feature_names.contains(&"matched_intensity_fraction".to_string()));
     assert!(feature_names.contains(&"intensity_corr_strict".to_string()));
     assert!(feature_names.contains(&"apex_intensity".to_string()));
@@ -238,9 +235,6 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         60.0,   // xtandem_intensity
         45.0,   // xtandem_consecutive
         3.0,    // n_b_strict
-        6.0,    // n_matched_strict
-        8.0,    // n_matched_corr30
-        4.0,    // n_matched_corr70
         0.85,   // matched_intensity_fraction
         0.92,   // intensity_corr_strict
         1000.0, // apex_intensity

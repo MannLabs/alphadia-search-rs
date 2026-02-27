@@ -276,7 +276,7 @@ def run_fdr_filtering(psm_scored_df, candidates_df, output_folder):
         FEATURE_COLUMNS,
         psm_scored_df[psm_scored_df["decoy"] == 0].copy(),
         psm_scored_df[psm_scored_df["decoy"] == 1].copy(),
-        competetive=True,
+        competitive=True,
     )
 
     psm_df = psm_df[psm_df["qval"] <= 0.01]

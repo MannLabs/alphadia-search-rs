@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
 use rayon::prelude::*;
@@ -117,6 +119,67 @@ impl CandidateCollection {
         }
 
         Ok(Self { candidates })
+    }
+
+    /// Return a new collection containing only candidates with score > cutoff.
+    pub fn filter_by_score(&self, cutoff: f32) -> CandidateCollection {
+        let filtered: Vec<Candidate> = self
+            .candidates
+            .iter()
+            .filter(|c| c.score > cutoff)
+            .map(|c| Candidate {
+                precursor_idx: c.precursor_idx,
+                rank: c.rank,
+                score: c.score,
+                scan_center: c.scan_center,
+                scan_start: c.scan_start,
+                scan_stop: c.scan_stop,
+                cycle_center: c.cycle_center,
+                cycle_start: c.cycle_start,
+                cycle_stop: c.cycle_stop,
+            })
+            .collect();
+        CandidateCollection {
+            candidates: filtered,
+        }
+    }
+
+    /// Keep only candidates whose (precursor_idx, rank) is in the provided lists.
+    pub fn filter_by_keys(
+        &self,
+        precursor_idxs: Vec<u64>,
+        ranks: Vec<u64>,
+    ) -> PyResult<CandidateCollection> {
+        if precursor_idxs.len() != ranks.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "precursor_idxs and ranks must have the same length",
+            ));
+        }
+        let keys: HashSet<(usize, usize)> = precursor_idxs
+            .iter()
+            .zip(ranks.iter())
+            .map(|(&p, &r)| (p as usize, r as usize))
+            .collect();
+
+        let filtered: Vec<Candidate> = self
+            .candidates
+            .iter()
+            .filter(|c| keys.contains(&(c.precursor_idx, c.rank)))
+            .map(|c| Candidate {
+                precursor_idx: c.precursor_idx,
+                rank: c.rank,
+                score: c.score,
+                scan_center: c.scan_center,
+                scan_start: c.scan_start,
+                scan_stop: c.scan_stop,
+                cycle_center: c.cycle_center,
+                cycle_start: c.cycle_start,
+                cycle_stop: c.cycle_stop,
+            })
+            .collect();
+        Ok(CandidateCollection {
+            candidates: filtered,
+        })
     }
 
     /// Convert the collection to separate arrays for all fields

@@ -432,3 +432,87 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         assert!((fwhm_rt[0] - 15.5).abs() < 1e-6);
     });
 }
+
+#[test]
+fn test_candidate_collection_filter_by_score() {
+    let candidates = vec![
+        Candidate::new(0, 0, 0.5, 0, 5, 10),
+        Candidate::new(1, 0, 1.5, 0, 5, 10),
+        Candidate::new(2, 0, 0.3, 0, 5, 10),
+        Candidate::new(3, 1, 2.0, 0, 5, 10),
+    ];
+    let collection = CandidateCollection::from_vec(candidates);
+    assert_eq!(collection.len(), 4);
+
+    let filtered = collection.filter_by_score(0.4);
+    assert_eq!(filtered.len(), 3);
+
+    let filtered_high = collection.filter_by_score(1.5);
+    assert_eq!(filtered_high.len(), 1);
+
+    let filtered_none = collection.filter_by_score(10.0);
+    assert_eq!(filtered_none.len(), 0);
+
+    let filtered_all = collection.filter_by_score(-1.0);
+    assert_eq!(filtered_all.len(), 4);
+}
+
+#[test]
+fn test_candidate_collection_filter_by_keys() {
+    let candidates = vec![
+        Candidate::new(10, 0, 0.5, 0, 5, 10),
+        Candidate::new(20, 0, 1.5, 0, 5, 10),
+        Candidate::new(10, 1, 0.3, 0, 5, 10),
+        Candidate::new(30, 0, 2.0, 0, 5, 10),
+    ];
+    let collection = CandidateCollection::from_vec(candidates);
+    assert_eq!(collection.len(), 4);
+
+    // Keep (10, 0) and (30, 0)
+    let filtered = collection.filter_by_keys(vec![10, 30], vec![0, 0]).unwrap();
+    assert_eq!(filtered.len(), 2);
+
+    // Verify the correct candidates were kept
+    let iter: Vec<_> = filtered.iter().collect();
+    assert_eq!(iter[0].precursor_idx, 10);
+    assert_eq!(iter[0].rank, 0);
+    assert_eq!(iter[1].precursor_idx, 30);
+    assert_eq!(iter[1].rank, 0);
+
+    // Empty filter returns empty collection
+    let filtered_empty = collection.filter_by_keys(vec![], vec![]).unwrap();
+    assert_eq!(filtered_empty.len(), 0);
+
+    // Non-matching keys return empty collection
+    let filtered_none = collection.filter_by_keys(vec![99], vec![99]).unwrap();
+    assert_eq!(filtered_none.len(), 0);
+
+    // Mismatched lengths return error
+    let result = collection.filter_by_keys(vec![10, 20], vec![0]);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_candidate_feature_collection_filter_by_score() {
+    // CandidateFeature::new takes 2 usize + 64 f32 = 66 args total
+    let f1 = CandidateFeature::new(
+        0, 0, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    );
+    let f2 = CandidateFeature::new(
+        1, 0, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    );
+    let collection = CandidateFeatureCollection::from_vec(vec![f1, f2]);
+    assert_eq!(collection.len(), 2);
+
+    let filtered = collection.filter_by_score(1.0);
+    assert_eq!(filtered.len(), 1);
+
+    let filtered_all = collection.filter_by_score(-1.0);
+    assert_eq!(filtered_all.len(), 2);
+}

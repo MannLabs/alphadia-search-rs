@@ -18,6 +18,8 @@ pub struct SelectionParameters {
     pub candidate_count: usize,
     #[pyo3(get)]
     pub top_k_fragments: usize,
+    #[pyo3(get)]
+    pub min_fragments: usize,
 }
 
 #[pymethods]
@@ -39,6 +41,8 @@ impl SelectionParameters {
             candidate_count: 3,
             // maximum number of fragments to use for selecting precursors from a DIAData object.
             top_k_fragments: 12,
+            // minimum number of matched fragments at the apex cycle to keep a candidate.
+            min_fragments: 3,
         }
     }
 
@@ -63,6 +67,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("min_fragments")? {
+            self.min_fragments = value.extract::<usize>()?;
         }
         Ok(())
     }

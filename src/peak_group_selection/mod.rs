@@ -173,6 +173,18 @@ impl PeakGroupSelection {
             let cycle_center_idx = local_maxima_indices[i];
             let score = local_maxima_values[i];
 
+            // Count non-zero fragments at the apex cycle and skip if below threshold
+            let center_col = cycle_center_idx - cycle_start_idx;
+            let n_matched = dense_xic_obs
+                .dense_xic
+                .column(center_col)
+                .iter()
+                .filter(|&&v| v > 0.0)
+                .count();
+            if n_matched < self.params.min_fragments {
+                continue;
+            }
+
             let cycle_start_idx = max(0, cycle_center_idx - self.params.peak_length);
             let cycle_stop_idx = min(
                 cycle_center_idx + self.params.peak_length + 1,

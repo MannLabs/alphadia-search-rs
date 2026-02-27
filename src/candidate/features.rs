@@ -309,6 +309,17 @@ impl CandidateFeatureCollection {
         self.features.is_empty()
     }
 
+    /// Return a new collection containing only features with score > cutoff.
+    pub fn filter_by_score(&self, cutoff: f32) -> CandidateFeatureCollection {
+        let filtered: Vec<CandidateFeature> = self
+            .features
+            .iter()
+            .filter(|f| f.score > cutoff)
+            .cloned()
+            .collect();
+        CandidateFeatureCollection { features: filtered }
+    }
+
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<PyObject> {
         let n = self.features.len();
 

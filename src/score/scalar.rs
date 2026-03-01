@@ -15,7 +15,6 @@ pub fn axis_log_dot_product_scalar(array: &Array2<f32>, weights: &[f32]) -> Arra
 
     for i in 0..n_rows {
         for j in 0..n_cols {
-            // Apply log transformation and then weighted sum
             let val = (array[[i, j]] + 1.0).ln();
             result[j] += val * weights[i];
         }

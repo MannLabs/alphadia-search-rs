@@ -2,10 +2,10 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::PyErr;
 
-mod benchmark;
+pub mod benchmark;
 pub mod candidate;
 pub mod constants;
-mod convolution;
+pub mod convolution;
 mod dense_xic_observation;
 pub mod dia_data;
 pub mod dia_data_builder;
@@ -35,21 +35,6 @@ use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;
 use crate::speclib_flat_quantified::SpecLibFlatQuantified;
-
-#[pyfunction]
-fn benchmark_convolution() -> PyResult<(f64, f64)> {
-    // Run the modular benchmark function from the benchmark module
-    let results = benchmark::run_convolution_benchmark();
-
-    // Return the original values from the first and second implementations for backward compatibility
-    if results.len() >= 2 {
-        Ok((results[0].time_seconds, results[1].time_seconds))
-    } else {
-        Err(PyErr::new::<PyValueError, _>(
-            "Benchmark failed to produce enough results",
-        ))
-    }
-}
 
 #[pyfunction]
 fn get_optimal_simd_backend() -> PyResult<String> {
@@ -98,7 +83,6 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<QuantificationParameters>()?;
     m.add_class::<CandidateCollection>()?;
     m.add_class::<CandidateFeatureCollection>()?;
-    m.add_function(wrap_pyfunction!(benchmark_convolution, m)?)?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;

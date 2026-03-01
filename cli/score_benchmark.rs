@@ -18,12 +18,13 @@ use std::time::Instant;
 
 // Import from the library
 #[cfg(target_arch = "aarch64")]
-use alphadia_search_rs::score::neon::axis_log_dot_product_neon;
+use alphadia_search_rs::score::neon::{axis_log_dot_product_neon, axis_log_dot_product_neon_v2};
 use alphadia_search_rs::score::scalar::axis_log_dot_product_scalar;
 
 // Constants
 const ACCURACY_TOLERANCE: f32 = 0.20;
 const DEFAULT_ITERATIONS: usize = 200;
+const RANDOM_ROUNDS: usize = 10;
 
 #[derive(Debug, Clone)]
 struct TestCase {
@@ -69,6 +70,30 @@ impl BenchmarkConfig {
                     rows: 48,
                     cols: 1000,
                     name: "48x1000".to_string(),
+                    iterations: DEFAULT_ITERATIONS,
+                },
+                TestCase {
+                    rows: 12,
+                    cols: 10000,
+                    name: "12x10000".to_string(),
+                    iterations: DEFAULT_ITERATIONS,
+                },
+                TestCase {
+                    rows: 48,
+                    cols: 10000,
+                    name: "48x10000".to_string(),
+                    iterations: DEFAULT_ITERATIONS,
+                },
+                TestCase {
+                    rows: 12,
+                    cols: 100000,
+                    name: "12x100000".to_string(),
+                    iterations: DEFAULT_ITERATIONS,
+                },
+                TestCase {
+                    rows: 48,
+                    cols: 100000,
+                    name: "48x100000".to_string(),
                     iterations: DEFAULT_ITERATIONS,
                 },
             ],
@@ -129,16 +154,8 @@ fn get_available_implementations() -> Vec<(String, LogDotProductFunction)> {
     #[cfg(target_arch = "aarch64")]
     implementations.push(("NEON".to_string(), axis_log_dot_product_neon));
 
-    // Future implementations can be added here:
-    // #[cfg(target_arch = "x86_64")]
-    // {
-    //     if is_x86_feature_detected!("avx2") {
-    //         implementations.push(("AVX2".to_string(), axis_log_dot_product_avx2));
-    //     }
-    //     if is_x86_feature_detected!("avx512f") {
-    //         implementations.push(("AVX512".to_string(), axis_log_dot_product_avx512));
-    //     }
-    // }
+    #[cfg(target_arch = "aarch64")]
+    implementations.push(("NEON-v2".to_string(), axis_log_dot_product_neon_v2));
 
     implementations
 }
@@ -153,135 +170,113 @@ fn warmup_implementations(
     }
 }
 
-fn benchmark_implementation(
-    implementation: LogDotProductFunction,
-    test_data: &Array2<f32>,
-    test_weights: &[f32],
-    iterations: usize,
-) -> (Array1<f32>, f64) {
-    let start = Instant::now();
-    let mut result = Array1::zeros(test_data.ncols());
-    for _ in 0..iterations {
-        result = implementation(test_data, test_weights);
-    }
-    let time_seconds = start.elapsed().as_secs_f64();
-    (result, time_seconds)
-}
-
-fn create_benchmark_result(
-    implementation_name: String,
-    test_case_name: String,
-    time_seconds: f64,
-    speedup: f64,
-    result: &Array1<f32>,
-    scalar_result: Option<&Array1<f32>>,
-) -> BenchmarkResult {
-    let (accuracy_verified, avg_rel_error, max_rel_error) = match scalar_result {
-        Some(scalar_ref) => verify_accuracy(scalar_ref, result, ACCURACY_TOLERANCE),
-        None => (true, 0.0, 0.0), // First implementation (scalar) is always considered accurate
-    };
-
-    BenchmarkResult {
-        implementation: implementation_name,
-        test_case: test_case_name,
-        time_seconds,
-        speedup,
-        accuracy_verified,
-        avg_rel_error,
-        max_rel_error,
-    }
-}
-
 fn benchmark_single_case(test_case: &TestCase) -> Vec<BenchmarkResult> {
-    let mut results = Vec::new();
-    let (test_data, test_weights) = generate_test_data(test_case.rows, test_case.cols);
-
-    // Get available implementations
     let implementations = get_available_implementations();
 
-    // Warm up all implementations
-    warmup_implementations(&implementations, &test_data, &test_weights);
+    // Generate all random datasets upfront
+    let datasets: Vec<(Array2<f32>, Vec<f32>)> = (0..RANDOM_ROUNDS)
+        .map(|_| generate_test_data(test_case.rows, test_case.cols))
+        .collect();
 
-    let mut baseline_time = 0.0;
-    let mut scalar_result: Option<Array1<f32>> = None;
+    // Warmup on the first dataset
+    warmup_implementations(&implementations, &datasets[0].0, &datasets[0].1);
 
-    // Benchmark all implementations
-    for (i, (name, implementation)) in implementations.iter().enumerate() {
-        let (result, time_seconds) = benchmark_implementation(
-            *implementation,
-            &test_data,
-            &test_weights,
-            test_case.iterations,
-        );
+    // Accumulate timing and accuracy per implementation
+    let mut total_times = vec![0.0_f64; implementations.len()];
+    let mut total_avg_err = vec![0.0_f32; implementations.len()];
+    let mut worst_max_err = vec![0.0_f32; implementations.len()];
+    let mut all_passed = vec![true; implementations.len()];
 
-        // Save baseline time and result from first implementation (scalar)
-        if i == 0 {
-            baseline_time = time_seconds;
-            scalar_result = Some(result.clone());
+    for (data, weights) in &datasets {
+        // Run scalar first to get the reference result
+        let start = Instant::now();
+        let mut scalar_result = Array1::zeros(data.ncols());
+        for _ in 0..test_case.iterations {
+            scalar_result = (implementations[0].1)(data, weights);
         }
+        total_times[0] += start.elapsed().as_secs_f64();
 
-        let speedup = baseline_time / time_seconds;
+        // Benchmark remaining implementations
+        for (idx, (_, func)) in implementations.iter().enumerate().skip(1) {
+            let start = Instant::now();
+            let mut result = Array1::zeros(data.ncols());
+            for _ in 0..test_case.iterations {
+                result = func(data, weights);
+            }
+            total_times[idx] += start.elapsed().as_secs_f64();
 
-        let benchmark_result = create_benchmark_result(
-            name.clone(),
-            test_case.name.clone(),
-            time_seconds,
-            speedup,
-            &result,
-            scalar_result.as_ref(),
-        );
-
-        results.push(benchmark_result);
+            let (passed, avg_err, max_err) =
+                verify_accuracy(&scalar_result, &result, ACCURACY_TOLERANCE);
+            total_avg_err[idx] += avg_err;
+            worst_max_err[idx] = worst_max_err[idx].max(max_err);
+            if !passed {
+                all_passed[idx] = false;
+            }
+        }
     }
 
-    results
-}
+    // Build results averaged over rounds
+    let n = RANDOM_ROUNDS as f64;
+    let baseline_time = total_times[0];
 
-fn format_error_percentage(error: f32) -> String {
-    if error == 0.0 {
-        "-".to_string()
-    } else {
-        format!("{:.2}", error * 100.0)
-    }
-}
-
-fn print_implementation_table(implementation_name: &str, results: &[BenchmarkResult]) {
-    println!("\n{implementation_name} Implementation Results:");
-    println!("==========================================================================");
-    println!(
-        "{:<12} {:>10} {:>10} {:>12} {:>12} {:>8}",
-        "Test Case", "Time (s)", "Speedup", "Avg Err (%)", "Max Err (%)", "Status"
-    );
-    println!("==========================================================================");
-
-    for result in results
+    implementations
         .iter()
-        .filter(|r| r.implementation == implementation_name)
-    {
+        .enumerate()
+        .map(|(idx, (name, _))| BenchmarkResult {
+            implementation: name.clone(),
+            test_case: test_case.name.clone(),
+            time_seconds: total_times[idx] / n,
+            speedup: baseline_time / total_times[idx],
+            accuracy_verified: all_passed[idx],
+            avg_rel_error: total_avg_err[idx] / n as f32,
+            max_rel_error: worst_max_err[idx],
+        })
+        .collect()
+}
+
+fn print_results_table(results: &[BenchmarkResult]) {
+    println!();
+    println!(
+        "========================================================================================"
+    );
+    println!(
+        "{:<14} {:<12} {:>10} {:>10} {:>12} {:>12} {:>8}",
+        "Impl", "Test Case", "Time (s)", "Speedup", "Avg Err (%)", "Max Err (%)", "Status"
+    );
+    println!(
+        "========================================================================================"
+    );
+
+    for result in results {
         let status = if result.accuracy_verified {
-            "✓ PASS"
+            "PASS"
         } else {
-            "✗ FAIL"
+            "FAIL"
         };
-        let avg_err_pct = format_error_percentage(result.avg_rel_error);
-        let max_err_pct = format_error_percentage(result.max_rel_error);
 
         println!(
-            "{:<12} {:>10.4} {:>9.2}x {:>12} {:>12} {:>8}",
-            result.test_case, result.time_seconds, result.speedup, avg_err_pct, max_err_pct, status
+            "{:<14} {:<12} {:>10.4} {:>9.2}x {:>12.2} {:>12.2} {:>8}",
+            result.implementation,
+            result.test_case,
+            result.time_seconds,
+            result.speedup,
+            result.avg_rel_error * 100.0,
+            result.max_rel_error * 100.0,
+            status
         );
     }
-    println!("==========================================================================");
+    println!(
+        "========================================================================================"
+    );
 }
 
 fn run_benchmark_suite(config: &BenchmarkConfig) -> Vec<BenchmarkResult> {
     let mut all_results = Vec::new();
 
-    // Run benchmarks for each test case
     for test_case in &config.test_cases {
         println!(
-            "Running benchmark for {} with {} iterations...",
-            test_case.name, test_case.iterations
+            "Running benchmark for {} ({} rounds x {} iterations)...",
+            test_case.name, RANDOM_ROUNDS, test_case.iterations
         );
         let case_results = benchmark_single_case(test_case);
         all_results.extend(case_results);
@@ -293,39 +288,27 @@ fn run_benchmark_suite(config: &BenchmarkConfig) -> Vec<BenchmarkResult> {
 fn save_results_to_tsv(results: &[BenchmarkResult], filename: &str) -> Result<(), std::io::Error> {
     let mut file = File::create(filename)?;
 
-    // Write TSV header
     writeln!(
         file,
         "Implementation\tTest Case\tTime (s)\tSpeedup\tAvg Err (%)\tMax Err (%)\tStatus"
     )?;
 
-    // Write data rows
     for result in results {
         let status = if result.accuracy_verified {
             "PASS"
         } else {
             "FAIL"
         };
-        let avg_err_pct = if result.avg_rel_error == 0.0 {
-            "-".to_string()
-        } else {
-            format!("{:.2}", result.avg_rel_error * 100.0)
-        };
-        let max_err_pct = if result.max_rel_error == 0.0 {
-            "-".to_string()
-        } else {
-            format!("{:.2}", result.max_rel_error * 100.0)
-        };
 
         writeln!(
             file,
-            "{}\t{}\t{:.4}\t{:.2}\t{}\t{}\t{}",
+            "{}\t{}\t{:.4}\t{:.2}\t{:.2}\t{:.2}\t{}",
             result.implementation,
             result.test_case,
             result.time_seconds,
             result.speedup,
-            avg_err_pct,
-            max_err_pct,
+            result.avg_rel_error * 100.0,
+            result.max_rel_error * 100.0,
             status
         )?;
     }
@@ -333,22 +316,15 @@ fn save_results_to_tsv(results: &[BenchmarkResult], filename: &str) -> Result<()
     Ok(())
 }
 
-fn print_results(results: &[BenchmarkResult]) {
-    // Print results table for each available implementation
-    let available_implementations = get_available_implementations();
-    for (implementation_name, _) in available_implementations {
-        print_implementation_table(&implementation_name, results);
-    }
-}
-
 fn main() {
     println!("Log Dot Product Benchmark Tool");
     println!("Architecture: {}", std::env::consts::ARCH);
+    println!("Random rounds per test case: {RANDOM_ROUNDS}");
     println!();
 
     let config = BenchmarkConfig::default();
     let results = run_benchmark_suite(&config);
-    print_results(&results);
+    print_results_table(&results);
 
     // Save results to TSV file
     const TSV_FILENAME: &str = "score_benchmark.tsv";

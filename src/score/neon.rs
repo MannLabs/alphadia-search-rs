@@ -109,6 +109,124 @@ unsafe fn fast_log_approx_neon(
     vaddq_f32(exponent_part, y)
 }
 
+/// Optimized NEON log-dot-product with bit-hack log, FMA, register accumulation,
+/// and 4x loop unrolling.
+#[cfg(target_arch = "aarch64")]
+pub fn axis_log_dot_product_neon_v2(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
+    use std::arch::aarch64::{
+        vaddq_f32, vcvtq_f32_s32, vdupq_n_f32, vdupq_n_s32, vfmaq_f32, vld1q_f32,
+        vreinterpretq_s32_f32, vst1q_f32, vsubq_s32,
+    };
+
+    let (n_rows, n_cols) = array.dim();
+
+    assert_eq!(
+        n_rows,
+        weights.len(),
+        "Number of rows in array must match the length of weights vector"
+    );
+
+    let mut result: Array1<f32> = Array1::zeros(n_cols);
+
+    const SIMD_WIDTH: usize = 4;
+    const UNROLL: usize = 4;
+    const BLOCK: usize = SIMD_WIDTH * UNROLL; // 16 floats per iteration
+    let block_cols = (n_cols / BLOCK) * BLOCK;
+    let simd_cols = (n_cols / SIMD_WIDTH) * SIMD_WIDTH;
+
+    // Precompute weight * SCALE per row to fold the scale multiply into the FMA
+    const SCALE: f32 = 8.262_958e-8;
+    let weight_scaled: Vec<f32> = weights.iter().map(|w| w * SCALE).collect();
+
+    unsafe {
+        let one_vec = vdupq_n_f32(1.0);
+        let magic_vec = vdupq_n_s32(0x3F7A0000);
+
+        // 4x unrolled path: process 16 floats per iteration
+        let mut j = 0;
+        while j < block_cols {
+            // Accumulate in registers across all rows
+            let mut acc0 = vdupq_n_f32(0.0);
+            let mut acc1 = vdupq_n_f32(0.0);
+            let mut acc2 = vdupq_n_f32(0.0);
+            let mut acc3 = vdupq_n_f32(0.0);
+
+            for i in 0..n_rows {
+                let row_ptr = array.as_ptr().add(i * n_cols + j);
+                let ws_vec = vdupq_n_f32(weight_scaled[i]);
+
+                // Lane 0
+                let d0 = vld1q_f32(row_ptr);
+                let v0 = vaddq_f32(d0, one_vec);
+                let bits0 = vreinterpretq_s32_f32(v0);
+                let shifted0 = vsubq_s32(bits0, magic_vec);
+                let log0 = vcvtq_f32_s32(shifted0);
+                acc0 = vfmaq_f32(acc0, log0, ws_vec);
+
+                // Lane 1
+                let d1 = vld1q_f32(row_ptr.add(SIMD_WIDTH));
+                let v1 = vaddq_f32(d1, one_vec);
+                let bits1 = vreinterpretq_s32_f32(v1);
+                let shifted1 = vsubq_s32(bits1, magic_vec);
+                let log1 = vcvtq_f32_s32(shifted1);
+                acc1 = vfmaq_f32(acc1, log1, ws_vec);
+
+                // Lane 2
+                let d2 = vld1q_f32(row_ptr.add(SIMD_WIDTH * 2));
+                let v2 = vaddq_f32(d2, one_vec);
+                let bits2 = vreinterpretq_s32_f32(v2);
+                let shifted2 = vsubq_s32(bits2, magic_vec);
+                let log2 = vcvtq_f32_s32(shifted2);
+                acc2 = vfmaq_f32(acc2, log2, ws_vec);
+
+                // Lane 3
+                let d3 = vld1q_f32(row_ptr.add(SIMD_WIDTH * 3));
+                let v3 = vaddq_f32(d3, one_vec);
+                let bits3 = vreinterpretq_s32_f32(v3);
+                let shifted3 = vsubq_s32(bits3, magic_vec);
+                let log3 = vcvtq_f32_s32(shifted3);
+                acc3 = vfmaq_f32(acc3, log3, ws_vec);
+            }
+
+            let result_ptr = result.as_mut_ptr().add(j);
+            vst1q_f32(result_ptr, acc0);
+            vst1q_f32(result_ptr.add(SIMD_WIDTH), acc1);
+            vst1q_f32(result_ptr.add(SIMD_WIDTH * 2), acc2);
+            vst1q_f32(result_ptr.add(SIMD_WIDTH * 3), acc3);
+
+            j += BLOCK;
+        }
+
+        // Handle remaining columns that fit in a single SIMD register
+        while j < simd_cols {
+            let mut acc = vdupq_n_f32(0.0);
+
+            for i in 0..n_rows {
+                let d = vld1q_f32(array.as_ptr().add(i * n_cols + j));
+                let v = vaddq_f32(d, one_vec);
+                let bits = vreinterpretq_s32_f32(v);
+                let shifted = vsubq_s32(bits, magic_vec);
+                let log_raw = vcvtq_f32_s32(shifted);
+                let ws_vec = vdupq_n_f32(weight_scaled[i]);
+                acc = vfmaq_f32(acc, log_raw, ws_vec);
+            }
+
+            vst1q_f32(result.as_mut_ptr().add(j), acc);
+            j += SIMD_WIDTH;
+        }
+    }
+
+    // Scalar tail for remaining columns
+    for j in simd_cols..n_cols {
+        for i in 0..n_rows {
+            let val = (array[[i, j]] + 1.0).ln();
+            result[j] += val * weights[i];
+        }
+    }
+
+    result
+}
+
 /// NEON-optimized implementation of sqrt-dot-product operation for aarch64
 #[cfg(target_arch = "aarch64")]
 pub fn axis_sqrt_dot_product_neon(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {

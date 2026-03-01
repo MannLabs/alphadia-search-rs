@@ -1,8 +1,11 @@
 use rand::prelude::*;
 
 use alphadia_search_rs::constants::FragmentType;
+#[cfg(target_arch = "aarch64")]
+use alphadia_search_rs::peak_group_scoring::utils::calculate_hyperscore_neon;
 use alphadia_search_rs::peak_group_scoring::utils::{
-    calculate_hyperscore_lut, calculate_hyperscore_scalar, calculate_hyperscore_weighted,
+    calculate_hyperscore_branchless, calculate_hyperscore_lut, calculate_hyperscore_naive,
+    calculate_hyperscore_weighted,
 };
 
 use super::runner::{BenchmarkCase, ImplList, TypedBenchmarkCase};
@@ -61,6 +64,15 @@ fn hyperscore_error(reference: &Vec<f32>, candidate: &Vec<f32>) -> (f32, f32) {
     (avg_rel, max_rel)
 }
 
+fn run_naive(data: &HyperscoreData) -> Vec<f32> {
+    data.fragment_types
+        .iter()
+        .zip(data.fragment_intensities.iter())
+        .zip(data.matched_masks.iter())
+        .map(|((types, intensities), mask)| calculate_hyperscore_naive(types, intensities, mask))
+        .collect()
+}
+
 fn run_stirling(data: &HyperscoreData) -> Vec<f32> {
     data.fragment_types
         .iter()
@@ -68,17 +80,6 @@ fn run_stirling(data: &HyperscoreData) -> Vec<f32> {
         .zip(data.matched_masks.iter())
         .map(|((types, intensities), mask)| {
             calculate_hyperscore_weighted(types, intensities, mask, None)
-        })
-        .collect()
-}
-
-fn run_scalar(data: &HyperscoreData) -> Vec<f32> {
-    data.fragment_types
-        .iter()
-        .zip(data.fragment_intensities.iter())
-        .zip(data.matched_masks.iter())
-        .map(|((types, intensities), mask)| {
-            calculate_hyperscore_scalar(types, intensities, mask, None)
         })
         .collect()
 }
@@ -94,14 +95,41 @@ fn run_lut(data: &HyperscoreData) -> Vec<f32> {
         .collect()
 }
 
+fn run_branchless(data: &HyperscoreData) -> Vec<f32> {
+    data.fragment_types
+        .iter()
+        .zip(data.fragment_intensities.iter())
+        .zip(data.matched_masks.iter())
+        .map(|((types, intensities), mask)| {
+            calculate_hyperscore_branchless(types, intensities, mask, None)
+        })
+        .collect()
+}
+
+#[cfg(target_arch = "aarch64")]
+fn run_neon(data: &HyperscoreData) -> Vec<f32> {
+    data.fragment_types
+        .iter()
+        .zip(data.fragment_intensities.iter())
+        .zip(data.matched_masks.iter())
+        .map(|((types, intensities), mask)| {
+            calculate_hyperscore_neon(types, intensities, mask, None)
+        })
+        .collect()
+}
+
 type HyperscoreImpls = ImplList<HyperscoreData, Vec<f32>>;
 
 fn hyperscore_impls() -> HyperscoreImpls {
-    vec![
-        ("Scalar", run_scalar as fn(&HyperscoreData) -> Vec<f32>),
+    let mut impls: HyperscoreImpls = vec![
+        ("Naive", run_naive as fn(&HyperscoreData) -> Vec<f32>),
         ("Stirling", run_stirling),
         ("LUT", run_lut),
-    ]
+        ("Branchless", run_branchless),
+    ];
+    #[cfg(target_arch = "aarch64")]
+    impls.push(("NEON", run_neon));
+    impls
 }
 
 fn make_hyperscore(
@@ -121,6 +149,8 @@ fn make_hyperscore(
 
 pub fn test_cases() -> Vec<Box<dyn BenchmarkCase>> {
     vec![
+        Box::new(make_hyperscore("hyperscore_12x1k", 12, 1_000)),
+        Box::new(make_hyperscore("hyperscore_48x1k", 48, 1_000)),
         Box::new(make_hyperscore("hyperscore_12x10k", 12, 10_000)),
         Box::new(make_hyperscore("hyperscore_48x10k", 48, 10_000)),
         Box::new(make_hyperscore("hyperscore_12x100k", 12, 100_000)),

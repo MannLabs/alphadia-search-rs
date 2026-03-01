@@ -176,20 +176,56 @@ pub fn correlation(x: &[f32], y: &[f32]) -> f32 {
     calculate_correlation_safe(x, y)
 }
 
+/// Naive hyperscore: straightforward loop with direct factorial computation.
+pub fn calculate_hyperscore_naive(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+) -> f32 {
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b = 0.0f32;
+    let mut sum_y = 0.0f32;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 {
+            continue;
+        }
+        if fragment_types[i] == FragmentType::B {
+            n_b += 1;
+            sum_b += fragment_intensities[i];
+        } else if fragment_types[i] == FragmentType::Y {
+            n_y += 1;
+            sum_y += fragment_intensities[i];
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let mut fb = 1.0f64;
+    for k in 2..=n_b {
+        fb *= k as f64;
+    }
+    let mut fy = 1.0f64;
+    for k in 2..=n_y {
+        fy *= k as f64;
+    }
+
+    let hs = fb.ln() as f32
+        + fy.ln() as f32
+        + if sum_b > 0.0 { sum_b.ln() } else { 0.0 }
+        + if sum_y > 0.0 { sum_y.ln() } else { 0.0 };
+
+    if hs.is_finite() {
+        hs
+    } else {
+        0.0
+    }
+}
+
 /// Calculate hyperscore with optional per-fragment weights
-///
-/// hyperscore = log(Nb! * Ny! * sum(Ib,i * w_i) * sum(Iy,i * w_i))
-/// where:
-/// - Nb = number of matched b-ions
-/// - Ny = number of matched y-ions
-/// - Ib,i = intensities of matched b-ions
-/// - Iy,i = intensities of matched y-ions
-/// - w_i = optional weight for each fragment (if None, uses 1.0)
-///
-/// Fragment types are encoded as ASCII values:
-/// - b-ion = 98 (ASCII 'b')
-/// - y-ion = 121 (ASCII 'y')
-///   (other fragment types exist but are not used in hyperscore)
 pub fn calculate_hyperscore_weighted(
     fragment_types: &[u8],
     fragment_intensities: &[f32],
@@ -497,6 +533,277 @@ pub fn calculate_longest_ion_series(
     let longest_y = find_longest_sequence(y_ions);
 
     (longest_b, longest_y)
+}
+
+/// Branchless hyperscore with LUT factorial.
+///
+/// Eliminates branches in the inner loop by using arithmetic masking
+/// and splits the weights/no-weights paths to avoid per-element Option checks.
+pub fn calculate_hyperscore_branchless(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    weights: Option<&[f32]>,
+) -> f32 {
+    let n = fragment_types.len();
+    if n != fragment_intensities.len() || n != matched_mask.len() {
+        return 0.0;
+    }
+    if let Some(w) = weights {
+        if w.len() != n {
+            return 0.0;
+        }
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b = 0.0f32;
+    let mut sum_y = 0.0f32;
+
+    match weights {
+        None => {
+            for i in 0..n {
+                let active = (matched_mask[i] as u32) & ((fragment_intensities[i] > 0.0) as u32);
+                let is_b = (fragment_types[i] == FragmentType::B) as u32;
+                let is_y = (fragment_types[i] == FragmentType::Y) as u32;
+                let ab = active & is_b;
+                let ay = active & is_y;
+                n_b += ab;
+                n_y += ay;
+                sum_b += fragment_intensities[i] * ab as f32;
+                sum_y += fragment_intensities[i] * ay as f32;
+            }
+        }
+        Some(w) => {
+            for i in 0..n {
+                let active = (matched_mask[i] as u32) & ((fragment_intensities[i] > 0.0) as u32);
+                let is_b = (fragment_types[i] == FragmentType::B) as u32;
+                let is_y = (fragment_types[i] == FragmentType::Y) as u32;
+                let ab = active & is_b;
+                let ay = active & is_y;
+                let wi = fragment_intensities[i] * w[i];
+                n_b += ab;
+                n_y += ay;
+                sum_b += wi * ab as f32;
+                sum_y += wi * ay as f32;
+            }
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let factorial_b = if n_b > 0 { ln_factorial_lut(n_b) } else { 0.0 };
+    let factorial_y = if n_y > 0 { ln_factorial_lut(n_y) } else { 0.0 };
+    let ln_sum_b = if sum_b > 0.0 { sum_b.ln() } else { 0.0 };
+    let ln_sum_y = if sum_y > 0.0 { sum_y.ln() } else { 0.0 };
+
+    let hs = factorial_b + factorial_y + ln_sum_b + ln_sum_y;
+    if hs.is_finite() {
+        hs
+    } else {
+        0.0
+    }
+}
+
+/// NEON SIMD hyperscore with branchless mask operations and LUT factorial.
+///
+/// Processes 8 fragments per iteration using NEON u8 comparison for type
+/// classification, sign-extending widening to u32 masks, and vectorized
+/// f32 accumulation.
+#[cfg(target_arch = "aarch64")]
+pub fn calculate_hyperscore_neon(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    weights: Option<&[f32]>,
+) -> f32 {
+    use std::arch::aarch64::*;
+
+    let n = fragment_types.len();
+    if n != fragment_intensities.len() || n != matched_mask.len() {
+        return 0.0;
+    }
+    if let Some(w) = weights {
+        if w.len() != n {
+            return 0.0;
+        }
+    }
+
+    // Sign-extend u8 comparison mask (0x00/0xFF) to full-width u32 mask
+    // (0x00000000/0xFFFFFFFF). vmovl_u8 zero-extends which only gives
+    // 0x000000FF, breaking AND-mask logic. Sign-extending via s8->s16->s32
+    // propagates all-ones correctly.
+    #[inline(always)]
+    unsafe fn widen_mask_lo(mask_u8: uint8x8_t) -> uint32x4_t {
+        use std::arch::aarch64::*;
+        let s8 = vreinterpret_s8_u8(mask_u8);
+        let s16 = vmovl_s8(s8);
+        vreinterpretq_u32_s32(vmovl_s16(vget_low_s16(s16)))
+    }
+
+    #[inline(always)]
+    unsafe fn widen_mask_hi(mask_u8: uint8x8_t) -> uint32x4_t {
+        use std::arch::aarch64::*;
+        let s8 = vreinterpret_s8_u8(mask_u8);
+        let s16 = vmovl_s8(s8);
+        vreinterpretq_u32_s32(vmovl_s16(vget_high_s16(s16)))
+    }
+
+    unsafe {
+        let b_ref = vdup_n_u8(FragmentType::B);
+        let y_ref = vdup_n_u8(FragmentType::Y);
+        let zero_u8 = vdup_n_u8(0);
+        let zero_f = vdupq_n_f32(0.0);
+        let one_u = vdupq_n_u32(1);
+
+        let mut sb0 = vdupq_n_f32(0.0);
+        let mut sb1 = vdupq_n_f32(0.0);
+        let mut sy0 = vdupq_n_f32(0.0);
+        let mut sy1 = vdupq_n_f32(0.0);
+        let mut cb = vdupq_n_u32(0);
+        let mut cy = vdupq_n_u32(0);
+
+        let type_ptr = fragment_types.as_ptr();
+        let int_ptr = fragment_intensities.as_ptr();
+        let mask_ptr = matched_mask.as_ptr() as *const u8;
+
+        // 2x-unrolled: process 8 elements per iteration (one full u8x8 register)
+        let block8 = n & !7;
+        let mut j = 0;
+        while j < block8 {
+            let t8 = vld1_u8(type_ptr.add(j));
+            let m8 = vld1_u8(mask_ptr.add(j));
+
+            let is_b = vceq_u8(t8, b_ref);
+            let is_y = vceq_u8(t8, y_ref);
+            let matched = vcgt_u8(m8, zero_u8);
+
+            let ib_lo = widen_mask_lo(is_b);
+            let ib_hi = widen_mask_hi(is_b);
+            let iy_lo = widen_mask_lo(is_y);
+            let iy_hi = widen_mask_hi(is_y);
+            let mt_lo = widen_mask_lo(matched);
+            let mt_hi = widen_mask_hi(matched);
+
+            let i_lo = vld1q_f32(int_ptr.add(j));
+            let i_hi = vld1q_f32(int_ptr.add(j + 4));
+
+            let gt_lo = vcgtq_f32(i_lo, zero_f);
+            let gt_hi = vcgtq_f32(i_hi, zero_f);
+
+            let act_lo = vandq_u32(mt_lo, gt_lo);
+            let act_hi = vandq_u32(mt_hi, gt_hi);
+
+            let ab_lo = vandq_u32(act_lo, ib_lo);
+            let ab_hi = vandq_u32(act_hi, ib_hi);
+            let ay_lo = vandq_u32(act_lo, iy_lo);
+            let ay_hi = vandq_u32(act_hi, iy_hi);
+
+            let (w_lo, w_hi) = match weights {
+                Some(w) => (
+                    vmulq_f32(i_lo, vld1q_f32(w.as_ptr().add(j))),
+                    vmulq_f32(i_hi, vld1q_f32(w.as_ptr().add(j + 4))),
+                ),
+                None => (i_lo, i_hi),
+            };
+
+            sb0 = vaddq_f32(sb0, vbslq_f32(ab_lo, w_lo, zero_f));
+            sb1 = vaddq_f32(sb1, vbslq_f32(ab_hi, w_hi, zero_f));
+            sy0 = vaddq_f32(sy0, vbslq_f32(ay_lo, w_lo, zero_f));
+            sy1 = vaddq_f32(sy1, vbslq_f32(ay_hi, w_hi, zero_f));
+
+            cb = vaddq_u32(
+                cb,
+                vaddq_u32(vandq_u32(ab_lo, one_u), vandq_u32(ab_hi, one_u)),
+            );
+            cy = vaddq_u32(
+                cy,
+                vaddq_u32(vandq_u32(ay_lo, one_u), vandq_u32(ay_hi, one_u)),
+            );
+
+            j += 8;
+        }
+
+        // Merge the two accumulator pairs
+        sb0 = vaddq_f32(sb0, sb1);
+        sy0 = vaddq_f32(sy0, sy1);
+
+        // Handle a remaining 4-element chunk
+        if j + 4 <= n {
+            let mut tbuf = [0u8; 8];
+            std::ptr::copy_nonoverlapping(type_ptr.add(j), tbuf.as_mut_ptr(), 4);
+            let t4 = vld1_u8(tbuf.as_ptr());
+
+            let mut mbuf = [0u8; 8];
+            std::ptr::copy_nonoverlapping(mask_ptr.add(j), mbuf.as_mut_ptr(), 4);
+            let m4 = vld1_u8(mbuf.as_ptr());
+
+            let is_b4 = widen_mask_lo(vceq_u8(t4, b_ref));
+            let is_y4 = widen_mask_lo(vceq_u8(t4, y_ref));
+            let mt4 = widen_mask_lo(vcgt_u8(m4, zero_u8));
+
+            let i4 = vld1q_f32(int_ptr.add(j));
+            let gt4 = vcgtq_f32(i4, zero_f);
+            let act4 = vandq_u32(mt4, gt4);
+            let ab4 = vandq_u32(act4, is_b4);
+            let ay4 = vandq_u32(act4, is_y4);
+
+            let w4 = match weights {
+                Some(w) => vmulq_f32(i4, vld1q_f32(w.as_ptr().add(j))),
+                None => i4,
+            };
+
+            sb0 = vaddq_f32(sb0, vbslq_f32(ab4, w4, zero_f));
+            sy0 = vaddq_f32(sy0, vbslq_f32(ay4, w4, zero_f));
+            cb = vaddq_u32(cb, vandq_u32(ab4, one_u));
+            cy = vaddq_u32(cy, vandq_u32(ay4, one_u));
+
+            j += 4;
+        }
+
+        // Horizontal reductions
+        let mut n_b = vaddvq_u32(cb);
+        let mut n_y = vaddvq_u32(cy);
+        let mut sum_b = vaddvq_f32(sb0);
+        let mut sum_y = vaddvq_f32(sy0);
+
+        // Scalar tail (0-3 remaining elements)
+        while j < n {
+            let ft = *type_ptr.add(j);
+            let fi = *int_ptr.add(j);
+            let fm = *mask_ptr.add(j) != 0;
+            if fm && fi > 0.0 {
+                let w = weights.map(|w| *w.as_ptr().add(j)).unwrap_or(1.0);
+                let wi = fi * w;
+                if ft == FragmentType::B {
+                    n_b += 1;
+                    sum_b += wi;
+                } else if ft == FragmentType::Y {
+                    n_y += 1;
+                    sum_y += wi;
+                }
+            }
+            j += 1;
+        }
+
+        if n_b == 0 && n_y == 0 {
+            return 0.0;
+        }
+
+        let factorial_b = if n_b > 0 { ln_factorial_lut(n_b) } else { 0.0 };
+        let factorial_y = if n_y > 0 { ln_factorial_lut(n_y) } else { 0.0 };
+        let ln_sum_b = if sum_b > 0.0 { sum_b.ln() } else { 0.0 };
+        let ln_sum_y = if sum_y > 0.0 { sum_y.ln() } else { 0.0 };
+
+        let hs = factorial_b + factorial_y + ln_sum_b + ln_sum_y;
+        if hs.is_finite() {
+            hs
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Calculate hyperscore with inverse mass error weighting

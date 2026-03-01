@@ -115,3 +115,133 @@ pub fn convolution_neon(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f3
 
     convolved
 }
+
+/// NEON-v2 convolution with FMA and 4x loop unrolling for better ILP.
+/// Exploits symmetric kernel and processes 16 output points per iteration.
+#[cfg(target_arch = "aarch64")]
+pub fn convolution_neon_v2(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
+    use std::arch::aarch64::{vaddq_f32, vdupq_n_f32, vfmaq_f32, vld1q_f32, vst1q_f32};
+
+    let (n_fragments, n_points) = xic.dim();
+    let kernel_size = kernel.kernel_array.len();
+    let half_kernel = kernel_size / 2;
+
+    let mut convolved: Array2<f32> = Array2::zeros((n_fragments, n_points));
+
+    if n_fragments == 0 || n_points == 0 || n_points < kernel_size {
+        return convolved;
+    }
+
+    let start_idx = half_kernel;
+    let end_idx = n_points.saturating_sub(half_kernel);
+
+    if start_idx >= end_idx {
+        return convolved;
+    }
+
+    const SIMD_WIDTH: usize = 4;
+    const UNROLL: usize = 4;
+    const BLOCK: usize = SIMD_WIDTH * UNROLL; // 16 points per iteration
+
+    let valid_len = end_idx - start_idx;
+    let block_end = start_idx + (valid_len / BLOCK) * BLOCK;
+    let simd_end = start_idx + (valid_len / SIMD_WIDTH) * SIMD_WIDTH;
+
+    for f_idx in 0..n_fragments {
+        let row_ptr = xic.as_ptr();
+        let row_base = f_idx * n_points;
+        let out_ptr = convolved.as_mut_ptr();
+
+        // 4x unrolled SIMD path
+        unsafe {
+            let center_kval = vdupq_n_f32(kernel.kernel_array[half_kernel]);
+
+            let mut i = start_idx;
+            while i < block_end {
+                let mut acc0 = vdupq_n_f32(0.0);
+                let mut acc1 = vdupq_n_f32(0.0);
+                let mut acc2 = vdupq_n_f32(0.0);
+                let mut acc3 = vdupq_n_f32(0.0);
+
+                // Center element
+                let c0 = vld1q_f32(row_ptr.add(row_base + i));
+                let c1 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH));
+                let c2 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH * 2));
+                let c3 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH * 3));
+                acc0 = vfmaq_f32(acc0, c0, center_kval);
+                acc1 = vfmaq_f32(acc1, c1, center_kval);
+                acc2 = vfmaq_f32(acc2, c2, center_kval);
+                acc3 = vfmaq_f32(acc3, c3, center_kval);
+
+                // Symmetric pairs
+                for k in 0..half_kernel {
+                    let kval = vdupq_n_f32(kernel.kernel_array[k]);
+                    let offset = half_kernel - k;
+
+                    let l0 = vld1q_f32(row_ptr.add(row_base + i - offset));
+                    let r0 = vld1q_f32(row_ptr.add(row_base + i + offset));
+                    let s0 = vaddq_f32(l0, r0);
+                    acc0 = vfmaq_f32(acc0, s0, kval);
+
+                    let l1 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH - offset));
+                    let r1 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH + offset));
+                    let s1 = vaddq_f32(l1, r1);
+                    acc1 = vfmaq_f32(acc1, s1, kval);
+
+                    let l2 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH * 2 - offset));
+                    let r2 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH * 2 + offset));
+                    let s2 = vaddq_f32(l2, r2);
+                    acc2 = vfmaq_f32(acc2, s2, kval);
+
+                    let l3 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH * 3 - offset));
+                    let r3 = vld1q_f32(row_ptr.add(row_base + i + SIMD_WIDTH * 3 + offset));
+                    let s3 = vaddq_f32(l3, r3);
+                    acc3 = vfmaq_f32(acc3, s3, kval);
+                }
+
+                vst1q_f32(out_ptr.add(row_base + i), acc0);
+                vst1q_f32(out_ptr.add(row_base + i + SIMD_WIDTH), acc1);
+                vst1q_f32(out_ptr.add(row_base + i + SIMD_WIDTH * 2), acc2);
+                vst1q_f32(out_ptr.add(row_base + i + SIMD_WIDTH * 3), acc3);
+
+                i += BLOCK;
+            }
+
+            // Remaining SIMD-width blocks
+            while i < simd_end {
+                let mut acc = vdupq_n_f32(0.0);
+
+                let c = vld1q_f32(row_ptr.add(row_base + i));
+                acc = vfmaq_f32(acc, c, center_kval);
+
+                for k in 0..half_kernel {
+                    let kval = vdupq_n_f32(kernel.kernel_array[k]);
+                    let offset = half_kernel - k;
+
+                    let l = vld1q_f32(row_ptr.add(row_base + i - offset));
+                    let r = vld1q_f32(row_ptr.add(row_base + i + offset));
+                    let s = vaddq_f32(l, r);
+                    acc = vfmaq_f32(acc, s, kval);
+                }
+
+                vst1q_f32(out_ptr.add(row_base + i), acc);
+                i += SIMD_WIDTH;
+            }
+
+            // Scalar tail
+            let xic_row = xic.row(f_idx);
+            let mut conv_row = convolved.row_mut(f_idx);
+            for i in simd_end..end_idx {
+                let mut sum = xic_row[i] * kernel.kernel_array[half_kernel];
+                for k in 0..half_kernel {
+                    let left_val = xic_row[i - (half_kernel - k)];
+                    let right_val = xic_row[i + (half_kernel - k)];
+                    sum += (left_val + right_val) * kernel.kernel_array[k];
+                }
+                conv_row[i] = sum;
+            }
+        }
+    }
+
+    convolved
+}

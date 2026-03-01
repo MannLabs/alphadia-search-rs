@@ -7,6 +7,10 @@ use alphadia_search_rs::benchmark::{
     benchmark_symmetric_kernel_simd,
 };
 use alphadia_search_rs::convolution::convolution;
+use alphadia_search_rs::convolution::scalar::convolution_scalar;
+
+#[cfg(target_arch = "aarch64")]
+use alphadia_search_rs::convolution::neon::convolution_neon_v2;
 use alphadia_search_rs::GaussianKernel;
 
 use super::runner::{BenchmarkCase, ImplList, TypedBenchmarkCase};
@@ -49,7 +53,15 @@ fn conv_error(reference: &Array2<f32>, candidate: &Array2<f32>) -> (f32, f32) {
     (sum_abs / n, max_abs)
 }
 
-fn run_original(data: &ConvData) -> Array2<f32> {
+fn run_scalar(data: &ConvData) -> Array2<f32> {
+    let mut out = Array2::zeros((0, 0));
+    for arr in &data.arrays {
+        out = convolution_scalar(&data.kernel, arr);
+    }
+    out
+}
+
+fn run_padded(data: &ConvData) -> Array2<f32> {
     let mut out = Array2::zeros((0, 0));
     for arr in &data.arrays {
         out = benchmark_padded_convolution(&data.kernel, arr);
@@ -97,17 +109,30 @@ fn run_production(data: &ConvData) -> Array2<f32> {
     out
 }
 
+#[cfg(target_arch = "aarch64")]
+fn run_neon_v2(data: &ConvData) -> Array2<f32> {
+    let mut out = Array2::zeros((0, 0));
+    for arr in &data.arrays {
+        out = convolution_neon_v2(&data.kernel, arr);
+    }
+    out
+}
+
 type ConvImpls = ImplList<ConvData, Array2<f32>>;
 
 fn conv_impls() -> ConvImpls {
-    vec![
-        ("Original", run_original as fn(&ConvData) -> Array2<f32>),
+    let mut v: ConvImpls = vec![
+        ("Scalar", run_scalar as fn(&ConvData) -> Array2<f32>),
+        ("Padded", run_padded),
         ("Branching", run_branching),
         ("Branching+SIMD", run_branching_simd),
         ("Nonpadded+SIMD", run_nonpadded_simd),
         ("Symmetric+SIMD", run_symmetric_simd),
         ("Nonpadded+Symmetric", run_production),
-    ]
+    ];
+    #[cfg(target_arch = "aarch64")]
+    v.push(("NEON-v2", run_neon_v2));
+    v
 }
 
 fn make_conv(

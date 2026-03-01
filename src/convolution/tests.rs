@@ -162,3 +162,106 @@ fn test_edge_case_kernel_larger_than_input() {
     // Verify
     assert_eq!(result.dim(), xic.dim());
 }
+
+#[cfg(target_arch = "aarch64")]
+mod tests_neon_v2 {
+    use crate::convolution::neon::convolution_neon_v2;
+    use crate::convolution::scalar::convolution_scalar;
+    use crate::kernel::GaussianKernel;
+    use numpy::ndarray::Array2;
+
+    #[test]
+    fn test_conv_neon_v2_vs_scalar() {
+        let kernel = GaussianKernel::new(2.0, 1.0, 20, 1.0);
+        let n_fragments = 12;
+        let n_cols = 100;
+
+        let mut xic = Array2::<f32>::zeros((n_fragments, n_cols));
+        for i in 0..n_fragments {
+            for j in 0..n_cols {
+                xic[[i, j]] = ((i * n_cols + j) as f32 * 0.1).sin().abs();
+            }
+        }
+
+        let scalar_result = convolution_scalar(&kernel, &xic);
+        let v2_result = convolution_neon_v2(&kernel, &xic);
+
+        assert_eq!(scalar_result.dim(), v2_result.dim());
+
+        let half_kernel = kernel.kernel_array.len() / 2;
+        for i in 0..n_fragments {
+            for j in half_kernel..(n_cols - half_kernel) {
+                let s = scalar_result[[i, j]];
+                let v = v2_result[[i, j]];
+                let diff = (s - v).abs();
+                assert!(
+                    diff < 1e-5,
+                    "Fragment {} col {}: scalar={}, v2={}, diff={}",
+                    i,
+                    j,
+                    s,
+                    v,
+                    diff
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_conv_neon_v2_unaligned_cols() {
+        let kernel = GaussianKernel::new(0.5, 1.0, 5, 1.0);
+
+        let mut xic = Array2::<f32>::zeros((3, 23));
+        for i in 0..3 {
+            for j in 0..23 {
+                xic[[i, j]] = (j as f32) * 0.1 + (i as f32);
+            }
+        }
+
+        let scalar_result = convolution_scalar(&kernel, &xic);
+        let v2_result = convolution_neon_v2(&kernel, &xic);
+
+        assert_eq!(scalar_result.dim(), v2_result.dim());
+
+        let half_kernel = kernel.kernel_array.len() / 2;
+        for i in 0..3 {
+            for j in half_kernel..(23 - half_kernel) {
+                let diff = (scalar_result[[i, j]] - v2_result[[i, j]]).abs();
+                assert!(diff < 1e-5, "Fragment {} col {}: diff={}", i, j, diff);
+            }
+        }
+    }
+
+    #[test]
+    fn test_conv_neon_v2_wide_matrix() {
+        let kernel = GaussianKernel::new(2.0, 1.0, 20, 1.0);
+        let n_fragments = 48;
+        let n_cols = 10000;
+
+        let mut xic = Array2::<f32>::zeros((n_fragments, n_cols));
+        for i in 0..n_fragments {
+            for j in 0..n_cols {
+                xic[[i, j]] = ((i * n_cols + j) as f32 * 0.001).sin().abs();
+            }
+        }
+
+        let scalar_result = convolution_scalar(&kernel, &xic);
+        let v2_result = convolution_neon_v2(&kernel, &xic);
+
+        assert_eq!(scalar_result.dim(), v2_result.dim());
+
+        let half_kernel = kernel.kernel_array.len() / 2;
+        let mut max_diff: f32 = 0.0;
+        for i in 0..n_fragments {
+            for j in half_kernel..(n_cols - half_kernel) {
+                let diff = (scalar_result[[i, j]] - v2_result[[i, j]]).abs();
+                max_diff = max_diff.max(diff);
+            }
+        }
+        assert!(
+            max_diff < 1e-4,
+            "Max absolute difference too high: {}",
+            max_diff
+        );
+    }
+}

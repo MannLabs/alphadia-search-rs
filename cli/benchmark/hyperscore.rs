@@ -128,7 +128,7 @@ fn hyperscore_impls() -> HyperscoreImpls {
         ("Branchless", run_branchless),
     ];
     #[cfg(target_arch = "aarch64")]
-    impls.push(("NEON", run_neon));
+    impls.push(("NEON-v2", run_neon));
     impls
 }
 

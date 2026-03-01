@@ -1,5 +1,7 @@
 #[cfg(target_arch = "aarch64")]
-use super::neon::{axis_log_dot_product_neon, axis_sqrt_dot_product_neon};
+use super::neon::{
+    axis_log_dot_product_neon, axis_log_dot_product_neon_v2, axis_sqrt_dot_product_neon,
+};
 #[cfg(target_arch = "aarch64")]
 use super::scalar::{axis_log_dot_product_scalar, axis_sqrt_dot_product_scalar};
 #[cfg(target_arch = "aarch64")]
@@ -178,6 +180,104 @@ fn test_unaligned_data_handling() {
             (s - v).abs() / s.abs() * 100.0
         );
     }
+}
+
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn test_neon_v2_vs_scalar() {
+    let n_rows = 5;
+    let n_cols = 20;
+    let mut data = Array2::zeros((n_rows, n_cols));
+    let mut weights = Vec::with_capacity(n_rows);
+
+    for i in 0..n_rows {
+        weights.push((i as f32) * 0.5 + 0.5);
+        for j in 0..n_cols {
+            data[[i, j]] = (i as f32) * 0.5 + (j as f32) * 0.25;
+        }
+    }
+
+    let scalar_result = axis_log_dot_product_scalar(&data, &weights);
+    let v2_result = axis_log_dot_product_neon_v2(&data, &weights);
+
+    for (j, (s, v)) in scalar_result.iter().zip(v2_result.iter()).enumerate() {
+        let rel_diff = (s - v).abs() / s.abs();
+        assert!(
+            rel_diff < 0.15,
+            "Value {} differs too much: scalar={}, v2={}, rel_diff={:.2}%",
+            j,
+            s,
+            v,
+            rel_diff * 100.0
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn test_neon_v2_unaligned_cols() {
+    use numpy::ndarray::arr2;
+
+    let array = arr2(&[
+        [0.1, 0.2, 0.3, 0.4, 0.5],
+        [0.6, 0.7, 0.8, 0.9, 1.0],
+        [1.1, 1.2, 1.3, 1.4, 1.5],
+    ]);
+    let weights = vec![0.5, 1.0, 1.5];
+
+    let scalar_result = axis_log_dot_product_scalar(&array, &weights);
+    let v2_result = axis_log_dot_product_neon_v2(&array, &weights);
+
+    for (j, (s, v)) in scalar_result.iter().zip(v2_result.iter()).enumerate() {
+        let rel_diff = (s - v).abs() / s.abs();
+        assert!(
+            rel_diff < 0.15,
+            "Value {} differs too much: scalar={}, v2={}, rel_diff={:.2}%",
+            j,
+            s,
+            v,
+            rel_diff * 100.0
+        );
+    }
+}
+
+#[test]
+#[cfg(target_arch = "aarch64")]
+fn test_neon_v2_wide_matrix() {
+    let n_rows = 12;
+    let n_cols = 100;
+    let mut data = Array2::zeros((n_rows, n_cols));
+    let mut weights = Vec::with_capacity(n_rows);
+
+    for i in 0..n_rows {
+        weights.push((i as f32) * 0.3 + 0.1);
+        for j in 0..n_cols {
+            data[[i, j]] = 0.1 * (j as f32 + 1.0) + 0.5 * (i as f32);
+        }
+    }
+
+    let scalar_result = axis_log_dot_product_scalar(&data, &weights);
+    let v2_result = axis_log_dot_product_neon_v2(&data, &weights);
+
+    let mut max_rel_diff: f32 = 0.0;
+    let mut sum_rel_diff: f32 = 0.0;
+    for j in 0..n_cols {
+        let rel_diff = (scalar_result[j] - v2_result[j]).abs() / scalar_result[j].abs();
+        max_rel_diff = max_rel_diff.max(rel_diff);
+        sum_rel_diff += rel_diff;
+    }
+    let avg_rel_diff = sum_rel_diff / n_cols as f32;
+
+    assert!(
+        avg_rel_diff < 0.10,
+        "Average relative difference too high: {:.2}%",
+        avg_rel_diff * 100.0
+    );
+    assert!(
+        max_rel_diff < 0.15,
+        "Max relative difference too high: {:.2}%",
+        max_rel_diff * 100.0
+    );
 }
 
 #[test]

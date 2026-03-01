@@ -8,7 +8,6 @@ use alphadia_search_rs::score::scalar::{
 #[cfg(target_arch = "aarch64")]
 use alphadia_search_rs::score::neon::{
     axis_log_dot_product_neon, axis_log_dot_product_neon_v2, axis_sqrt_dot_product_neon,
-    axis_sqrt_dot_product_neon_v2,
 };
 
 use super::runner::{BenchmarkCase, ImplList, TypedBenchmarkCase};
@@ -68,11 +67,6 @@ fn sqrt_dot_neon(data: &ScoreData) -> Array1<f32> {
     axis_sqrt_dot_product_neon(&data.array, &data.weights)
 }
 
-#[cfg(target_arch = "aarch64")]
-fn sqrt_dot_neon_v2(data: &ScoreData) -> Array1<f32> {
-    axis_sqrt_dot_product_neon_v2(&data.array, &data.weights)
-}
-
 type ScoreImpls = ImplList<ScoreData, Array1<f32>>;
 
 fn log_dot_impls() -> ScoreImpls {
@@ -88,8 +82,6 @@ fn sqrt_dot_impls() -> ScoreImpls {
     let mut v: ScoreImpls = vec![("Scalar", sqrt_dot_scalar)];
     #[cfg(target_arch = "aarch64")]
     v.push(("NEON", sqrt_dot_neon));
-    #[cfg(target_arch = "aarch64")]
-    v.push(("NEON-v2", sqrt_dot_neon_v2));
     v
 }
 

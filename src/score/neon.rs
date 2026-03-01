@@ -284,6 +284,92 @@ pub fn axis_sqrt_dot_product_neon(array: &Array2<f32>, weights: &[f32]) -> Array
     result
 }
 
+/// Optimized NEON sqrt-dot-product with exact hardware vsqrtq, FMA,
+/// register accumulation, and 4x loop unrolling.
+#[cfg(target_arch = "aarch64")]
+pub fn axis_sqrt_dot_product_neon_v2(array: &Array2<f32>, weights: &[f32]) -> Array1<f32> {
+    use std::arch::aarch64::{vdupq_n_f32, vfmaq_f32, vld1q_f32, vmaxq_f32, vsqrtq_f32, vst1q_f32};
+
+    let (n_rows, n_cols) = array.dim();
+
+    assert_eq!(
+        n_rows,
+        weights.len(),
+        "Number of rows in array must match the length of weights vector"
+    );
+
+    let mut result: Array1<f32> = Array1::zeros(n_cols);
+
+    const SIMD_WIDTH: usize = 4;
+    const UNROLL: usize = 4;
+    const BLOCK: usize = SIMD_WIDTH * UNROLL;
+    let block_cols = (n_cols / BLOCK) * BLOCK;
+    let simd_cols = (n_cols / SIMD_WIDTH) * SIMD_WIDTH;
+
+    unsafe {
+        let zero_vec = vdupq_n_f32(0.0);
+
+        // 4x unrolled path
+        let mut j = 0;
+        while j < block_cols {
+            let mut acc0 = vdupq_n_f32(0.0);
+            let mut acc1 = vdupq_n_f32(0.0);
+            let mut acc2 = vdupq_n_f32(0.0);
+            let mut acc3 = vdupq_n_f32(0.0);
+
+            for i in 0..n_rows {
+                let row_ptr = array.as_ptr().add(i * n_cols + j);
+                let w_vec = vdupq_n_f32(weights[i]);
+
+                let s0 = vsqrtq_f32(vmaxq_f32(vld1q_f32(row_ptr), zero_vec));
+                acc0 = vfmaq_f32(acc0, s0, w_vec);
+
+                let s1 = vsqrtq_f32(vmaxq_f32(vld1q_f32(row_ptr.add(SIMD_WIDTH)), zero_vec));
+                acc1 = vfmaq_f32(acc1, s1, w_vec);
+
+                let s2 = vsqrtq_f32(vmaxq_f32(vld1q_f32(row_ptr.add(SIMD_WIDTH * 2)), zero_vec));
+                acc2 = vfmaq_f32(acc2, s2, w_vec);
+
+                let s3 = vsqrtq_f32(vmaxq_f32(vld1q_f32(row_ptr.add(SIMD_WIDTH * 3)), zero_vec));
+                acc3 = vfmaq_f32(acc3, s3, w_vec);
+            }
+
+            let result_ptr = result.as_mut_ptr().add(j);
+            vst1q_f32(result_ptr, acc0);
+            vst1q_f32(result_ptr.add(SIMD_WIDTH), acc1);
+            vst1q_f32(result_ptr.add(SIMD_WIDTH * 2), acc2);
+            vst1q_f32(result_ptr.add(SIMD_WIDTH * 3), acc3);
+
+            j += BLOCK;
+        }
+
+        // Remaining SIMD-width blocks
+        while j < simd_cols {
+            let mut acc = vdupq_n_f32(0.0);
+
+            for i in 0..n_rows {
+                let d = vmaxq_f32(vld1q_f32(array.as_ptr().add(i * n_cols + j)), zero_vec);
+                let s = vsqrtq_f32(d);
+                let w_vec = vdupq_n_f32(weights[i]);
+                acc = vfmaq_f32(acc, s, w_vec);
+            }
+
+            vst1q_f32(result.as_mut_ptr().add(j), acc);
+            j += SIMD_WIDTH;
+        }
+    }
+
+    // Scalar tail
+    for j in simd_cols..n_cols {
+        for i in 0..n_rows {
+            let val = (array[[i, j]].max(0.0)).sqrt();
+            result[j] += val * weights[i];
+        }
+    }
+
+    result
+}
+
 /// NEON fast square root approximation
 #[cfg(target_arch = "aarch64")]
 unsafe fn fast_sqrt_approx_neon(

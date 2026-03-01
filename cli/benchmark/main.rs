@@ -8,6 +8,7 @@
 //! ```
 
 mod convolution;
+mod hyperscore;
 mod runner;
 mod score;
 
@@ -107,6 +108,7 @@ fn main() {
 
     let mut all_cases = score::test_cases();
     all_cases.extend(convolution::test_cases());
+    all_cases.extend(hyperscore::test_cases());
 
     let cases: Vec<_> = match &tag_filter {
         Some(tag) => all_cases
@@ -121,7 +123,7 @@ fn main() {
             "No test cases matched tag filter '{}'",
             tag_filter.unwrap_or_default()
         );
-        eprintln!("Available tags: log_dot, sqrt_dot, conv");
+        eprintln!("Available tags: log_dot, sqrt_dot, conv, hyperscore");
         std::process::exit(1);
     }
 

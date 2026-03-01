@@ -289,7 +289,6 @@ pub fn calculate_hyperscore(
 
 /// Natural logarithm of gamma function using Stirling's approximation
 /// For factorial calculation: ln(n!) = ln(Γ(n+1))
-/// Always uses approximation as requested, except for special cases
 fn gamma_ln(x: f32) -> f32 {
     if x <= 0.0 {
         return 0.0;
@@ -306,6 +305,142 @@ fn gamma_ln(x: f32) -> f32 {
     // Stirling's approximation: ln(Γ(x)) ≈ (x-0.5)*ln(x) - x + 0.5*ln(2π)
     let ln_2pi = 1.837_877_f32;
     (x - 0.5) * x.ln() - x + 0.5 * ln_2pi
+}
+
+/// ln(n!) computed by iterative multiplication then a single ln call.
+/// Exact for all representable n! in f64, then cast to f32.
+fn ln_factorial_scalar(n: u32) -> f32 {
+    if n <= 1 {
+        return 0.0;
+    }
+    let mut product = 1.0_f64;
+    for i in 2..=n {
+        product *= i as f64;
+    }
+    product.ln() as f32
+}
+
+/// ln(n!) from a precomputed lookup table.
+/// Covers n=0..64; panics on n>64 (fragments never exceed ~48).
+#[allow(clippy::approx_constant, clippy::excessive_precision)]
+fn ln_factorial_lut(n: u32) -> f32 {
+    const LN_FACTORIAL: [f32; 65] = [
+        0.0, 0.0, 0.693_147, 1.791_759, 3.178_054, 4.787_492, 6.579_251, 8.525_162, 10.604_602,
+        12.801_827, 15.104_413, 17.502_308, 19.987_214, 22.552_164, 25.191_221, 27.899_271,
+        30.671_86, 33.505_074, 36.395_445, 39.339_884, 42.335_617, 45.380_14, 48.471_18, 51.606_72,
+        54.784_73, 58.003_605, 61.261_7, 64.557_54, 67.889_74, 71.257_04, 74.658_24, 78.092_22,
+        81.557_96, 85.054_47, 88.580_83, 92.136_17, 95.719_67, 99.330_61, 102.968_18, 106.631_76,
+        110.320_64, 114.034_21, 117.771_88, 121.533_08, 125.317_27, 129.123_95, 132.952_57,
+        136.802_72, 140.673_92, 144.565_74, 148.477_77, 152.409_59, 156.360_77, 160.330_91,
+        164.319_61, 168.326_47, 172.351_1, 176.393_12, 180.452_14, 184.527_8, 188.619_74,
+        192.727_64, 196.851_14, 200.989_92, 205.143_64,
+    ];
+    LN_FACTORIAL[n as usize]
+}
+
+/// Hyperscore using iterative scalar factorial (no Stirling approximation).
+pub fn calculate_hyperscore_scalar(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    weights: Option<&[f32]>,
+) -> f32 {
+    hyperscore_core(
+        fragment_types,
+        fragment_intensities,
+        matched_mask,
+        weights,
+        ln_factorial_scalar,
+    )
+}
+
+/// Hyperscore using precomputed lookup table for ln(n!).
+pub fn calculate_hyperscore_lut(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    weights: Option<&[f32]>,
+) -> f32 {
+    hyperscore_core(
+        fragment_types,
+        fragment_intensities,
+        matched_mask,
+        weights,
+        ln_factorial_lut,
+    )
+}
+
+/// Shared hyperscore logic parameterized by the ln(n!) function.
+fn hyperscore_core(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    weights: Option<&[f32]>,
+    ln_factorial_fn: fn(u32) -> f32,
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+    {
+        return 0.0;
+    }
+
+    if let Some(w) = weights {
+        if w.len() != fragment_types.len() {
+            return 0.0;
+        }
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut weighted_sum_b = 0.0f32;
+    let mut weighted_sum_y = 0.0f32;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 {
+            continue;
+        }
+
+        let weight = weights.map(|w| w[i]).unwrap_or(1.0);
+        let weighted_intensity = fragment_intensities[i] * weight;
+
+        match fragment_types[i] {
+            FragmentType::B => {
+                n_b += 1;
+                weighted_sum_b += weighted_intensity;
+            }
+            FragmentType::Y => {
+                n_y += 1;
+                weighted_sum_y += weighted_intensity;
+            }
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let factorial_b = if n_b > 0 { ln_factorial_fn(n_b) } else { 0.0 };
+    let factorial_y = if n_y > 0 { ln_factorial_fn(n_y) } else { 0.0 };
+
+    let ln_sum_b = if weighted_sum_b > 0.0 {
+        weighted_sum_b.ln()
+    } else {
+        0.0
+    };
+    let ln_sum_y = if weighted_sum_y > 0.0 {
+        weighted_sum_y.ln()
+    } else {
+        0.0
+    };
+
+    let hyperscore = factorial_b + factorial_y + ln_sum_b + ln_sum_y;
+
+    if hyperscore.is_finite() {
+        hyperscore
+    } else {
+        0.0
+    }
 }
 
 /// Calculate longest continuous b and y ion series scores

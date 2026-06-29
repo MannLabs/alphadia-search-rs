@@ -143,8 +143,10 @@ impl PeakGroupScoring {
         let median_profile_sum_filtered = median_profile_filtered.iter().sum::<f32>();
 
         let fwhm_rt = calculate_fwhm_rt(
-            &median_profile_filtered,
+            &dense_xic_mz_obs.dense_xic,
+            &precursor.fragment_intensity,
             cycle_start_idx,
+            cycle_stop_idx,
             &dia_data.rt_index().rt,
         );
 

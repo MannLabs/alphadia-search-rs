@@ -7,7 +7,7 @@ use super::utils::{
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
 #[allow(unused_imports)]
-use numpy::ndarray::{arr1, arr2, Array1};
+use numpy::ndarray::{arr1, arr2, Array1, Array2};
 
 #[test]
 fn test_median_axis_0_basic() {
@@ -912,30 +912,45 @@ fn test_intensity_ion_series_no_matches() {
 
 #[test]
 fn test_calculate_fwhm_rt_basic() {
-    // Given: Simple XIC profile with clear peak
-    let xic_profile = vec![0.0, 50.0, 100.0, 50.0, 0.0]; // Triangular peak
+    // Given: Single fragment XIC profile with a clear peak (1 cycle above half max)
+    let dense_xic = arr2(&[[0.0, 50.0, 100.0, 50.0, 0.0]]);
+    let fragment_intensity = vec![1.0];
     let cycle_start_idx = 10;
+    let cycle_stop_idx = 15;
     let rt_values = arr1(&[
         0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
     ]);
 
     // When: Calculating FWHM
-    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+    let fwhm = calculate_fwhm_rt(
+        &dense_xic,
+        &fragment_intensity,
+        cycle_start_idx,
+        cycle_stop_idx,
+        &rt_values,
+    );
 
-    // Then: Should return reasonable FWHM value
-    assert!(fwhm > 0.0);
-    assert!(fwhm < 5.0); // Should be within reasonable range
+    // Then: fraction above half max (1/5) times the window RT span (rt[14]-rt[10]=4)
+    assert!((fwhm - 0.8).abs() < 1e-5);
 }
 
 #[test]
 fn test_calculate_fwhm_rt_empty_profile() {
-    // Given: Empty XIC profile
-    let xic_profile = vec![];
+    // Given: Empty XIC profile (no cycles)
+    let dense_xic = Array2::<f32>::zeros((0, 0));
+    let fragment_intensity: Vec<f32> = vec![];
     let cycle_start_idx = 0;
+    let cycle_stop_idx = 0;
     let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 
     // When: Calculating FWHM
-    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+    let fwhm = calculate_fwhm_rt(
+        &dense_xic,
+        &fragment_intensity,
+        cycle_start_idx,
+        cycle_stop_idx,
+        &rt_values,
+    );
 
     // Then: Should return 0
     assert_eq!(fwhm, 0.0);

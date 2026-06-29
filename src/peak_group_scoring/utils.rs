@@ -436,41 +436,56 @@ pub fn calculate_dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
 }
 
-/// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile
+/// Calculate the intensity-weighted retention time FWHM across fragment XIC profiles.
 ///
-/// Finds the maximum peak in the XIC slice and calculates the FWHM by finding points
-/// where the intensity is half of the maximum. The slice should be centered at the maximum
-/// and have an odd number of elements.
+/// Port of the Python `profile_features` cycle_fwhm: for each fragment, the fraction of
+/// cycles with intensity above half of that fragment's own maximum is multiplied by the
+/// RT span of the extraction window, then averaged across fragments weighted by library
+/// fragment intensity. Unlike the Python implementation there is no separate observation
+/// dimension here - the NG backend sums observations into `dense_xic` - so the fraction is
+/// computed on the summed-over-observations profile rather than per observation.
 ///
 /// Parameters:
-/// - xic_profile: Intensity profile (median profile across fragments)
+/// - dense_xic: Intensity matrix [fragment_index, cycle_index]
+/// - fragment_intensity: Library intensity per fragment, used as aggregation weights
 /// - cycle_start_idx: Starting cycle index in the RT array
 /// - cycle_stop_idx: Ending cycle index in the RT array (exclusive)
-/// - rt_values: Array of retention time values
+/// - rt_values: Array of retention time values, indexed by cycle
 ///
 /// Returns:
-/// - FWHM in retention time units, or 0.0 if cannot be calculated
+/// - Intensity-weighted FWHM in retention time units, or 0.0 if it cannot be calculated
 pub fn calculate_fwhm_rt(
-    xic_profile: &[f32],
+    dense_xic: &Array2<f32>,
+    fragment_intensity: &[f32],
     cycle_start_idx: usize,
+    cycle_stop_idx: usize,
     rt_values: &Array1<f32>,
 ) -> f32 {
-    if xic_profile.is_empty() {
+    let n_cycles = dense_xic.ncols();
+    if n_cycles == 0 || cycle_stop_idx <= cycle_start_idx {
         return 0.0;
     }
 
-    let half_size = xic_profile.len() / 2;
-    let center_intensity = xic_profile[half_size];
-
-    for i in 0..half_size {
-        let mean_intensity = (xic_profile[half_size - i] + xic_profile[half_size + i]) / 2.0;
-
-        if mean_intensity <= center_intensity / 2.0 {
-            let left_rt = rt_values[cycle_start_idx + half_size - i];
-            let right_rt = rt_values[cycle_start_idx + half_size + i];
-            return right_rt - left_rt;
-        }
+    let intensity_sum: f32 = fragment_intensity.iter().sum();
+    if intensity_sum <= 0.0 {
+        return 0.0;
     }
 
-    0.0
+    let rt_width = rt_values[cycle_stop_idx - 1] - rt_values[cycle_start_idx];
+
+    let mut weighted_fwhm = 0.0;
+    for (f_idx, row) in dense_xic.rows().into_iter().enumerate() {
+        let max_intensity = row.iter().copied().fold(0.0_f32, f32::max);
+        if max_intensity <= 0.0 {
+            continue;
+        }
+
+        let half_max = max_intensity / 2.0;
+        let n_above = row.iter().filter(|&&value| value > half_max).count();
+        let fraction_above = n_above as f32 / n_cycles as f32;
+
+        weighted_fwhm += fraction_above * rt_width * fragment_intensity[f_idx] / intensity_sum;
+    }
+
+    weighted_fwhm
 }

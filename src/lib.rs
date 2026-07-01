@@ -87,6 +87,7 @@ fn get_num_threads() -> PyResult<usize> {
 
 #[pymodule]
 fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    eprintln!("This is a test");
     m.add_class::<DIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<SpecLibFlatQuantified>()?;

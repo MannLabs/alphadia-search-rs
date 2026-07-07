@@ -942,6 +942,62 @@ fn test_calculate_fwhm_rt_empty_profile() {
 }
 
 #[test]
+fn test_calculate_fwhm_rt_interpolates_between_cycles() {
+    // Given: symmetric peak whose half-max (5.0) falls halfway between cycles
+    let xic_profile = vec![0.0, 10.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0]);
+
+    // When
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: crossings interpolated at rt=0.5 and rt=1.5 -> width 1.0
+    assert!((fwhm - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_fwhm_rt_off_center_apex() {
+    // Given: apex is not at the center of the profile
+    let xic_profile = vec![0.0, 100.0, 50.0, 0.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0]);
+
+    // When
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: half-max 50; left crossing interpolated at rt=0.5, right crossing at rt=2.0
+    assert!((fwhm - 1.5).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_fwhm_rt_asymmetric_peak() {
+    // Given: sharp rise, slow decay -> flanks measured independently
+    let xic_profile = vec![0.0, 100.0, 100.0, 50.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0]);
+
+    // When
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: apex at idx 1 (or 2, equal); left crossing at rt=0.5, right crossing at rt=3.0
+    assert!((fwhm - 2.5).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_fwhm_rt_no_crossing_clamps_to_window() {
+    // Given: profile never falls to half maximum
+    let xic_profile = vec![80.0, 100.0, 90.0];
+    let cycle_start_idx = 2;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+
+    // When
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: both flanks clamp to the profile edges -> full window width (rt[4]-rt[2])
+    assert!((fwhm - 2.0).abs() < 1e-6);
+}
+
+#[test]
 fn test_calculate_dot_product_basic() {
     let a = vec![1.0, 2.0, 3.0];
     let b = vec![4.0, 5.0, 6.0];

@@ -9,8 +9,6 @@ pub mod estimator;
 pub mod loess;
 
 #[cfg(test)]
-mod parity_tests;
-#[cfg(test)]
 mod tests;
 
 use numpy::{IntoPyArray, PyArray1};

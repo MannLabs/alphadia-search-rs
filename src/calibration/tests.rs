@@ -59,6 +59,75 @@ fn test_fit_predict_quadratic() {
     }
 }
 
+/// Deterministic pseudo-noise in `[-1, 1]` (no RNG, reproducible across runs).
+fn pseudo_noise(i: usize) -> f32 {
+    let s = (i as f32 * 12.9898).sin() * 43758.5;
+    (s - s.floor()) * 2.0 - 1.0
+}
+
+#[test]
+fn test_loess_recovers_smooth_ground_truth() {
+    // Ground truth: a smooth non-linear function. LOESS should recover it from
+    // noisy samples by averaging the noise out.
+    let truth = |x: f32| (x * 0.5).sin() * 3.0 + 0.05 * x * x;
+
+    let n = 2000;
+    let x: Vec<f32> = (0..n).map(|i| 10.0 * i as f32 / (n - 1) as f32).collect(); // 0..10
+    let noise_amp = 0.3;
+    let y: Vec<f32> = x
+        .iter()
+        .enumerate()
+        .map(|(i, &xi)| truth(xi) + noise_amp * pseudo_noise(i))
+        .collect();
+
+    let mut model = LoessRegression::new(6, 2.0, 2);
+    model.fit(&x, &y).expect("fit should succeed");
+    let pred = model.predict(&x);
+
+    // The fitted curve should track the ground truth well within the noise level.
+    let errors: Vec<f32> = x
+        .iter()
+        .zip(&pred)
+        .map(|(&xi, &p)| (p - truth(xi)).abs())
+        .collect();
+    let med = median(&errors);
+    assert!(
+        med < 0.1,
+        "median error vs ground truth = {med} (noise amp {noise_amp})"
+    );
+}
+
+#[test]
+fn test_estimator_recovers_ppm_drift_ground_truth() {
+    // Ground truth: a smoothly varying m/z drift (4 .. 12 ppm across the range).
+    // The estimator should recover it from noisy observed values.
+    let true_ppm = |mz: f32| 8e-6 - 4e-6 * (mz - 700.0) / 500.0;
+
+    let n = 3000;
+    let library: Vec<f32> = (0..n)
+        .map(|i| 200.0 + 1000.0 * i as f32 / (n - 1) as f32) // 200..1200
+        .collect();
+    let observed: Vec<f32> = library
+        .iter()
+        .enumerate()
+        .map(|(i, &mz)| mz * (1.0 + true_ppm(mz)) + 1e-3 * pseudo_noise(i))
+        .collect();
+
+    // fragment m/z config: 2 kernels, ppm transform
+    let mut est = CalibrationEstimator::new(2, Some(1e6));
+    est.fit(&library, &observed).expect("fit should succeed");
+    let calibrated = est.predict(&library);
+
+    // Recovered drift (ppm) should match the ground-truth drift within ~1 ppm.
+    let errors: Vec<f32> = library
+        .iter()
+        .zip(&calibrated)
+        .map(|(&mz, &c)| ((c - mz) / mz * 1e6 - true_ppm(mz) * 1e6).abs())
+        .collect();
+    let med = median(&errors);
+    assert!(med < 1.0, "median ppm error vs ground truth = {med}");
+}
+
 #[test]
 fn test_fit_too_few_points() {
     let mut model = LoessRegression::new(2, 2.0, 2);

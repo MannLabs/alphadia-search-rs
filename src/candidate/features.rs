@@ -35,7 +35,7 @@ pub const FEATURE_NAMES: &[&str] = &[
     "weighted_mass_error",
     "log10_b_ion_intensity",
     "log10_y_ion_intensity",
-    "fwhm_rt",
+    "cycle_fwhm",
     "idf_hyperscore",
     "idf_xic_dot_product",
     "idf_intensity_dot_product",
@@ -82,7 +82,7 @@ pub struct CandidateFeature {
     pub weighted_mass_error: f32,
     pub log10_b_ion_intensity: f32,
     pub log10_y_ion_intensity: f32,
-    pub fwhm_rt: f32,
+    pub cycle_fwhm: f32,
     pub idf_hyperscore: f32,
     pub idf_xic_dot_product: f32,
     pub idf_intensity_dot_product: f32,
@@ -130,7 +130,7 @@ impl CandidateFeature {
         weighted_mass_error: f32,
         log10_b_ion_intensity: f32,
         log10_y_ion_intensity: f32,
-        fwhm_rt: f32,
+        cycle_fwhm: f32,
         idf_hyperscore: f32,
         idf_xic_dot_product: f32,
         idf_intensity_dot_product: f32,
@@ -175,7 +175,7 @@ impl CandidateFeature {
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
-            fwhm_rt,
+            cycle_fwhm,
             idf_hyperscore,
             idf_xic_dot_product,
             idf_intensity_dot_product,
@@ -253,7 +253,7 @@ impl CandidateFeatureCollection {
         let mut weighted_mass_errors = Array1::<f32>::zeros(n);
         let mut log10_b_ion_intensity = Array1::<f32>::zeros(n);
         let mut log10_y_ion_intensity = Array1::<f32>::zeros(n);
-        let mut fwhm_rt = Array1::<f32>::zeros(n);
+        let mut cycle_fwhm = Array1::<f32>::zeros(n);
         let mut idf_hyperscore = Array1::<f32>::zeros(n);
         let mut idf_xic_dot_product = Array1::<f32>::zeros(n);
         let mut idf_intensity_dot_product = Array1::<f32>::zeros(n);
@@ -298,7 +298,7 @@ impl CandidateFeatureCollection {
             weighted_mass_errors[i] = feature.weighted_mass_error;
             log10_b_ion_intensity[i] = feature.log10_b_ion_intensity;
             log10_y_ion_intensity[i] = feature.log10_y_ion_intensity;
-            fwhm_rt[i] = feature.fwhm_rt;
+            cycle_fwhm[i] = feature.cycle_fwhm;
             idf_hyperscore[i] = feature.idf_hyperscore;
             idf_xic_dot_product[i] = feature.idf_xic_dot_product;
             idf_intensity_dot_product[i] = feature.idf_intensity_dot_product;
@@ -383,7 +383,7 @@ impl CandidateFeatureCollection {
             "log10_y_ion_intensity",
             log10_y_ion_intensity.into_pyarray(py),
         )?;
-        dict.set_item("fwhm_rt", fwhm_rt.into_pyarray(py))?;
+        dict.set_item("cycle_fwhm", cycle_fwhm.into_pyarray(py))?;
         dict.set_item("idf_hyperscore", idf_hyperscore.into_pyarray(py))?;
         dict.set_item("idf_xic_dot_product", idf_xic_dot_product.into_pyarray(py))?;
         dict.set_item(

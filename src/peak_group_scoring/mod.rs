@@ -142,7 +142,7 @@ impl PeakGroupScoring {
         let median_profile_sum = median_profile.iter().sum::<f32>();
         let median_profile_sum_filtered = median_profile_filtered.iter().sum::<f32>();
 
-        let fwhm_rt = calculate_fwhm_rt(
+        let cycle_fwhm = calculate_fwhm_rt(
             &median_profile_filtered,
             cycle_start_idx,
             &dia_data.rt_index().rt,
@@ -327,7 +327,7 @@ impl PeakGroupScoring {
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
-            fwhm_rt,
+            cycle_fwhm,
             idf_hyperscore,
             idf_xic_dot_product,
             log_idf_intensity_dot_product,

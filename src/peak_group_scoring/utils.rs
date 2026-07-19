@@ -436,20 +436,22 @@ pub fn calculate_dot_product(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum()
 }
 
-/// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile
+/// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile.
 ///
-/// Finds the maximum peak in the XIC slice and calculates the FWHM by finding points
-/// where the intensity is half of the maximum. The slice should be centered at the maximum
-/// and have an odd number of elements.
+/// This mirrors the algorithm used by the Python alphaDIA reference implementation
+/// (`profile_features.py`, FWHM RT): the FWHM is estimated as the fraction of profile
+/// points whose intensity exceeds half of the profile's maximum, scaled by the total
+/// retention-time width spanned by the profile. Working on the median profile across
+/// fragments is the minimal, single-observation form of the reference feature.
 ///
 /// Parameters:
-/// - xic_profile: Intensity profile (median profile across fragments)
+/// - xic_profile: Intensity profile (median profile across fragments) covering the
+///   cycle window `[cycle_start_idx, cycle_start_idx + xic_profile.len())`
 /// - cycle_start_idx: Starting cycle index in the RT array
-/// - cycle_stop_idx: Ending cycle index in the RT array (exclusive)
 /// - rt_values: Array of retention time values
 ///
 /// Returns:
-/// - FWHM in retention time units, or 0.0 if cannot be calculated
+/// - FWHM in retention time units, or 0.0 if it cannot be calculated
 pub fn calculate_fwhm_rt(
     xic_profile: &[f32],
     cycle_start_idx: usize,
@@ -459,18 +461,15 @@ pub fn calculate_fwhm_rt(
         return 0.0;
     }
 
-    let half_size = xic_profile.len() / 2;
-    let center_intensity = xic_profile[half_size];
+    let max_intensity = xic_profile.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let half_max = max_intensity / 2.0;
 
-    for i in 0..half_size {
-        let mean_intensity = (xic_profile[half_size - i] + xic_profile[half_size + i]) / 2.0;
+    let n_values_above = xic_profile.iter().filter(|&&v| v > half_max).count();
+    let fraction_above = n_values_above as f32 / xic_profile.len() as f32;
 
-        if mean_intensity <= center_intensity / 2.0 {
-            let left_rt = rt_values[cycle_start_idx + half_size - i];
-            let right_rt = rt_values[cycle_start_idx + half_size + i];
-            return right_rt - left_rt;
-        }
-    }
+    // rt_width = rt_values[stop - 1] - rt_values[start], matching the Python reference.
+    let cycle_stop_idx = cycle_start_idx + xic_profile.len();
+    let rt_width = rt_values[cycle_stop_idx - 1] - rt_values[cycle_start_idx];
 
-    0.0
+    fraction_above * rt_width
 }

@@ -6,7 +6,7 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
+    // Verify we have the expected number of f32 features (23 base + 8 ranked + cycle_fwhm)
     assert_eq!(feature_names.len(), 41);
 
     // Verify some key feature names are present
@@ -27,7 +27,7 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"weighted_mass_error".to_string()));
     assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
     assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
-    assert!(feature_names.contains(&"fwhm_rt".to_string()));
+    assert!(feature_names.contains(&"cycle_fwhm".to_string()));
 
     // Verify that non-f32 columns are NOT included
     assert!(!feature_names.contains(&"precursor_idx".to_string()));
@@ -193,7 +193,7 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         2.5,   // weighted_mass_error
         3.2,   // log10_b_ion_intensity
         3.8,   // log10_y_ion_intensity
-        15.5,  // fwhm_rt
+        15.5,  // cycle_fwhm
         50.0,  // idf_hyperscore
         10.5,  // idf_xic_dot_product
         8.2,   // idf_intensity_dot_product
@@ -350,8 +350,8 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
             .unwrap()
             .extract()
             .unwrap();
-        let fwhm_rt: Vec<f32> = dict
-            .get_item("fwhm_rt")
+        let cycle_fwhm: Vec<f32> = dict
+            .get_item("cycle_fwhm")
             .unwrap()
             .unwrap()
             .extract()
@@ -382,6 +382,6 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         assert!((weighted_mass_error[0] - 2.5).abs() < 1e-6);
         assert!((log10_b_ion[0] - 3.2).abs() < 1e-6);
         assert!((log10_y_ion[0] - 3.8).abs() < 1e-6);
-        assert!((fwhm_rt[0] - 15.5).abs() < 1e-6);
+        assert!((cycle_fwhm[0] - 15.5).abs() < 1e-6);
     });
 }

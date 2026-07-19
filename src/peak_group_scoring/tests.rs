@@ -922,9 +922,24 @@ fn test_calculate_fwhm_rt_basic() {
     // When: Calculating FWHM
     let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
 
-    // Then: Should return reasonable FWHM value
-    assert!(fwhm > 0.0);
-    assert!(fwhm < 5.0); // Should be within reasonable range
+    // Then: fraction of points above half-max (100/2=50) is 1/5 = 0.2,
+    // rt_width = rt_values[14] - rt_values[10] = 4.0, so FWHM = 0.2 * 4.0 = 0.8
+    assert!((fwhm - 0.8).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_fwhm_rt_matches_python_fraction() {
+    // Given: A broad peak where 3 of 5 points exceed half of the max intensity
+    let xic_profile = vec![10.0, 80.0, 100.0, 80.0, 10.0]; // half_max = 50 -> 3 points above
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 2.0, 4.0, 6.0, 8.0, 10.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: fraction_above = 3/5 = 0.6, rt_width = rt_values[4] - rt_values[0] = 8.0
+    // FWHM = 0.6 * 8.0 = 4.8
+    assert!((fwhm - 4.8).abs() < 1e-6);
 }
 
 #[test]

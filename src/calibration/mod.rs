@@ -80,7 +80,7 @@ impl CalibrationEstimator {
         )
     }
 
-    /// `(median_accuracy, median_precision)` if fitted, else `None`.
+    /// `(median_bias, median_variance)` if fitted, else `None`.
     fn metrics(&self) -> Option<(f32, f32)> {
         self.inner.metrics()
     }

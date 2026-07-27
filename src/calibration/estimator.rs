@@ -25,7 +25,7 @@ pub struct CalibrationEstimator {
     transform_deviation: Option<f32>,
     model: LoessRegression,
     is_fitted: bool,
-    metrics: Option<(f32, f32)>, // (median_accuracy, median_precision)
+    metrics: Option<(f32, f32)>, // (median_bias, median_variance)
 }
 
 impl CalibrationEstimator {
@@ -52,7 +52,7 @@ impl CalibrationEstimator {
         self.transform_deviation
     }
 
-    /// `(median_accuracy, median_precision)` if fitted.
+    /// `(median_bias, median_variance)` if fitted.
     pub fn metrics(&self) -> Option<(f32, f32)> {
         self.metrics
     }
@@ -74,9 +74,9 @@ impl CalibrationEstimator {
         self.is_fitted = true;
 
         let dev = self.deviation_with(input, target);
-        let median_accuracy = median(&abs(&dev.calibrated));
-        let median_precision = median(&abs(&dev.residual));
-        self.metrics = Some((median_accuracy, median_precision));
+        let median_bias = median(&abs(&dev.calibrated));
+        let median_variance = median(&abs(&dev.residual));
+        self.metrics = Some((median_bias, median_variance));
         Ok(())
     }
 

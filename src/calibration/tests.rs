@@ -148,8 +148,8 @@ fn test_estimator_ppm_transform() {
     assert!(est.is_fitted());
     assert_eq!(est.transform_deviation(), Some(1e6));
 
-    let (acc, prec) = est.metrics().expect("metrics present");
-    assert!(acc.is_finite() && prec.is_finite());
+    let (bias, variance) = est.metrics().expect("metrics present");
+    assert!(bias.is_finite() && variance.is_finite());
 
     // Calibrated values should be much closer to observed than the library was.
     let dev = est.deviation(&library, &observed);

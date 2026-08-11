@@ -12,9 +12,17 @@ pub mod loess;
 mod tests;
 
 use numpy::{IntoPyArray, PyArray1};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 use crate::calibration::estimator::CalibrationEstimator as CalibrationEstimatorInner;
+
+/// The `(observed, calibrated, residual)` deviation arrays handed back to Python.
+type DeviationArrays<'py> = (
+    Bound<'py, PyArray1<f32>>,
+    Bound<'py, PyArray1<f32>>,
+    Bound<'py, PyArray1<f32>>,
+);
 
 /// Python-facing calibration estimator (thin arrays-in / arrays-out interface).
 #[pyclass]
@@ -53,31 +61,39 @@ impl CalibrationEstimator {
     fn fit(&mut self, input: Vec<f32>, target: Vec<f32>) -> PyResult<()> {
         self.inner
             .fit(&input, &target)
-            .map_err(pyo3::exceptions::PyValueError::new_err)
+            .map_err(PyValueError::new_err)
     }
 
     /// Predict calibrated values from `input`.
-    fn predict<'py>(&self, py: Python<'py>, input: Vec<f32>) -> Bound<'py, PyArray1<f32>> {
-        self.inner.predict(&input).into_pyarray(py)
+    ///
+    /// Raises `ValueError` if the estimator is not fitted.
+    fn predict<'py>(
+        &self,
+        py: Python<'py>,
+        input: Vec<f32>,
+    ) -> PyResult<Bound<'py, PyArray1<f32>>> {
+        let predicted = self.inner.predict(&input).map_err(PyValueError::new_err)?;
+        Ok(predicted.into_pyarray(py))
     }
 
     /// Return `(observed, calibrated, residual)` deviation arrays for plotting.
+    ///
+    /// Raises `ValueError` if the estimator is not fitted or the lengths differ.
     fn deviation<'py>(
         &self,
         py: Python<'py>,
         input: Vec<f32>,
         target: Vec<f32>,
-    ) -> (
-        Bound<'py, PyArray1<f32>>,
-        Bound<'py, PyArray1<f32>>,
-        Bound<'py, PyArray1<f32>>,
-    ) {
-        let dev = self.inner.deviation(&input, &target);
-        (
+    ) -> PyResult<DeviationArrays<'py>> {
+        let dev = self
+            .inner
+            .deviation(&input, &target)
+            .map_err(PyValueError::new_err)?;
+        Ok((
             dev.observed.into_pyarray(py),
             dev.calibrated.into_pyarray(py),
             dev.residual.into_pyarray(py),
-        )
+        ))
     }
 
     /// `(median_bias, median_variance)` if fitted, else `None`.
@@ -86,7 +102,11 @@ impl CalibrationEstimator {
     }
 
     /// Residual deviation at the given confidence interval (e.g. `0.95`).
-    fn ci(&self, input: Vec<f32>, target: Vec<f32>, ci: f32) -> f32 {
-        self.inner.ci(&input, &target, ci)
+    ///
+    /// Raises `ValueError` for a `ci` outside `[0, 1]` or mismatched lengths.
+    fn ci(&self, input: Vec<f32>, target: Vec<f32>, ci: f32) -> PyResult<f32> {
+        self.inner
+            .ci(&input, &target, ci)
+            .map_err(PyValueError::new_err)
     }
 }

@@ -116,7 +116,7 @@ fn test_estimator_recovers_ppm_drift_ground_truth() {
     // fragment m/z config: 2 kernels, ppm transform
     let mut est = CalibrationEstimator::new(2, Some(1e6));
     est.fit(&library, &observed).expect("fit should succeed");
-    let calibrated = est.predict(&library);
+    let calibrated = est.predict(&library).expect("predict should succeed");
 
     // Recovered drift (ppm) should match the ground-truth drift within ~1 ppm.
     let errors: Vec<f32> = library
@@ -132,6 +132,63 @@ fn test_estimator_recovers_ppm_drift_ground_truth() {
 fn test_fit_too_few_points() {
     let mut model = LoessRegression::new(2, 2.0, 2);
     assert!(model.fit(&[1.0], &[1.0]).is_err());
+}
+
+#[test]
+fn test_fit_rejects_zero_kernels() {
+    // Zero kernels used to divide by zero in kernel placement.
+    let x: Vec<f32> = (0..=100).map(|i| i as f32).collect();
+    let mut model = LoessRegression::new(0, 2.0, 2);
+    assert!(model.fit(&x, &x).is_err());
+}
+
+#[test]
+fn test_fit_rejects_shorter_target() {
+    let mut est = CalibrationEstimator::new(2, None);
+    assert!(est.fit(&[1.0, 2.0, 3.0], &[1.0, 2.0]).is_err());
+    assert!(!est.is_fitted());
+}
+
+#[test]
+fn test_fit_rejects_longer_target() {
+    // The dangerous direction: a longer target used to fit successfully on the
+    // truncated prefix and report success.
+    let mut est = CalibrationEstimator::new(2, None);
+    assert!(est.fit(&[1.0, 2.0], &[1.0, 2.0, 3.0]).is_err());
+    assert!(!est.is_fitted());
+}
+
+#[test]
+fn test_unfitted_estimator_errors_instead_of_panicking() {
+    let est = CalibrationEstimator::new(2, None);
+    let x = [1.0, 2.0, 3.0];
+    assert!(est.predict(&x).is_err());
+    assert!(est.deviation(&x, &x).is_err());
+    // `ci` deliberately reports 0.0 when unfitted (the Python wrapper relies on it).
+    assert_eq!(est.ci(&x, &x, 0.95), Ok(0.0));
+}
+
+#[test]
+fn test_fitted_estimator_rejects_length_mismatch() {
+    let library: Vec<f32> = (200..=1200).map(|i| i as f32).collect();
+    let observed: Vec<f32> = library.iter().map(|&mz| mz * (1.0 + 5e-6)).collect();
+    let mut est = CalibrationEstimator::new(2, Some(1e6));
+    est.fit(&library, &observed).expect("fit should succeed");
+
+    assert!(est.deviation(&library, &observed[..500]).is_err());
+    assert!(est.ci(&library, &observed[..500], 0.95).is_err());
+}
+
+#[test]
+fn test_ci_rejects_out_of_range() {
+    let library: Vec<f32> = (200..=1200).map(|i| i as f32).collect();
+    let observed: Vec<f32> = library.iter().map(|&mz| mz * (1.0 + 5e-6)).collect();
+    let mut est = CalibrationEstimator::new(2, Some(1e6));
+    est.fit(&library, &observed).expect("fit should succeed");
+
+    assert!(est.ci(&library, &observed, -0.1).is_err());
+    assert!(est.ci(&library, &observed, 1.5).is_err());
+    assert!(est.ci(&library, &observed, 0.95).is_ok());
 }
 
 #[test]
@@ -152,8 +209,10 @@ fn test_estimator_ppm_transform() {
     assert!(bias.is_finite() && variance.is_finite());
 
     // Calibrated values should be much closer to observed than the library was.
-    let dev = est.deviation(&library, &observed);
-    let calibrated = est.predict(&library);
+    let dev = est
+        .deviation(&library, &observed)
+        .expect("deviation should succeed");
+    let calibrated = est.predict(&library).expect("predict should succeed");
     let raw_err: f32 = median(
         &observed
             .iter()

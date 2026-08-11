@@ -6,8 +6,7 @@
 //! production. The model fits `n_kernels` local weighted polynomials of degree
 //! `polynomial_degree` and blends them with tricubic kernels.
 //!
-//! Two general conditioning choices keep the fit accurate in f32 (see
-//! `parity_tests.rs` for the f32/f64 comparison that motivates them): the design
+//! Two general conditioning choices keep the fit accurate in f32: the design
 //! matrix is centered and scaled so its entries stay O(1), and each per-kernel
 //! weighted system is solved by QR (which works on the design's condition number
 //! rather than squaring it, as the normal equations would). The target is also
@@ -67,6 +66,10 @@ impl LoessRegression {
         }
         if n < 2 {
             return Err("At least two datapoints required for fitting.".to_string());
+        }
+        // Zero kernels would divide by zero in `kernel_indices_density` (`m / n_kernels`).
+        if self.n_kernels == 0 {
+            return Err("At least one kernel required for fitting.".to_string());
         }
 
         // === sanity checks: reduce n_kernels then polynomial_degree if needed ===

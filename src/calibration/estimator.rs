@@ -6,7 +6,7 @@
 //! (`n_kernels` and the deviation `transform`) directly from the caller — the
 //! per-property configuration lives on the Python side, not here.
 
-use crate::calibration::loess::{median, percentile, LoessRegression};
+use crate::calibration::loess::{median_abs, percentiles, LoessRegression};
 
 /// Shared LOESS hyper-parameters for all calibration estimators.
 const KERNEL_SIZE: f32 = 2.0;
@@ -76,9 +76,7 @@ impl CalibrationEstimator {
         self.is_fitted = true;
 
         let dev = self.deviation(input, target)?;
-        let median_bias = median(&abs(&dev.calibrated));
-        let median_variance = median(&abs(&dev.residual));
-        self.metrics = Some((median_bias, median_variance));
+        self.metrics = Some((median_abs(&dev.calibrated), median_abs(&dev.residual)));
         Ok(())
     }
 
@@ -143,9 +141,8 @@ impl CalibrationEstimator {
         let dev = self.deviation(input, target)?;
         let lo = 100.0 * (1.0 - ci) / 2.0;
         let hi = 100.0 * (1.0 + ci) / 2.0;
-        let p_lo = percentile(&dev.residual, lo);
-        let p_hi = percentile(&dev.residual, hi);
-        Ok((p_lo.abs() + p_hi.abs()) / 2.0)
+        let bounds = percentiles(&dev.residual, &[lo, hi]);
+        Ok((bounds[0].abs() + bounds[1].abs()) / 2.0)
     }
 
     fn require_fitted(&self) -> Result<(), String> {
@@ -170,8 +167,4 @@ fn validate_pair(input: &[f32], target: &[f32]) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn abs(values: &[f32]) -> Vec<f32> {
-    values.iter().map(|v| v.abs()).collect()
 }

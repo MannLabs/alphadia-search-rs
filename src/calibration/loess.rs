@@ -12,6 +12,10 @@
 //! rather than squaring it, as the normal equations would). The target is also
 //! mean-centered. Callers that fit a small signal riding on a large baseline (as
 //! calibration does) should subtract that baseline themselves before fitting.
+//!
+//! Summation order is load-bearing: the calibration port is verified bit-for-bit
+//! against the Python implementation, so refactors here must preserve the order in
+//! which terms are accumulated, not merely the mathematical result.
 
 /// Small epsilon added inside the tricubic kernel (matches the Python `1e-6`).
 const TRICUBIC_EPSILON: f32 = 1e-6;
@@ -72,94 +76,29 @@ impl LoessRegression {
             return Err("At least one kernel required for fitting.".to_string());
         }
 
-        // === sanity checks: reduce n_kernels then polynomial_degree if needed ===
-        let mut n_kernels = self.n_kernels;
-        let mut poly_degree = self.polynomial_degree;
+        let (n_kernels, poly_degree) = adjust_capacity(n, self.n_kernels, self.polynomial_degree);
 
-        let degrees_freedom = (1 + poly_degree) * n_kernels;
-        if n < degrees_freedom {
-            n_kernels = (n / (1 + poly_degree)).max(1);
-        }
-        let degrees_freedom = (1 + poly_degree) * n_kernels;
-        if n < degrees_freedom {
-            poly_degree = n - 1;
-        }
-
-        // === remove outliers using the 0.1 / 99.9 percentiles of x ===
-        let p_low = percentile(x, 0.1);
-        let p_high = percentile(x, 99.9);
-        let mut xf: Vec<f32> = Vec::new();
-        let mut yf: Vec<f32> = Vec::new();
-        for i in 0..n {
-            if p_low < x[i] && x[i] < p_high {
-                xf.push(x[i]);
-                yf.push(y[i]);
-            }
-        }
-        let m = xf.len();
-        if m == 0 {
+        let (xf, yf) = remove_outliers(x, y);
+        if xf.is_empty() {
             return Err("No datapoints left after outlier removal.".to_string());
         }
 
-        // sorted x used for kernel placement and scaling
-        let mut x_sorted = xf.clone();
-        x_sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        // Kernels are placed over the sorted x so each covers an equal number of
+        // datapoints; the fit itself runs on the unsorted data.
+        let x_sorted = sorted_copy(&xf);
+        let kernel_indices = kernel_indices_density(xf.len(), n_kernels, self.kernel_size);
+        let (scale_mean, scale_max) = kernel_scales(&x_sorted, &kernel_indices)?;
 
-        // === density kernel indices ===
-        let kernel_indices = kernel_indices_density(m, n_kernels, self.kernel_size);
-
-        // === per-kernel scaling (mean and max absolute deviation) ===
-        let mut scale_mean = vec![0.0f32; n_kernels];
-        let mut scale_max = vec![0.0f32; n_kernels];
-        for k in 0..n_kernels {
-            let (start, end) = kernel_indices[k];
-            if end <= start {
-                return Err("Empty kernel encountered during fitting.".to_string());
-            }
-            let slice = &x_sorted[start..end];
-            let mean = slice.iter().sum::<f32>() / slice.len() as f32;
-            let max_abs = slice
-                .iter()
-                .map(|v| (v - mean).abs())
-                .fold(0.0f32, f32::max);
-            scale_mean[k] = mean;
-            scale_max[k] = max_abs;
-        }
-
-        // === design-matrix conditioning (f32 numerical stability) ===
-        // Center and scale x used to build the polynomial design matrix so that
-        // its entries stay O(1) even for large m/z values. This does not affect
-        // the fitted function, only the numerical conditioning of the solve.
-        let design_center = xf.iter().sum::<f32>() / m as f32;
-        let x_min = xf.iter().cloned().fold(f32::INFINITY, f32::min);
-        let x_max = xf.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
-        let half_range = (x_max - x_min) / 2.0;
-        let design_scale = if half_range > 0.0 && half_range.is_finite() {
-            half_range
-        } else {
-            1.0
-        };
-
-        // === center the design coordinate and the target ===
+        let (design_center, design_scale) = design_conditioning(&xf);
         let u_scaled: Vec<f32> = xf
             .iter()
             .map(|&xi| (xi - design_center) / design_scale)
             .collect();
-        let target_center = yf.iter().sum::<f32>() / m as f32;
-        let tc: Vec<f32> = yf.iter().map(|&yi| yi - target_center).collect();
+        let target_center = mean(&yf);
+        let target_centered: Vec<f32> = yf.iter().map(|&yi| yi - target_center).collect();
 
-        // === weighted least squares per kernel (f32 QR) ===
-        let w = weight_matrix(&xf, &scale_mean, &scale_max, n_kernels);
-        let d = poly_degree + 1;
-
-        let mut beta = vec![vec![0.0f32; d]; n_kernels];
-        for k in 0..n_kernels {
-            let wk: Vec<f32> = w.iter().map(|row| row[k]).collect();
-            match fit_kernel_qr(&u_scaled, &wk, &tc, poly_degree) {
-                Some(coefs) => beta[k] = coefs,
-                None => return Err("Rank-deficient kernel system during fitting.".to_string()),
-            }
-        }
+        let weights = WeightMatrix::new(&xf, &scale_mean, &scale_max, n_kernels);
+        let beta = solve_kernels(&u_scaled, &target_centered, &weights, poly_degree)?;
 
         self.n_kernels = n_kernels;
         self.polynomial_degree = poly_degree;
@@ -173,21 +112,22 @@ impl LoessRegression {
     }
 
     /// Predict calibrated values for `x`. Must be called after a successful `fit`.
+    ///
+    /// The per-row weight and polynomial buffers are allocated once and reused, so
+    /// prediction over a full precursor table allocates only the output vector.
     pub fn predict(&self, x: &[f32]) -> Vec<f32> {
-        let w = weight_matrix(x, &self.scale_mean, &self.scale_max, self.n_kernels);
+        let mut weights = vec![0.0f32; self.n_kernels];
+        let mut powers = vec![0.0f32; self.polynomial_degree + 1];
+
         x.iter()
-            .enumerate()
-            .map(|(i, &xi)| {
-                let u = (xi - self.design_center) / self.design_scale;
-                let xrow = poly_features(u, self.polynomial_degree);
+            .map(|&xi| {
+                kernel_weights(xi, &self.scale_mean, &self.scale_max, &mut weights);
+                fill_poly_features((xi - self.design_center) / self.design_scale, &mut powers);
+
                 let mut acc = 0.0f32;
-                for k in 0..self.n_kernels {
-                    let pred_k: f32 = xrow
-                        .iter()
-                        .zip(self.beta[k].iter())
-                        .map(|(a, b)| a * b)
-                        .sum();
-                    acc += pred_k * w[i][k];
+                for (beta_k, &weight) in self.beta.iter().zip(&weights) {
+                    let pred_k: f32 = powers.iter().zip(beta_k).map(|(a, b)| a * b).sum();
+                    acc += pred_k * weight;
                 }
                 // weights are row-normalized (sum to 1), so the target mean is added
                 // back exactly once.
@@ -197,16 +137,112 @@ impl LoessRegression {
     }
 }
 
-/// Polynomial features `[1, x, x^2, ..., x^degree]` (matches sklearn
-/// `PolynomialFeatures(degree, include_bias=True)` for a single feature).
-fn poly_features(x: f32, degree: usize) -> Vec<f32> {
-    let mut out = Vec::with_capacity(degree + 1);
-    let mut p = 1.0f32;
-    for _ in 0..=degree {
-        out.push(p);
-        p *= x;
+/// Reduce `n_kernels`, then the polynomial degree, until the model has no more
+/// degrees of freedom than `n` datapoints.
+fn adjust_capacity(n: usize, n_kernels: usize, poly_degree: usize) -> (usize, usize) {
+    let mut n_kernels = n_kernels;
+    let mut poly_degree = poly_degree;
+
+    if n < (1 + poly_degree) * n_kernels {
+        n_kernels = (n / (1 + poly_degree)).max(1);
     }
-    out
+    if n < (1 + poly_degree) * n_kernels {
+        poly_degree = n - 1;
+    }
+    (n_kernels, poly_degree)
+}
+
+/// Drop points outside the 0.1 / 99.9 percentiles of `x`, keeping `y` aligned.
+fn remove_outliers(x: &[f32], y: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    let bounds = percentiles(x, &[0.1, 99.9]);
+    let (p_low, p_high) = (bounds[0], bounds[1]);
+
+    let mut xf = Vec::new();
+    let mut yf = Vec::new();
+    for (&xi, &yi) in x.iter().zip(y) {
+        if p_low < xi && xi < p_high {
+            xf.push(xi);
+            yf.push(yi);
+        }
+    }
+    (xf, yf)
+}
+
+/// Center and half-extent of every kernel, taken from its slice of the sorted x.
+///
+/// `scale_max` is the largest absolute deviation from the slice mean, i.e. the
+/// distance at which the tricubic kernel reaches zero.
+fn kernel_scales(
+    x_sorted: &[f32],
+    kernel_indices: &[(usize, usize)],
+) -> Result<(Vec<f32>, Vec<f32>), String> {
+    let mut scale_mean = Vec::with_capacity(kernel_indices.len());
+    let mut scale_max = Vec::with_capacity(kernel_indices.len());
+
+    for &(start, end) in kernel_indices {
+        if end <= start {
+            return Err("Empty kernel encountered during fitting.".to_string());
+        }
+        let slice = &x_sorted[start..end];
+        let slice_mean = mean(slice);
+        scale_mean.push(slice_mean);
+        scale_max.push(
+            slice
+                .iter()
+                .map(|v| (v - slice_mean).abs())
+                .fold(0.0f32, f32::max),
+        );
+    }
+    Ok((scale_mean, scale_max))
+}
+
+/// Centering and scaling that keep the polynomial design matrix entries O(1).
+///
+/// A pure conditioning transform for the f32 solve: it does not change the fitted
+/// function. Degenerate ranges fall back to a unit scale.
+fn design_conditioning(x: &[f32]) -> (f32, f32) {
+    let center = mean(x);
+    let min = x.iter().cloned().fold(f32::INFINITY, f32::min);
+    let max = x.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+    let half_range = (max - min) / 2.0;
+    let scale = if half_range > 0.0 && half_range.is_finite() {
+        half_range
+    } else {
+        1.0
+    };
+    (center, scale)
+}
+
+/// Solve every kernel's weighted least-squares system, reusing one column buffer.
+fn solve_kernels(
+    u_scaled: &[f32],
+    target_centered: &[f32],
+    weights: &WeightMatrix,
+    poly_degree: usize,
+) -> Result<Vec<Vec<f32>>, String> {
+    let mut beta = Vec::with_capacity(weights.n_kernels);
+    let mut column = Vec::with_capacity(u_scaled.len());
+
+    for k in 0..weights.n_kernels {
+        weights.write_column(k, &mut column);
+        match fit_kernel_qr(u_scaled, &column, target_centered, poly_degree) {
+            Some(coefs) => beta.push(coefs),
+            None => return Err("Rank-deficient kernel system during fitting.".to_string()),
+        }
+    }
+    Ok(beta)
+}
+
+/// Polynomial features `[1, x, x^2, ..., x^degree]` written into `out`, whose
+/// length sets the degree (matches sklearn `PolynomialFeatures(include_bias=True)`
+/// for a single feature).
+fn fill_poly_features(x: f32, out: &mut [f32]) {
+    let mut power = 1.0f32;
+    for slot in out.iter_mut() {
+        *slot = power;
+        power *= x;
+    }
 }
 
 /// Solve the weighted least-squares system for one kernel in f32 via QR (modified
@@ -288,41 +324,80 @@ fn kernel_indices_density(m: usize, n_kernels: usize, kernel_size: f32) -> Vec<(
     out
 }
 
-/// Row-normalized tricubic weight matrix of shape `[x.len()][n_kernels]`.
-fn weight_matrix(
-    x: &[f32],
-    scale_mean: &[f32],
-    scale_max: &[f32],
+/// Row-normalized tricubic kernel weights for many x values, stored flat as
+/// `n_rows × n_kernels`.
+///
+/// Row-major with an explicit stride: the previous `Vec<Vec<f32>>` allocated once
+/// per row, and again per kernel when fitting transposed a column out of it.
+struct WeightMatrix {
+    values: Vec<f32>,
     n_kernels: usize,
-) -> Vec<Vec<f32>> {
-    let mut w = Vec::with_capacity(x.len());
-    for &xi in x {
-        let mut row: Vec<f32> = (0..n_kernels)
-            .map(|k| (xi - scale_mean[k]) / scale_max[k])
-            .collect();
+}
 
-        // apply the (edge-aware) tricubic kernel column-wise
-        if n_kernels == 1 {
-            row[0] = 1.0;
-        } else if n_kernels == 2 {
-            row[0] = left_open_tricubic(row[0]);
-            row[1] = right_open_tricubic(row[1]);
-        } else {
-            row[0] = left_open_tricubic(row[0]);
-            for item in row.iter_mut().take(n_kernels - 1).skip(1) {
-                *item = tricubic(*item);
-            }
-            row[n_kernels - 1] = right_open_tricubic(row[n_kernels - 1]);
+impl WeightMatrix {
+    fn new(x: &[f32], scale_mean: &[f32], scale_max: &[f32], n_kernels: usize) -> Self {
+        let mut values = vec![0.0f32; x.len() * n_kernels];
+        for (row, &xi) in x.iter().enumerate() {
+            let start = row * n_kernels;
+            kernel_weights(
+                xi,
+                scale_mean,
+                scale_max,
+                &mut values[start..start + n_kernels],
+            );
         }
-
-        // row-normalize
-        let s: f32 = row.iter().sum();
-        for v in row.iter_mut() {
-            *v /= s;
-        }
-        w.push(row);
+        Self { values, n_kernels }
     }
-    w
+
+    /// Copy kernel `k`'s weights for every row into `out`, which is reused across
+    /// kernels by the caller.
+    fn write_column(&self, k: usize, out: &mut Vec<f32>) {
+        out.clear();
+        out.extend(self.values.iter().skip(k).step_by(self.n_kernels));
+    }
+}
+
+/// Row-normalized tricubic weights of a single `x` against all kernels, written
+/// into `out` (whose length is the kernel count).
+fn kernel_weights(xi: f32, scale_mean: &[f32], scale_max: &[f32], out: &mut [f32]) {
+    for (k, slot) in out.iter_mut().enumerate() {
+        *slot = (xi - scale_mean[k]) / scale_max[k];
+    }
+    apply_tricubic_kernels(out);
+    normalize_row(out);
+}
+
+/// Apply the edge-aware tricubic kernel to a row of scaled distances in place.
+///
+/// The outer flanks of the first and last kernels are one-padded so the model
+/// extrapolates flat beyond the fitted range instead of dropping to zero weight.
+fn apply_tricubic_kernels(row: &mut [f32]) {
+    let n_kernels = row.len();
+    if n_kernels == 1 {
+        row[0] = 1.0;
+    } else if n_kernels == 2 {
+        row[0] = left_open_tricubic(row[0]);
+        row[1] = right_open_tricubic(row[1]);
+    } else {
+        row[0] = left_open_tricubic(row[0]);
+        for item in row.iter_mut().take(n_kernels - 1).skip(1) {
+            *item = tricubic(*item);
+        }
+        row[n_kernels - 1] = right_open_tricubic(row[n_kernels - 1]);
+    }
+}
+
+/// Scale a weight row to sum to 1.
+///
+/// Deliberately unguarded against a zero or non-finite sum: the Python original
+/// divides by `np.sum(w, axis=1)` unguarded too, and the port is verified against
+/// it bit-for-bit. A guard here would change the numbers, so it belongs in both
+/// implementations or neither.
+fn normalize_row(row: &mut [f32]) {
+    let sum: f32 = row.iter().sum();
+    for weight in row.iter_mut() {
+        *weight /= sum;
+    }
 }
 
 /// Tricubic weight kernel: `(1 - |x|^3)^3 + eps` for `|x| <= 1`, else `0`.
@@ -353,10 +428,20 @@ fn right_open_tricubic(x: f32) -> f32 {
     }
 }
 
-/// Linear-interpolated percentile (matches `numpy.percentile` default method).
-pub fn percentile(a: &[f32], q: f32) -> f32 {
+fn mean(a: &[f32]) -> f32 {
+    a.iter().sum::<f32>() / a.len() as f32
+}
+
+/// Sorted copy of `a`, ordering NaN as equal (the comparator numpy's sort-based
+/// percentile effectively uses on well-formed input).
+fn sorted_copy(a: &[f32]) -> Vec<f32> {
     let mut sorted = a.to_vec();
     sorted.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    sorted
+}
+
+/// Linear-interpolated percentile of an already-sorted slice.
+fn percentile_of_sorted(sorted: &[f32], q: f32) -> f32 {
     let n = sorted.len();
     if n == 0 {
         return f32::NAN;
@@ -371,7 +456,27 @@ pub fn percentile(a: &[f32], q: f32) -> f32 {
     sorted[lo] + frac * (sorted[hi] - sorted[lo])
 }
 
+/// Linear-interpolated percentile (matches `numpy.percentile` default method).
+pub fn percentile(a: &[f32], q: f32) -> f32 {
+    percentile_of_sorted(&sorted_copy(a), q)
+}
+
+/// Several percentiles of the same data, sorting once instead of once per call.
+pub fn percentiles(a: &[f32], qs: &[f32]) -> Vec<f32> {
+    let sorted = sorted_copy(a);
+    qs.iter()
+        .map(|&q| percentile_of_sorted(&sorted, q))
+        .collect()
+}
+
 /// Median via the 50th percentile.
 pub fn median(a: &[f32]) -> f32 {
     percentile(a, 50.0)
+}
+
+/// Median of the absolute values, in a single allocation.
+pub fn median_abs(a: &[f32]) -> f32 {
+    let mut absolute: Vec<f32> = a.iter().map(|v| v.abs()).collect();
+    absolute.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    percentile_of_sorted(&absolute, 50.0)
 }

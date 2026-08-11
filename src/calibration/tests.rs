@@ -135,6 +135,25 @@ fn test_fit_too_few_points() {
 }
 
 #[test]
+fn test_fit_requires_overlapping_kernels() {
+    // Non-overlapping kernels leave gaps between their supports. Fitting a bimodal
+    // distribution and predicting inside the gap used to yield NaN predictions.
+    let mut x: Vec<f32> = (0..450).map(|i| 100.0 + i as f32 * 0.1).collect();
+    x.extend((0..450).map(|i| 900.0 + i as f32 * 0.1));
+    let y: Vec<f32> = x.iter().map(|&v| 2.0 * v + 1.0).collect();
+
+    assert!(LoessRegression::new(2, 1.0, 2).fit(&x, &y).is_err());
+
+    // The production kernel size overlaps, so the gap stays covered.
+    let mut model = LoessRegression::new(2, 2.0, 2);
+    model.fit(&x, &y).expect("fit should succeed");
+    assert!(model
+        .predict(&[200.0, 500.0, 800.0])
+        .iter()
+        .all(|v| v.is_finite()));
+}
+
+#[test]
 fn test_fit_rejects_zero_kernels() {
     // Zero kernels used to divide by zero in kernel placement.
     let x: Vec<f32> = (0..=100).map(|i| i as f32).collect();

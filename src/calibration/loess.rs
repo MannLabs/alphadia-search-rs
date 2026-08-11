@@ -75,6 +75,21 @@ impl LoessRegression {
         if self.n_kernels == 0 {
             return Err("At least one kernel required for fitting.".to_string());
         }
+        // Kernels must overlap. `kernel_indices_density` extends each interval by
+        // `(interval_size * kernel_size - interval_size) / 2`, which is zero at
+        // kernel_size <= 1, leaving the slices disjoint. Disjoint slices break the
+        // partition of unity the tricubic weights rely on: an x falling in a gap
+        // between two kernel supports gets zero weight from every kernel — the outer
+        // kernels are one-padded beyond the outer *centers*, not beyond their
+        // supports — and normalizing that all-zero row divides by zero, silently
+        // producing NaN predictions. With overlap, some kernel's slice always
+        // straddles any interior gap and its scale_max therefore spans it.
+        if !self.kernel_size.is_finite() || self.kernel_size <= 1.0 {
+            return Err(format!(
+                "kernel_size must be greater than 1 so kernels overlap, got {}",
+                self.kernel_size
+            ));
+        }
 
         let (n_kernels, poly_degree) = adjust_capacity(n, self.n_kernels, self.polynomial_degree);
 

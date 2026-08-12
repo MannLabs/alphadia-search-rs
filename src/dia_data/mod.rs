@@ -8,10 +8,11 @@ use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 pub use alpha_raw_view::AlphaRawView;
 
-/// DIAData structure using optimized memory layout
+/// DIAData structure using optimized memory layout for peptide-centric querying.
 ///
-/// This structure achieves >99.9% memory overhead reduction compared to the original
-/// by using consolidated arrays instead of millions of individual allocations.
+/// The walkthrough below — terminology, the spectrum-centric to m/z-centric transformation and a
+/// traced example — is maintained in `src/dia_data/DOCS.md` and included from there.
+#[doc = include_str!("DOCS.md")]
 #[pyclass]
 pub struct DIAData {
     pub rt_index: RTIndex,
@@ -86,7 +87,7 @@ impl DIAData {
         valid_observations
     }
 
-    /// Returns the memory footprint of the optimized DIAData structure in bytes
+    /// Returns the memory footprint of the optimized DIAData structure in bytes.
     pub fn memory_footprint_bytes(&self) -> usize {
         let mut total_size = 0;
 
@@ -104,7 +105,7 @@ impl DIAData {
         total_size
     }
 
-    /// Returns the memory footprint in megabytes for easier reading
+    /// Returns the memory footprint in megabytes for easier reading.
     pub fn memory_footprint_mb(&self) -> f64 {
         self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
     }

@@ -63,6 +63,7 @@ fn sqrt_dot_neon(data: &ScoreData) -> Array1<f32> {
 type ScoreImpls = ImplList<ScoreData, Array1<f32>>;
 
 fn log_dot_impls() -> ScoreImpls {
+    #[allow(unused_mut)]
     let mut v: ScoreImpls = vec![("Scalar", log_dot_scalar)];
     #[cfg(target_arch = "aarch64")]
     v.push(("NEON", log_dot_neon));
@@ -70,6 +71,7 @@ fn log_dot_impls() -> ScoreImpls {
 }
 
 fn sqrt_dot_impls() -> ScoreImpls {
+    #[allow(unused_mut)]
     let mut v: ScoreImpls = vec![("Scalar", sqrt_dot_scalar)];
     #[cfg(target_arch = "aarch64")]
     v.push(("NEON", sqrt_dot_neon));

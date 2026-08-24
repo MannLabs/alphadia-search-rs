@@ -107,6 +107,7 @@ pub fn compete_for_fragments(
     mass_tol_ppm: f32,
 ) -> Result<Vec<bool>, String> {
     validate_lengths(window_idx, rt_observed, frag_start_idx, frag_stop_idx)?;
+    validate_fragment_ranges(frag_start_idx, frag_stop_idx, fragment_mz.len())?;
 
     let valid: Vec<bool> = contiguous_window_bounds(window_idx)
         .into_par_iter()
@@ -141,6 +142,23 @@ fn validate_lengths(
             frag_start_idx.len(),
             frag_stop_idx.len()
         ));
+    }
+    Ok(())
+}
+
+/// Check that every `[frag_start_idx[i], frag_stop_idx[i])` range is a valid, in-bounds
+/// slice of `fragment_mz`, since `compete_within_window` indexes it unchecked.
+fn validate_fragment_ranges(
+    frag_start_idx: &[i64],
+    frag_stop_idx: &[i64],
+    fragment_mz_len: usize,
+) -> Result<(), String> {
+    for (i, (&start, &stop)) in frag_start_idx.iter().zip(frag_stop_idx).enumerate() {
+        if start < 0 || stop < start || stop as usize > fragment_mz_len {
+            return Err(format!(
+                "invalid fragment range at index {i}: [{start}, {stop}) is out of bounds for fragment_mz of length {fragment_mz_len}"
+            ));
+        }
     }
     Ok(())
 }

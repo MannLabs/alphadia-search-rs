@@ -90,3 +90,119 @@ fn test_compete_for_fragments_mismatched_lengths() {
     let result = compete_for_fragments(&[0, 0], &[10.0], &[0, 1], &[1, 2], &[100.0], 3.0, 15.0);
     assert!(result.is_err());
 }
+
+#[test]
+fn test_compete_for_fragments_out_of_bounds_fragment_range() {
+    // frag_stop_idx=11 exceeds the fragment_mz array (length 10).
+    let result = compete_for_fragments(
+        &[0, 0],
+        &[10.0, 10.0],
+        &[0, 1],
+        &[1, 11],
+        &[100.0; 10],
+        3.0,
+        15.0,
+    );
+    assert!(result.is_err());
+
+    // frag_start_idx > frag_stop_idx is also invalid.
+    let result = compete_for_fragments(
+        &[0, 0],
+        &[10.0, 10.0],
+        &[5, 0],
+        &[3, 1],
+        &[100.0; 10],
+        3.0,
+        15.0,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_overlap_threshold_boundary() {
+    // Sharing MIN_OVERLAPPING_FRAGMENTS - 1 = 2 fragments -> below the threshold,
+    // both survive.
+    let valid = compete_for_fragments(
+        &[0, 0],
+        &[10.0, 10.0],
+        &[0, 3],
+        &[3, 6],
+        &[100.0, 101.0, 102.0, 100.0, 101.0, 999.0],
+        3.0,
+        15.0,
+    )
+    .unwrap();
+    assert_eq!(valid, vec![true, true]);
+
+    // Sharing exactly MIN_OVERLAPPING_FRAGMENTS = 3 fragments -> at the threshold,
+    // the second candidate is invalidated.
+    let valid = compete_for_fragments(
+        &[0, 0],
+        &[10.0, 10.0],
+        &[0, 3],
+        &[3, 6],
+        &[100.0, 101.0, 102.0, 100.0, 101.0, 102.0],
+        3.0,
+        15.0,
+    )
+    .unwrap();
+    assert_eq!(valid, vec![true, false]);
+}
+
+#[test]
+fn test_rt_tolerance_boundary() {
+    let fragment_mz: Vec<f32> = (0..2).flat_map(|_| (100..110).map(|v| v as f32)).collect();
+
+    // Delta RT exactly at the tolerance -> excluded (strict `<`), both survive
+    // even though fragments fully overlap.
+    let valid = compete_for_fragments(
+        &[0, 0],
+        &[10.0, 13.0],
+        &[0, 10],
+        &[10, 20],
+        &fragment_mz,
+        3.0,
+        15.0,
+    )
+    .unwrap();
+    assert_eq!(valid, vec![true, true]);
+
+    // Just inside the tolerance -> the second candidate is invalidated.
+    let valid = compete_for_fragments(
+        &[0, 0],
+        &[10.0, 12.9],
+        &[0, 10],
+        &[10, 20],
+        &fragment_mz,
+        3.0,
+        15.0,
+    )
+    .unwrap();
+    assert_eq!(valid, vec![true, false]);
+}
+
+#[test]
+fn test_mass_tolerance_boundary() {
+    // Three fragment pairs each ~20 ppm apart (above the 15 ppm tolerance) -> no
+    // overlap counted, both survive.
+    let bases = [1_000_000.0_f32, 2_000_000.0, 3_000_000.0];
+    let above: Vec<f32> = bases
+        .iter()
+        .copied()
+        .chain(bases.iter().map(|&b| b + b * 20.0 / 1e6))
+        .collect();
+    let valid =
+        compete_for_fragments(&[0, 0], &[10.0, 10.0], &[0, 3], &[3, 6], &above, 3.0, 15.0).unwrap();
+    assert_eq!(valid, vec![true, true]);
+
+    // Same three pairs, ~10 ppm apart (below the tolerance) -> all three count as
+    // overlaps, so the second candidate is invalidated.
+    let below: Vec<f32> = bases
+        .iter()
+        .copied()
+        .chain(bases.iter().map(|&b| b + b * 10.0 / 1e6))
+        .collect();
+    let valid =
+        compete_for_fragments(&[0, 0], &[10.0, 10.0], &[0, 3], &[3, 6], &below, 3.0, 15.0).unwrap();
+    assert_eq!(valid, vec![true, false]);
+}

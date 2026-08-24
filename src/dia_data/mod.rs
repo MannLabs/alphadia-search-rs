@@ -141,7 +141,7 @@ impl DIAData {
 
 // Implement the DIADataTrait for DIAData
 impl crate::traits::DIADataTrait for DIAData {
-    fn get_dense_xic_observation(
+    fn hydrate_xic(
         &self,
         precursor_mz: f32,
         cycle_start_idx: usize,
@@ -176,7 +176,7 @@ impl crate::traits::DIADataTrait for DIAData {
         }
     }
 
-    fn get_dense_xic_mz_observation(
+    fn hydrate_xic_mz(
         &self,
         precursor_mz: f32,
         cycle_start_idx: usize,

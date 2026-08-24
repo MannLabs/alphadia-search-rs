@@ -9,6 +9,7 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
+use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
@@ -95,7 +96,8 @@ impl PeakGroupQuantification {
             return None;
         }
 
-        let dense_xic_mz_obs = dia_data.hydrate_xic_mz(
+        let dense_xic_mz_obs = DenseXICMZObservation::new(
+            dia_data,
             precursor.mz,
             cycle_start,
             cycle_stop,

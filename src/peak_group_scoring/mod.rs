@@ -6,7 +6,6 @@ use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
 use crate::constants::FragmentType;
-use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
@@ -117,8 +116,7 @@ impl PeakGroupScoring {
         let mass_tolerance = self.params.mass_tolerance;
 
         // Create dense XIC and m/z observation using the filtered precursor fragments
-        let dense_xic_mz_obs = DenseXICMZObservation::new(
-            dia_data,
+        let dense_xic_mz_obs = dia_data.hydrate_xic_mz(
             precursor.mz,
             cycle_start_idx,
             cycle_stop_idx,

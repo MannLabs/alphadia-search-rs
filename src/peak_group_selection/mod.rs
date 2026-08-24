@@ -6,7 +6,6 @@ use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::convolution::convolution;
-use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data::DIAData;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
@@ -148,8 +147,7 @@ impl PeakGroupSelection {
         }
 
         // Create dense XIC observation using the filtered precursor fragments
-        let dense_xic_obs = DenseXICObservation::new(
-            dia_data,
+        let dense_xic_obs = dia_data.hydrate_xic(
             precursor.mz,
             cycle_start_idx,
             cycle_stop_idx,

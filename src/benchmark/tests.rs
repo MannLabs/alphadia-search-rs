@@ -3,6 +3,8 @@ use crate::kernel::GaussianKernel;
 use numpy::ndarray::Array2;
 use rand::prelude::*;
 
+type ConvolutionFn = fn(&GaussianKernel, &Array2<f32>) -> Array2<f32>;
+
 #[test]
 fn test_convolution_similarity() {
     let n_points = 100;
@@ -25,7 +27,7 @@ fn test_convolution_similarity() {
         arrays.push(arr);
     }
 
-    let implementations: Vec<(&str, fn(&GaussianKernel, &Array2<f32>) -> Array2<f32>)> = vec![
+    let implementations: Vec<(&str, ConvolutionFn)> = vec![
         ("Branching", benchmark_padded_convolution_branching),
         (
             "Branching+SIMD",

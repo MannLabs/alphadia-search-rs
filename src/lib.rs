@@ -3,6 +3,7 @@ use pyo3::prelude::*;
 use pyo3::PyErr;
 
 pub mod benchmark;
+pub mod calibration;
 pub mod candidate;
 pub mod constants;
 pub mod convolution;
@@ -27,6 +28,7 @@ mod threadpool;
 pub mod traits;
 pub mod utils;
 
+use crate::calibration::CalibrationEstimator;
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
 use crate::dia_data::DIAData;
 pub use crate::kernel::GaussianKernel;
@@ -83,6 +85,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<QuantificationParameters>()?;
     m.add_class::<CandidateCollection>()?;
     m.add_class::<CandidateFeatureCollection>()?;
+    m.add_class::<CalibrationEstimator>()?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;

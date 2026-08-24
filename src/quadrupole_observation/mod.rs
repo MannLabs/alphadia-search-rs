@@ -4,9 +4,9 @@ use numpy::ndarray::ArrayViewMut1;
 #[cfg(test)]
 mod tests;
 
-/// QuadrupoleObservation structure that achieves >99.9% memory overhead reduction
+/// Optimized QuadrupoleObservation structure
 ///
-/// Instead of millions of XICSlice objects with individual Vec allocations,
+/// Instead of millions of objects with individual Vec allocations,
 /// this uses consolidated arrays with index-based slicing.
 #[derive(Debug, Clone)]
 pub struct QuadrupoleObservation {

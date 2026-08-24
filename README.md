@@ -6,8 +6,36 @@ High-performance alphaDIA backend.
 This repository contains the high-performance backend for alphaDIA. This
 code should to used as part of [alphaDIA](https://github.com/MannLabs/alphadia).
 
+### Controlling Thread Count
+
+Control the number of threads used for parallel operations:
+
+**Option 1: Direct call (must be first call after import)**
+```python
+import alphadia_search_rs
+alphadia_search_rs.set_num_threads(4)
+```
+
+**Option 2: Environment variable (recommended)**
+> ℹ️ **Note:** The environment variable `RAYON_NUM_THREADS` must be set *before* starting Python, or at least before importing `alphadia_search_rs`. Setting it at runtime will not affect the thread pool.
+
+```bash
+export RAYON_NUM_THREADS=4
+python your_script.py
+```
 
 ## Development Setup
+
+---
+
+**📌 Versioning Policy**
+
+This repository strictly follows [**Semantic Versioning 2.0.0**](https://semver.org/). Given a version number `MAJOR.MINOR.PATCH`:
+- **MAJOR** version for incompatible API changes
+- **MINOR** version for backwards-compatible functionality additions
+- **PATCH** version for backwards-compatible bug fixes
+
+---
 
 ### Prerequisites
 

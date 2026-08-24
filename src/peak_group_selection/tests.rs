@@ -81,8 +81,8 @@ fn test_parameter_internal_modification() {
 
 #[test]
 fn test_update_method_partial() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let mut params = SelectionParameters::new();
 
         // Update only one parameter

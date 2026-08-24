@@ -123,7 +123,7 @@ impl SpecLibFlatQuantified {
         self.fragment_mz.len()
     }
 
-    pub fn to_dict_arrays(&self, py: Python) -> PyResult<pyo3::PyObject> {
+    pub fn to_dict_arrays(&self, py: Python) -> PyResult<Py<PyAny>> {
         use numpy::IntoPyArray;
         use pyo3::types::{PyDict, PyDictMethods, PyTuple};
 
@@ -202,8 +202,8 @@ impl SpecLibFlatQuantified {
             self.fragment_precursor_rank.clone().into_pyarray(py),
         )?;
 
-        let precursor_obj: pyo3::PyObject = precursor_dict.into();
-        let fragment_obj: pyo3::PyObject = fragment_dict.into();
+        let precursor_obj: Py<PyAny> = precursor_dict.into();
+        let fragment_obj: Py<PyAny> = fragment_dict.into();
         let result_tuple = PyTuple::new(py, &[precursor_obj, fragment_obj])?;
         Ok(result_tuple.into())
     }

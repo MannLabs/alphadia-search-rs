@@ -217,7 +217,7 @@ impl CandidateFeatureCollection {
         self.features.is_empty()
     }
 
-    pub fn to_dict_arrays(&self, py: Python) -> PyResult<PyObject> {
+    pub fn to_dict_arrays(&self, py: Python) -> PyResult<Py<PyAny>> {
         let n = self.features.len();
 
         let mut precursor_idxs = Array1::<u64>::zeros(n);

@@ -125,15 +125,15 @@ impl CandidateCollection {
         &self,
         py: Python,
     ) -> PyResult<(
-        PyObject,
-        PyObject,
-        PyObject,
-        PyObject,
-        PyObject,
-        PyObject,
-        PyObject,
-        PyObject,
-        PyObject,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
+        Py<PyAny>,
     )> {
         let n = self.candidates.len();
         let mut precursor_idxs = Array1::<u64>::zeros(n);

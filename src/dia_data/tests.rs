@@ -241,8 +241,8 @@ fn test_mobility_values() {
 
 #[test]
 fn test_rt_values() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let dia_data = DIAData::new();
         let rt_values = dia_data.rt_values(py);
         // New DIAData should have empty RT values
@@ -280,8 +280,8 @@ fn test_rt_values_with_data() {
     use crate::dia_data_builder::DIADataBuilder;
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
 
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let rt_values = dia_data.rt_values(py);
         let rt_vec: Vec<f32> = rt_values.to_vec().unwrap();
         assert_eq!(rt_vec, vec![1.0f32, 1.1]);
@@ -290,8 +290,8 @@ fn test_rt_values_with_data() {
 
 #[test]
 fn test_cycle() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let dia_data = DIAData::new();
         let cycle_array = dia_data.cycle(py);
         // Should return a PyArray4 with shape (0, 0, 0, 0)

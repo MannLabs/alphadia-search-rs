@@ -414,10 +414,10 @@ fn test_filter_sort_fragments_invariants() {
 #[test]
 fn test_speclib_flat_creation_sorting() {
     use numpy::PyArray1;
-    use pyo3::{prepare_freethreaded_python, Python};
+    use pyo3::Python;
 
-    prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         // Create unsorted test data - precursor_idx intentionally out of order
         let precursor_idx = PyArray1::from_slice(py, &[3usize, 1, 4, 2]);
         let precursor_mz = PyArray1::from_slice(py, &[300.0f32, 100.0, 400.0, 200.0]);
@@ -521,12 +521,12 @@ fn test_speclib_flat_fragment_mz_sorting() {
     let fragment_position = vec![1u8; 5];
     let fragment_type = vec![FragmentType::B; 5];
 
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     // Create numpy arrays for the test data
     use numpy::PyArray1;
 
-    pyo3::Python::with_gil(|py| {
+    pyo3::Python::attach(|py| {
         let precursor_idx_arr = PyArray1::from_slice(py, &precursor_idx);
         let precursor_mz_arr = PyArray1::from_slice(py, &precursor_mz);
         let precursor_mz_library_arr = PyArray1::from_slice(py, &precursor_mz_library);
@@ -677,10 +677,10 @@ fn test_filter_sort_fragments_y1_ion_filtering() {
 #[test]
 fn test_speclib_flat_idf_creation() {
     use numpy::PyArray1;
-    use pyo3::{prepare_freethreaded_python, Python};
+    use pyo3::Python;
 
-    prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    Python::initialize();
+    Python::attach(|py| {
         let precursor_idx = PyArray1::from_slice(py, &[1usize]);
         let precursor_mz = PyArray1::from_slice(py, &[300.0f32]);
         let precursor_rt = PyArray1::from_slice(py, &[30.0f32]);

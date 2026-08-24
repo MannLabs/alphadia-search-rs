@@ -9,7 +9,7 @@ use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
+    calculate_correlation_safe, calculate_cycle_fwhm, calculate_dot_product, calculate_hyperscore,
     calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
     filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
@@ -142,7 +142,7 @@ impl PeakGroupScoring {
         let median_profile_sum = median_profile.iter().sum::<f32>();
         let median_profile_sum_filtered = median_profile_filtered.iter().sum::<f32>();
 
-        let cycle_fwhm = calculate_fwhm_rt(
+        let cycle_fwhm = calculate_cycle_fwhm(
             &median_profile_filtered,
             cycle_start_idx,
             &dia_data.rt_index().rt,

@@ -1,8 +1,8 @@
 #[allow(unused_imports)]
 use super::utils::{
-    calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
-    calculate_longest_ion_series, correlation, correlation_axis_0, intensity_ion_series,
-    median_axis_0, normalize_profiles,
+    calculate_cycle_fwhm, calculate_dot_product, calculate_hyperscore,
+    calculate_hyperscore_weighted, calculate_longest_ion_series, correlation, correlation_axis_0,
+    intensity_ion_series, median_axis_0, normalize_profiles,
 };
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
@@ -911,7 +911,7 @@ fn test_intensity_ion_series_no_matches() {
 }
 
 #[test]
-fn test_calculate_fwhm_rt_basic() {
+fn test_calculate_cycle_fwhm_basic() {
     // Given: Simple XIC profile with clear peak
     let xic_profile = vec![0.0, 50.0, 100.0, 50.0, 0.0]; // Triangular peak
     let cycle_start_idx = 10;
@@ -920,7 +920,7 @@ fn test_calculate_fwhm_rt_basic() {
     ]);
 
     // When: Calculating FWHM
-    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
 
     // Then: fraction of points above half-max (100/2=50) is 1/5 = 0.2,
     // rt_width = rt_values[14] - rt_values[10] = 4.0, so FWHM = 0.2 * 4.0 = 0.8
@@ -928,14 +928,14 @@ fn test_calculate_fwhm_rt_basic() {
 }
 
 #[test]
-fn test_calculate_fwhm_rt_matches_python_fraction() {
+fn test_calculate_cycle_fwhm_matches_python_fraction() {
     // Given: A broad peak where 3 of 5 points exceed half of the max intensity
     let xic_profile = vec![10.0, 80.0, 100.0, 80.0, 10.0]; // half_max = 50 -> 3 points above
     let cycle_start_idx = 0;
     let rt_values = arr1(&[0.0, 2.0, 4.0, 6.0, 8.0, 10.0]);
 
     // When: Calculating FWHM
-    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
 
     // Then: fraction_above = 3/5 = 0.6, rt_width = rt_values[4] - rt_values[0] = 8.0
     // FWHM = 0.6 * 8.0 = 4.8
@@ -943,17 +943,90 @@ fn test_calculate_fwhm_rt_matches_python_fraction() {
 }
 
 #[test]
-fn test_calculate_fwhm_rt_empty_profile() {
+fn test_calculate_cycle_fwhm_empty_profile() {
     // Given: Empty XIC profile
     let xic_profile = vec![];
     let cycle_start_idx = 0;
     let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
 
     // When: Calculating FWHM
-    let fwhm = calculate_fwhm_rt(&xic_profile, cycle_start_idx, &rt_values);
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
 
     // Then: Should return 0
     assert_eq!(fwhm, 0.0);
+}
+
+#[test]
+fn test_calculate_cycle_fwhm_zero_intensity_profile() {
+    // Given: A profile without any positive signal
+    let xic_profile = vec![0.0, 0.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: Should return 0 rather than the full window width
+    assert_eq!(fwhm, 0.0);
+}
+
+#[test]
+fn test_calculate_cycle_fwhm_is_quantized_to_cycles() {
+    // Given: A symmetric peak whose half-max (5.0) falls between cycles
+    let xic_profile = vec![0.0, 10.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: The half-max crossings are not interpolated; the width is quantized to whole
+    // cycles: fraction_above = 1/3, rt_width = 2.0 -> FWHM = 0.667
+    assert!((fwhm - 2.0 / 3.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_cycle_fwhm_off_center_apex() {
+    // Given: A peak whose apex is not at the center of the profile
+    let xic_profile = vec![0.0, 100.0, 50.0, 0.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: Only the apex exceeds half-max (50), so the result is independent of where
+    // the apex sits: fraction_above = 1/5, rt_width = 4.0 -> FWHM = 0.8
+    assert!((fwhm - 0.8).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_cycle_fwhm_asymmetric_peak() {
+    // Given: A peak with a sharp rise and a slow decay
+    let xic_profile = vec![0.0, 100.0, 100.0, 50.0, 0.0];
+    let cycle_start_idx = 0;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: Both flanks contribute through the point count, not through their shape:
+    // fraction_above = 2/5, rt_width = 4.0 -> FWHM = 1.6
+    assert!((fwhm - 1.6).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_cycle_fwhm_never_falls_below_half_max() {
+    // Given: A profile that stays above half maximum across the whole window
+    let xic_profile = vec![80.0, 100.0, 90.0];
+    let cycle_start_idx = 2;
+    let rt_values = arr1(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+
+    // When: Calculating FWHM
+    let fwhm = calculate_cycle_fwhm(&xic_profile, cycle_start_idx, &rt_values);
+
+    // Then: The width saturates at the full window: rt_values[4] - rt_values[2] = 2.0
+    assert!((fwhm - 2.0).abs() < 1e-6);
 }
 
 #[test]

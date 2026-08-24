@@ -452,7 +452,7 @@ pub fn calculate_dot_product(a: &[f32], b: &[f32]) -> f32 {
 ///
 /// Returns:
 /// - FWHM in retention time units, or 0.0 if it cannot be calculated
-pub fn calculate_fwhm_rt(
+pub fn calculate_cycle_fwhm(
     xic_profile: &[f32],
     cycle_start_idx: usize,
     rt_values: &Array1<f32>,
@@ -461,7 +461,17 @@ pub fn calculate_fwhm_rt(
         return 0.0;
     }
 
-    let max_intensity = xic_profile.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let max_intensity = xic_profile
+        .iter()
+        .copied()
+        .fold(f32::NEG_INFINITY, f32::max);
+
+    // A profile without positive signal has no meaningful width: half of a non-positive
+    // maximum would admit every point, reporting the full window as the peak width.
+    if max_intensity <= 0.0 {
+        return 0.0;
+    }
+
     let half_max = max_intensity / 2.0;
 
     let n_values_above = xic_profile.iter().filter(|&&v| v > half_max).count();

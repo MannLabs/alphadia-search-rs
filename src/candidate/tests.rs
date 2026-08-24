@@ -42,7 +42,7 @@ fn test_get_feature_names() {
 
 #[test]
 fn test_candidate_collection_to_arrays_dtypes_and_order() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
     let candidate = Candidate {
         precursor_idx: 42,
         rank: 7,
@@ -56,7 +56,7 @@ fn test_candidate_collection_to_arrays_dtypes_and_order() {
     };
     let collection = CandidateCollection::from_vec(vec![candidate]);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let (
             precursor_idxs,
             ranks,
@@ -103,7 +103,7 @@ fn test_candidate_collection_to_arrays_dtypes_and_order() {
 
 #[test]
 fn test_candidate_collection_from_arrays_roundtrip() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
     let precursor_idxs = vec![1u64, 2u64];
     let ranks = vec![10u64, 20u64];
     let scores = vec![0.1f32, 0.2f32];
@@ -130,7 +130,7 @@ fn test_candidate_collection_from_arrays_roundtrip() {
     assert_eq!(collection.len(), 2);
     assert!(!collection.is_empty());
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let (p, r, s, sc, ss, so, cc, cs, co) = collection.to_arrays(py).unwrap();
 
         let p: Vec<u64> = p.extract(py).unwrap();
@@ -157,7 +157,7 @@ fn test_candidate_collection_from_arrays_roundtrip() {
 
 #[test]
 fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
-    pyo3::prepare_freethreaded_python();
+    pyo3::Python::initialize();
 
     let feature = CandidateFeature::new(
         5,     // precursor_idx
@@ -206,11 +206,11 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         let obj = collection
             .to_dict_arrays(py)
             .expect("to_dict_arrays should succeed");
-        let dict = obj.downcast_bound::<PyDict>(py).unwrap();
+        let dict = obj.cast_bound::<PyDict>(py).unwrap();
 
         // u64-typed
         let precursor_idx: Vec<u64> = dict

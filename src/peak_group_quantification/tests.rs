@@ -37,8 +37,8 @@ fn test_parameter_internal_modification() {
 
 #[test]
 fn test_update_method_partial() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let mut params = QuantificationParameters::new();
 
         // Update only one parameter
@@ -55,8 +55,8 @@ fn test_update_method_partial() {
 
 #[test]
 fn test_update_method_all_parameters() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let mut params = QuantificationParameters::new();
 
         // Update all parameters
@@ -74,8 +74,8 @@ fn test_update_method_all_parameters() {
 
 #[test]
 fn test_update_method_empty_dict() {
-    pyo3::prepare_freethreaded_python();
-    Python::with_gil(|py| {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
         let mut params = QuantificationParameters::new();
         let original_tolerance = params.tolerance_ppm;
         let original_fragments = params.top_k_fragments;

@@ -7,7 +7,7 @@ pub mod calibration;
 pub mod candidate;
 pub mod constants;
 pub mod convolution;
-pub mod dense_xic_observation;
+mod dense_xic_observation;
 pub mod dia_data;
 pub mod dia_data_builder;
 pub mod idf;

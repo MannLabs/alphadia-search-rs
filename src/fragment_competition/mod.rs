@@ -1,8 +1,8 @@
-//! Fragment competition: drop candidates whose fragment signal is already claimed
-//! by a better-scoring candidate nearby in retention time.
+//! Fragment competition. Only one candidate can own a fragment signal. This module removes a
+//! candidate if a better candidate near it in retention time claims the same ions.
 //!
-//! Python keeps only the dataframe bookkeeping (candidate hashing and fragment
-//! index lookup); everything numeric happens here.
+//! Python does only the dataframe work: it makes the candidate hashes and finds the fragment
+//! indexes. All calculations occur here.
 
 mod algorithm;
 #[cfg(test)]
@@ -14,6 +14,10 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 /// Arrays in, mask out.
+///
+/// The description below comes from `src/fragment_competition/DOCS.md`. It gives the problem,
+/// the input and output arrays, and the algorithm.
+#[doc = include_str!("DOCS.md")]
 #[pyclass]
 pub struct FragmentCompetition {
     rt_tol_seconds: f32,
@@ -22,8 +26,10 @@ pub struct FragmentCompetition {
 
 #[pymethods]
 impl FragmentCompetition {
-    /// * `rt_tol_seconds` - candidates closer than this in RT compete.
-    /// * `mass_tol_ppm` - fragments closer than this count as the same ion.
+    /// * `rt_tol_seconds` - two candidates compete if their retention times are closer than
+    ///   this value.
+    /// * `mass_tol_ppm` - two fragments are the same ion if their m/z are closer than this
+    ///   value.
     #[new]
     fn new(rt_tol_seconds: f32, mass_tol_ppm: f32) -> Self {
         Self {
@@ -32,18 +38,20 @@ impl FragmentCompetition {
         }
     }
 
-    /// Returns a `valid` mask in the order the candidates were passed.
+    /// Gives a `valid` mask in the candidate order of the caller.
     ///
-    /// Candidates only compete inside their own DIA window, and the better `proba`
-    /// wins. Order does not matter, so callers need not sort anything.
+    /// Candidates compete only inside their own DIA window, and the lower `proba` wins. The
+    /// candidate order has no effect, thus the caller does not sort the arrays.
     ///
-    /// `fragment_mz` holds every candidate's ions and `frag_start_idx`/`frag_stop_idx`
-    /// slice into it. `cycle` has shape `(1, n_windows, n_scans, 2)`.
+    /// `fragment_mz` holds the ions of all candidates. `frag_start_idx` and `frag_stop_idx`
+    /// give the range of each candidate. `cycle` has the shape `(1, n_windows, n_scans, 2)`.
     ///
-    /// Arrays are borrowed rather than copied, so they must be C-contiguous.
+    /// This method borrows the arrays and does not copy them. The arrays must therefore be
+    /// C-contiguous.
     ///
-    /// Raises `ValueError` on mismatched lengths or an out-of-range fragment slice,
-    /// `TypeError` on a non-contiguous array.
+    /// Raises `ValueError` if the array lengths do not agree, if a fragment range is outside
+    /// `fragment_mz`, or if a float input contains NaN. Raises `TypeError` if an array is not
+    /// contiguous.
     #[allow(clippy::too_many_arguments)]
     fn compete<'py>(
         &self,

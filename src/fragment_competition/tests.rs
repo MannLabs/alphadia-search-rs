@@ -1,9 +1,10 @@
-//! Cases mirror `tests/unit_tests/fragcomp/test_fragcomp.py` in the `alphadia` repo.
+//! These tests cover the two competition criteria (shared ions and retention time), the
+//! tolerance and threshold limits, the winner of a conflict, and the rejected inputs.
 
 use super::algorithm::{compete_for_fragments, WindowBounds};
 use numpy::ndarray::{Array4, ArrayView4};
 
-/// One window wide enough to hold every candidate, so only RT and overlap matter.
+/// One window that contains all candidates. Only RT and overlap decide the result.
 fn single_window() -> Array4<f32> {
     Array4::from_shape_vec((1, 1, 1, 2), vec![0.0, 10_000.0]).unwrap()
 }
@@ -39,7 +40,7 @@ fn compete(
     )
 }
 
-/// `n` candidates that all share the same ten ions.
+/// `n` candidates that share the same ten ions.
 fn shared_fragments(n: usize) -> Vec<f32> {
     (0..n).flat_map(|_| (100..110).map(|v| v as f32)).collect()
 }
@@ -48,7 +49,7 @@ fn shared_fragments(n: usize) -> Vec<f32> {
 fn test_fragment_overlap() {
     let cycle = single_window();
 
-    // All ten shared -> the worse candidate goes.
+    // All ten ions are shared. The worse candidate loses.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -62,7 +63,7 @@ fn test_fragment_overlap() {
     .unwrap();
     assert_eq!(valid, vec![true, false]);
 
-    // One shared ion is below the threshold.
+    // One shared ion is less than the threshold.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -79,7 +80,7 @@ fn test_fragment_overlap() {
     .unwrap();
     assert_eq!(valid, vec![true, true]);
 
-    // Nothing shared.
+    // No shared ions.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -99,7 +100,7 @@ fn test_fragment_overlap() {
 
 #[test]
 fn test_compete_for_fragments() {
-    // Everything overlaps, so RT alone decides who competes.
+    // All candidates share their ions. RT alone decides which candidates compete.
     let valid = compete(
         &[100.0, 100.0, 100.0, 200.0, 200.0, 200.0],
         &[0, 1, 2, 3, 4, 5],
@@ -116,7 +117,7 @@ fn test_compete_for_fragments() {
 
 #[test]
 fn test_result_order_is_independent_of_input_order() {
-    // Same six candidates as above, passed worst first.
+    // The same six candidates, in reverse order (worst first).
     let valid = compete(
         &[200.0, 200.0, 200.0, 100.0, 100.0, 100.0],
         &[5, 4, 3, 2, 1, 0],
@@ -128,13 +129,13 @@ fn test_result_order_is_independent_of_input_order() {
         two_windows().view(),
     )
     .unwrap();
-    // Candidates reversed, so the expected mask is too.
+    // The candidate order is reversed, thus the expected mask is also reversed.
     assert_eq!(valid, vec![true, false, true, false, true, true]);
 }
 
 #[test]
 fn test_priority_decides_the_winner_not_position() {
-    // The better proba is passed second.
+    // The second candidate has the better proba.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -151,7 +152,7 @@ fn test_priority_decides_the_winner_not_position() {
 
 #[test]
 fn test_proba_ties_broken_by_precursor_idx() {
-    // Equal proba, so the lower precursor_idx wins.
+    // The two proba are equal, thus the lower precursor_idx wins.
     let valid = compete(
         &[500.0, 500.0],
         &[7, 3],
@@ -168,7 +169,7 @@ fn test_proba_ties_broken_by_precursor_idx() {
 
 #[test]
 fn test_candidates_in_different_windows_do_not_compete() {
-    // Identical fragments and RT, but different windows.
+    // The fragments and the RT are the same, but the windows are different.
     let valid = compete(
         &[100.0, 200.0],
         &[0, 1],
@@ -206,7 +207,7 @@ fn test_compete_for_fragments_mismatched_lengths() {
 
 #[test]
 fn test_compete_for_fragments_out_of_bounds_fragment_range() {
-    // stop index past the end of fragment_mz.
+    // The stop index is greater than the length of fragment_mz.
     let result = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -219,7 +220,7 @@ fn test_compete_for_fragments_out_of_bounds_fragment_range() {
     );
     assert!(result.is_err());
 
-    // start index past the stop index.
+    // The start index is greater than the stop index.
     let result = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -234,10 +235,93 @@ fn test_compete_for_fragments_out_of_bounds_fragment_range() {
 }
 
 #[test]
+fn test_nan_precursor_mz_is_rejected() {
+    let error = compete(
+        &[500.0, f32::NAN],
+        &[0, 1],
+        &[0.1, 0.2],
+        &[10.0, 10.0],
+        &[0, 10],
+        &[10, 20],
+        &shared_fragments(2),
+        single_window().view(),
+    )
+    .unwrap_err();
+    assert!(error.contains("precursor_mz"), "{error}");
+}
+
+#[test]
+fn test_nan_proba_is_rejected() {
+    let error = compete(
+        &[500.0, 500.0],
+        &[0, 1],
+        &[f64::NAN, 0.2],
+        &[10.0, 10.0],
+        &[0, 10],
+        &[10, 20],
+        &shared_fragments(2),
+        single_window().view(),
+    )
+    .unwrap_err();
+    assert!(error.contains("proba"), "{error}");
+}
+
+#[test]
+fn test_nan_rt_observed_is_rejected() {
+    let error = compete(
+        &[500.0, 500.0],
+        &[0, 1],
+        &[0.1, 0.2],
+        &[10.0, f32::NAN],
+        &[0, 10],
+        &[10, 20],
+        &shared_fragments(2),
+        single_window().view(),
+    )
+    .unwrap_err();
+    assert!(error.contains("rt_observed"), "{error}");
+}
+
+#[test]
+fn test_nan_fragment_mz_is_rejected() {
+    let mut fragment_mz = shared_fragments(2);
+    fragment_mz[3] = f32::NAN;
+    let error = compete(
+        &[500.0, 500.0],
+        &[0, 1],
+        &[0.1, 0.2],
+        &[10.0, 10.0],
+        &[0, 10],
+        &[10, 20],
+        &fragment_mz,
+        single_window().view(),
+    )
+    .unwrap_err();
+    assert!(error.contains("fragment_mz"), "{error}");
+}
+
+#[test]
+fn test_nan_cycle_is_rejected() {
+    let cycle = Array4::from_shape_vec((1, 1, 1, 2), vec![0.0, f32::NAN]).unwrap();
+    let error = compete(
+        &[500.0, 500.0],
+        &[0, 1],
+        &[0.1, 0.2],
+        &[10.0, 10.0],
+        &[0, 10],
+        &[10, 20],
+        &shared_fragments(2),
+        cycle.view(),
+    )
+    .unwrap_err();
+    assert!(error.contains("cycle"), "{error}");
+}
+
+#[test]
 fn test_overlap_threshold_boundary() {
     let cycle = single_window();
 
-    // Two shared ions, one short of the threshold.
+    // Two shared ions. This is one less than the threshold.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -271,7 +355,7 @@ fn test_rt_tolerance_boundary() {
     let cycle = single_window();
     let fragment_mz = shared_fragments(2);
 
-    // Exactly at the tolerance, which is exclusive.
+    // Exactly at the tolerance. The tolerance is exclusive.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -305,7 +389,7 @@ fn test_mass_tolerance_boundary() {
     let cycle = single_window();
     let bases = [1_000_000.0_f32, 2_000_000.0, 3_000_000.0];
 
-    // Three pairs at ~20 ppm, outside the 15 ppm tolerance.
+    // Three pairs at approximately 20 ppm. This is outside the 15 ppm tolerance.
     let above: Vec<f32> = bases
         .iter()
         .copied()
@@ -324,7 +408,7 @@ fn test_mass_tolerance_boundary() {
     .unwrap();
     assert_eq!(valid, vec![true, true]);
 
-    // Same pairs at ~10 ppm, inside it.
+    // The same pairs at approximately 10 ppm. This is inside the tolerance.
     let below: Vec<f32> = bases
         .iter()
         .copied()

@@ -66,11 +66,26 @@ pub fn median_axis_0(array: &Array2<f32>) -> Vec<f32> {
     result
 }
 
-/// Calculate normalized intensity profiles from dense array.
+/// Calculate normalized intensity profiles from dense array, anchored at the middle of the
+/// window.
 /// Similar to normalize_profiles in Python
 pub fn normalize_profiles(intensity_slice: &Array2<f32>, center_dilations: usize) -> Array2<f32> {
+    let center_idx = intensity_slice.ncols() / 2;
+    normalize_profiles_at(intensity_slice, center_idx, center_dilations)
+}
+
+/// Calculate normalized intensity profiles from dense array, anchored at `center_idx`.
+///
+/// The middle of the window and the apex of the candidate coincide for every window that
+/// was not clipped against the start or the end of the run. Where they differ, anchoring on
+/// the apex matters: a fragment with no signal at the middle of the window is normalised to
+/// zero and drops out of the consensus profile entirely.
+pub fn normalize_profiles_at(
+    intensity_slice: &Array2<f32>,
+    center_idx: usize,
+    center_dilations: usize,
+) -> Array2<f32> {
     let (rows, cols) = intensity_slice.dim();
-    let center_idx = cols / 2;
 
     // Calculate mean center intensity for each row
     let mut center_intensity = Vec::with_capacity(rows);

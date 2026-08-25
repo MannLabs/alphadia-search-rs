@@ -12,17 +12,19 @@ use crate::candidate::{Candidate, CandidateCollection};
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles_at,
 };
 use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
 use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
-use numpy::ndarray::Axis;
 
+pub mod integration;
 pub mod parameters;
 pub mod tests;
-pub use parameters::QuantificationParameters;
+
+use integration::{integrate, template, IntegrationContext};
+pub use parameters::{QuantificationMethod, QuantificationParameters};
 
 #[pyclass]
 pub struct PeakGroupQuantification {
@@ -96,6 +98,14 @@ impl PeakGroupQuantification {
             return None;
         }
 
+        // Retention times of the window are needed by every integration strategy, so a
+        // candidate pointing outside the acquired cycles is rejected before extraction.
+        let rt_values = dia_data.rt_index().rt.as_slice()?;
+        if cycle_stop > rt_values.len() {
+            return None;
+        }
+        let rt_window = &rt_values[cycle_start..cycle_stop];
+
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
@@ -107,8 +117,7 @@ impl PeakGroupQuantification {
 
         let num_fragments = precursor.fragment_mz.len();
         let mut fragment_correlation_observed = vec![0.0f32; num_fragments];
-
-        let _center_cycle_idx = cycle_center - cycle_start;
+        let apex_idx = cycle_center - cycle_start;
 
         // Calculate observed m/z values and mass errors for all fragments
         let (fragment_mz_observed, fragment_mass_error_observed) = calculate_fragment_mz_and_errors(
@@ -117,7 +126,7 @@ impl PeakGroupQuantification {
             &precursor.fragment_mz,
         );
 
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
+        let normalized_xic = normalize_profiles_at(&dense_xic_mz_obs.dense_xic, apex_idx, 1);
 
         // Filter to only non-zero profiles for median calculation (same as in scoring)
         let filtered_xic = filter_non_zero(&normalized_xic);
@@ -132,10 +141,27 @@ impl PeakGroupQuantification {
             fragment_correlation_observed[fragment_idx] = correlation;
         }
 
-        // Calculate observed intensities from the dense XIC observation (sum across cycles)
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
+        // Rebuilding the consensus profile from the fragments that agree with it keeps an
+        // interfered fragment from shaping the profile every fragment is integrated against.
+        // The reported correlation feature stays measured against the first pass.
+        let elution_profile = template::refine(
+            &normalized_xic,
+            &fragment_correlation_observed,
+            self.params.template_min_correlation,
+        )
+        .unwrap_or(median_profile);
 
-        let rt_observed = dia_data.rt_index().rt[cycle_center];
+        let observation_intensities = integrate(
+            &IntegrationContext {
+                xic: &dense_xic_mz_obs.dense_xic,
+                rt: rt_window,
+                template: &elution_profile,
+                apex: apex_idx,
+            },
+            &self.params,
+        );
+
+        let rt_observed = rt_values[cycle_center];
 
         let precursor_quantified = PrecursorQuantified {
             precursor_idx: precursor.precursor_idx,
@@ -151,7 +177,7 @@ impl PeakGroupQuantification {
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
             fragment_mz_library: precursor.fragment_mz_library.clone(),
             fragment_mz: precursor.fragment_mz.clone(),
-            fragment_intensity: observation_intensities.to_vec(),
+            fragment_intensity: observation_intensities,
             fragment_cardinality: precursor.fragment_cardinality.clone(),
             fragment_charge: precursor.fragment_charge.clone(),
             fragment_loss_type: precursor.fragment_loss_type.clone(),

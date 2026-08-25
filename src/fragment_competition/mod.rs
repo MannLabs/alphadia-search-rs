@@ -9,7 +9,7 @@ mod algorithm;
 #[cfg(test)]
 mod tests;
 
-use numpy::{IntoPyArray, PyArray1};
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
@@ -44,22 +44,26 @@ impl FragmentCompetition {
     /// is the full fragment array; `frag_start_idx`/`frag_stop_idx` are offsets into
     /// it.
     ///
-    /// Raises `ValueError` if the per-PSM arrays have mismatched lengths.
+    /// Arrays are borrowed, not copied, so all of them must be C-contiguous.
+    ///
+    /// Raises `ValueError` if the per-PSM arrays have mismatched lengths or if a
+    /// fragment index range falls outside `fragment_mz`, and `TypeError` if an
+    /// array is not contiguous.
     fn compete<'py>(
         &self,
         py: Python<'py>,
-        window_idx: Vec<i64>,
-        rt_observed: Vec<f32>,
-        frag_start_idx: Vec<i64>,
-        frag_stop_idx: Vec<i64>,
-        fragment_mz: Vec<f32>,
+        window_idx: PyReadonlyArray1<'_, i64>,
+        rt_observed: PyReadonlyArray1<'_, f32>,
+        frag_start_idx: PyReadonlyArray1<'_, i64>,
+        frag_stop_idx: PyReadonlyArray1<'_, i64>,
+        fragment_mz: PyReadonlyArray1<'_, f32>,
     ) -> PyResult<Bound<'py, PyArray1<bool>>> {
         let valid = algorithm::compete_for_fragments(
-            &window_idx,
-            &rt_observed,
-            &frag_start_idx,
-            &frag_stop_idx,
-            &fragment_mz,
+            window_idx.as_slice()?,
+            rt_observed.as_slice()?,
+            frag_start_idx.as_slice()?,
+            frag_stop_idx.as_slice()?,
+            fragment_mz.as_slice()?,
             self.rt_tol_seconds,
             self.mass_tol_ppm,
         )

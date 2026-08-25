@@ -37,6 +37,15 @@ impl QuantificationMethod {
         }
     }
 
+    /// Whether the strategy reads the consensus elution profile. `sum` and `trapezoid` do
+    /// not, so building a refined profile for them would be wasted work on the default path.
+    pub fn uses_elution_profile(&self) -> bool {
+        match self {
+            Self::Sum | Self::Trapezoid => false,
+            Self::BoundaryTrapezoid | Self::ProfileProjection | Self::EmgFit => true,
+        }
+    }
+
     /// Parse a method name. Aliases are accepted so that configurations written against
     /// earlier naming keep working.
     pub fn from_name(name: &str) -> Result<Self, String> {

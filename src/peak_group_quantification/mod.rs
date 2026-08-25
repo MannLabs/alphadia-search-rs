@@ -144,12 +144,19 @@ impl PeakGroupQuantification {
         // Rebuilding the consensus profile from the fragments that agree with it keeps an
         // interfered fragment from shaping the profile every fragment is integrated against.
         // The reported correlation feature stays measured against the first pass.
-        let elution_profile = template::refine(
-            &normalized_xic,
-            &fragment_correlation_observed,
-            self.params.template_min_correlation,
-        )
-        .unwrap_or(median_profile);
+        //
+        // Skipped entirely for the strategies that never look at the profile, so the default
+        // path costs exactly what it did before.
+        let elution_profile = if self.params.method.uses_elution_profile() {
+            template::refine(
+                &normalized_xic,
+                &fragment_correlation_observed,
+                self.params.template_min_correlation,
+            )
+            .unwrap_or(median_profile)
+        } else {
+            median_profile
+        };
 
         let observation_intensities = integrate(
             &IntegrationContext {

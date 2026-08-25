@@ -41,7 +41,7 @@ impl FragmentCompetition {
     /// Gives a `valid` mask in the candidate order of the caller.
     ///
     /// Candidates compete only inside their own DIA window, and the lower `proba` wins. The
-    /// candidate order has no effect, thus the caller does not sort the arrays.
+    /// candidate order has no effect, so the caller does not sort the arrays.
     ///
     /// `fragment_mz` holds the ions of all candidates. `frag_start_idx` and `frag_stop_idx`
     /// give the range of each candidate. `cycle` has the shape `(1, n_windows, n_scans, 2)`.

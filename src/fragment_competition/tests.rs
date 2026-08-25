@@ -129,7 +129,7 @@ fn test_result_order_is_independent_of_input_order() {
         two_windows().view(),
     )
     .unwrap();
-    // The candidate order is reversed, thus the expected mask is also reversed.
+    // The candidate order is reversed, so the expected mask is also reversed.
     assert_eq!(valid, vec![true, false, true, false, true, true]);
 }
 
@@ -152,7 +152,7 @@ fn test_priority_decides_the_winner_not_position() {
 
 #[test]
 fn test_proba_ties_broken_by_precursor_idx() {
-    // The two proba are equal, thus the lower precursor_idx wins.
+    // The two proba are equal, so the lower precursor_idx wins.
     let valid = compete(
         &[500.0, 500.0],
         &[7, 3],

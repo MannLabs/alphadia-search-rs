@@ -14,13 +14,13 @@ use rayon::prelude::*;
 /// are a coincidence.
 ///
 /// This value is an empirical threshold, not a physical constant. With fewer than three
-/// ions, a shared series can occur by chance. No caller needs a different value, thus this
+/// ions, a shared series can occur by chance. No caller needs a different value, so this
 /// module keeps the value constant.
 const MIN_OVERLAPPING_FRAGMENTS: usize = 3;
 
 /// Counts the ions that two candidates have in common, within `mass_tol_ppm`.
 ///
-/// The ppm distance is relative to `frag_mz_1`, thus the count is not fully symmetric. The
+/// The ppm distance is relative to `frag_mz_1`, so the count is not fully symmetric. The
 /// caller gives the ions of the candidate that claims the signal as `frag_mz_1`. This makes
 /// the reference clear.
 fn fragment_overlap(frag_mz_1: &[f32], frag_mz_2: &[f32], mass_tol_ppm: f32) -> usize {
@@ -35,10 +35,10 @@ fn fragment_overlap(frag_mz_1: &[f32], frag_mz_2: &[f32], mass_tol_ppm: f32) -> 
         .sum()
 }
 
-/// The m/z limits of each DIA isolation window.
+/// The m/z range of each DIA isolation window.
 ///
-/// The limits come from the cycle array with the shape `(1, n_windows, n_scans, 2)`. A window
-/// covers the largest isolation range of all of its scans.
+/// The cycle array has the shape `(1, n_windows, n_scans, 2)` and gives the limits of each
+/// scan. The range of a window covers all of its scans.
 pub struct WindowBounds {
     lower: Vec<f32>,
     upper: Vec<f32>,

@@ -1,14 +1,14 @@
 # Problem
 
-In data-independent acquisition, the instrument fragments all precursors of an isolation
+In data-independent acquisition, the instrument fragments all precursors in an isolation
 window together. Two peptides that elute at the same time in the same window therefore give
 one mixed MS2 spectrum. The search can report both peptides, and each one claims the same
 fragment peaks. Only one of them can own that signal.
 
-Fragment competition makes this assignment exclusive. Two candidates of one isolation window
-compete if their retention times are closer than `rt_tol_seconds`, and if they share three
-fragment ions or more within `mass_tol_ppm`. The candidate with the better score keeps the
-signal:
+Fragment competition makes this assignment exclusive. Two candidates in the same isolation
+window compete if their retention times are closer than `rt_tol_seconds`, and if they share
+three fragment ions or more within `mass_tol_ppm`. The candidate with the better score keeps
+the signal:
 
 ```text
 one isolation window, candidates sorted by proba (best first)
@@ -20,12 +20,12 @@ one isolation window, candidates sorted by proba (best first)
 
   A ↔ B   0.5 s apart, 3 shared ions (a, b, c)   →  B loses its fragments
   B ↔ C   B already lost, so it invalidates nothing
-  A ↔ C   10 s apart, thus they never compete
+  A ↔ C   10 s apart, so they never compete
 
   result   A ✓   B ✗   C ✓
 ```
 
-The second comparison shows the rule that is not obvious. A candidate that loses does not
+The second comparison shows a rule that is not obvious. A candidate that loses does not
 compete again. It cannot invalidate another candidate, and no other candidate can invalidate
 it. The order of the comparisons therefore decides which candidates survive. For this reason,
 this module groups and sorts the candidates itself. It does not use the row order of the
@@ -59,22 +59,23 @@ result. If you give the same candidates in a different order, the same candidate
 
 # Algorithm
 
-**1. Group the candidates by isolation window.** Each window covers the largest isolation
-range of all of its scans in `cycle`. A candidate belongs to the first window whose range
-`[lower, upper)` contains the `precursor_mz` of the candidate. Candidates of different
-windows cannot share fragment signal, thus they never compete.
+**1. Assign each candidate to an isolation window.** `cycle` gives the m/z range of each
+window. A candidate belongs to the window that contains its `precursor_mz`. Candidates in
+different windows never compete, because they cannot share fragment signal.
 
 ```text
-  window 0  [400, 425)      A  412.3  ┐
-  window 1  [425, 450)      B  418.9  ┴→ window 0
-  window 2  [450, 475)      C  431.0   → window 1
+  m/z →   [400, 425)      [425, 450)      [450, 475)
+           window 0        window 1        window 2
+
+           A  412.3        C  431.0
+           B  418.9
 ```
 
 **2. Sort each window** by `proba` in increasing order. `precursor_idx` in increasing order
 breaks a tie.
 
 **3. Compare the candidates of each window** in this order. Each valid candidate competes
-against all other valid candidates of the same window. If the two retention times are closer
+against all other valid candidates in the same window. If the two retention times are closer
 than `rt_tol_seconds`, and if the two candidates share three ions or more, the candidate that
 is later in the order loses its fragments.
 
@@ -92,7 +93,7 @@ mass_tol_ppm = 15
   ions within the tolerance: 2  <  3  →  the overlap is a coincidence
 ```
 
-The windows are independent, thus this module processes them in parallel. Inside one window,
+The windows are independent, so this module processes them in parallel. Inside one window,
 the comparisons are sequential, because of the order rule above.
 
 # Contract

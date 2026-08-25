@@ -1,16 +1,14 @@
-//! Unit tests for the fragment competition port. Cases mirror
-//! `tests/unit_tests/fragcomp/test_fragcomp.py` in the `alphadia` repo.
+//! Cases mirror `tests/unit_tests/fragcomp/test_fragcomp.py` in the `alphadia` repo.
 
 use super::algorithm::{compete_for_fragments, WindowBounds};
 use numpy::ndarray::{Array4, ArrayView4};
 
-/// A cycle with a single window spanning `[0, 10_000)`, so every candidate lands in
-/// window 0 and only RT / fragment overlap decide the outcome.
+/// One window wide enough to hold every candidate, so only RT and overlap matter.
 fn single_window() -> Array4<f32> {
     Array4::from_shape_vec((1, 1, 1, 2), vec![0.0, 10_000.0]).unwrap()
 }
 
-/// A cycle with two windows, `[90, 110)` and `[190, 210)`.
+/// Two windows, `[90, 110)` and `[190, 210)`.
 fn two_windows() -> Array4<f32> {
     Array4::from_shape_vec((1, 2, 1, 2), vec![90.0, 110.0, 190.0, 210.0]).unwrap()
 }
@@ -41,7 +39,7 @@ fn compete(
     )
 }
 
-/// `n` candidates in one window, all sharing the same ten fragment ions.
+/// `n` candidates that all share the same ten ions.
 fn shared_fragments(n: usize) -> Vec<f32> {
     (0..n).flat_map(|_| (100..110).map(|v| v as f32)).collect()
 }
@@ -50,7 +48,7 @@ fn shared_fragments(n: usize) -> Vec<f32> {
 fn test_fragment_overlap() {
     let cycle = single_window();
 
-    // All ten fragments shared -> the lower-priority candidate is invalidated.
+    // All ten shared -> the worse candidate goes.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -64,7 +62,7 @@ fn test_fragment_overlap() {
     .unwrap();
     assert_eq!(valid, vec![true, false]);
 
-    // Only a single overlapping fragment -> below the threshold, both survive.
+    // One shared ion is below the threshold.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -81,7 +79,7 @@ fn test_fragment_overlap() {
     .unwrap();
     assert_eq!(valid, vec![true, true]);
 
-    // No shared fragments at all -> both survive.
+    // Nothing shared.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -101,8 +99,7 @@ fn test_fragment_overlap() {
 
 #[test]
 fn test_compete_for_fragments() {
-    // Two DIA windows of three candidates each; every candidate shares all ten
-    // fragments with every other, so only the RT tolerance decides who competes.
+    // Everything overlaps, so RT alone decides who competes.
     let valid = compete(
         &[100.0, 100.0, 100.0, 200.0, 200.0, 200.0],
         &[0, 1, 2, 3, 4, 5],
@@ -119,8 +116,7 @@ fn test_compete_for_fragments() {
 
 #[test]
 fn test_result_order_is_independent_of_input_order() {
-    // Same six candidates as above, passed worst-priority first. The mask must come
-    // back in input order with the same candidates surviving.
+    // Same six candidates as above, passed worst first.
     let valid = compete(
         &[200.0, 200.0, 200.0, 100.0, 100.0, 100.0],
         &[5, 4, 3, 2, 1, 0],
@@ -132,13 +128,13 @@ fn test_result_order_is_independent_of_input_order() {
         two_windows().view(),
     )
     .unwrap();
-    // reversed candidates 5,4,3,2,1,0 -> reversed mask of [T,T,F,T,F,T]
+    // Candidates reversed, so the expected mask is too.
     assert_eq!(valid, vec![true, false, true, false, true, true]);
 }
 
 #[test]
 fn test_priority_decides_the_winner_not_position() {
-    // The candidate passed second has the better (lower) proba, so it wins.
+    // The better proba is passed second.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -155,7 +151,7 @@ fn test_priority_decides_the_winner_not_position() {
 
 #[test]
 fn test_proba_ties_broken_by_precursor_idx() {
-    // Equal proba -> the lower precursor_idx wins regardless of input position.
+    // Equal proba, so the lower precursor_idx wins.
     let valid = compete(
         &[500.0, 500.0],
         &[7, 3],
@@ -172,7 +168,7 @@ fn test_proba_ties_broken_by_precursor_idx() {
 
 #[test]
 fn test_candidates_in_different_windows_do_not_compete() {
-    // Identical fragments and RT, but the precursors fall in different windows.
+    // Identical fragments and RT, but different windows.
     let valid = compete(
         &[100.0, 200.0],
         &[0, 1],
@@ -210,7 +206,7 @@ fn test_compete_for_fragments_mismatched_lengths() {
 
 #[test]
 fn test_compete_for_fragments_out_of_bounds_fragment_range() {
-    // frag_stop_idx=11 exceeds the fragment_mz array (length 10).
+    // stop index past the end of fragment_mz.
     let result = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -223,7 +219,7 @@ fn test_compete_for_fragments_out_of_bounds_fragment_range() {
     );
     assert!(result.is_err());
 
-    // frag_start_idx > frag_stop_idx is also invalid.
+    // start index past the stop index.
     let result = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -241,7 +237,7 @@ fn test_compete_for_fragments_out_of_bounds_fragment_range() {
 fn test_overlap_threshold_boundary() {
     let cycle = single_window();
 
-    // Sharing MIN_OVERLAPPING_FRAGMENTS - 1 = 2 fragments -> both survive.
+    // Two shared ions, one short of the threshold.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -255,7 +251,7 @@ fn test_overlap_threshold_boundary() {
     .unwrap();
     assert_eq!(valid, vec![true, true]);
 
-    // Sharing exactly MIN_OVERLAPPING_FRAGMENTS = 3 -> the loser is invalidated.
+    // Exactly at the threshold.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -275,7 +271,7 @@ fn test_rt_tolerance_boundary() {
     let cycle = single_window();
     let fragment_mz = shared_fragments(2);
 
-    // Delta RT exactly at the tolerance -> excluded (strict `<`), both survive.
+    // Exactly at the tolerance, which is exclusive.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -289,7 +285,7 @@ fn test_rt_tolerance_boundary() {
     .unwrap();
     assert_eq!(valid, vec![true, true]);
 
-    // Just inside the tolerance -> the lower-priority candidate is invalidated.
+    // Just inside the tolerance.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -309,7 +305,7 @@ fn test_mass_tolerance_boundary() {
     let cycle = single_window();
     let bases = [1_000_000.0_f32, 2_000_000.0, 3_000_000.0];
 
-    // Three fragment pairs ~20 ppm apart (above the 15 ppm tolerance) -> no overlap.
+    // Three pairs at ~20 ppm, outside the 15 ppm tolerance.
     let above: Vec<f32> = bases
         .iter()
         .copied()
@@ -328,7 +324,7 @@ fn test_mass_tolerance_boundary() {
     .unwrap();
     assert_eq!(valid, vec![true, true]);
 
-    // Same pairs ~10 ppm apart (below the tolerance) -> all three count as overlaps.
+    // Same pairs at ~10 ppm, inside it.
     let below: Vec<f32> = bases
         .iter()
         .copied()

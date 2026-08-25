@@ -1,28 +1,21 @@
-//! Fragment competition sweep. Port of
-//! `alphadia/fragcomp/fragcomp.py::_compete_for_fragments` /
-//! `_get_fragment_overlap`.
+//! Fragment competition sweep. Ports the numba kernel that used to live in
+//! `alphadia/fragcomp/fragcomp.py`.
 //!
-//! Candidates are assigned to the DIA isolation window containing their precursor
-//! m/z and compete only within that window. Each window is swept independently and
-//! in parallel, in priority order: ascending `proba` (lower is better), ties broken
-//! by ascending `precursor_idx`. The sweep is order-sensitive — once a candidate is
-//! invalidated it can no longer invalidate others — so of two conflicting candidates
-//! the higher-priority one survives.
-//!
-//! Callers pass candidates in any order and get a mask back in that same order;
-//! grouping and ranking happen here, not in the caller's sort.
+//! An invalidated candidate can no longer invalidate others, so the order a window
+//! is swept in decides who survives. Grouping and ranking therefore happen here
+//! rather than in the caller, which used to have to sort its dataframe just so.
 
 use numpy::ndarray::{s, ArrayView4};
 use rayon::prelude::*;
 use std::cmp::Ordering;
 
-/// Two candidates compete for the same fragment signal once they share this many
-/// fragment ions within the mass tolerance.
+/// Below this many shared ions the overlap is assumed coincidental.
 const MIN_OVERLAPPING_FRAGMENTS: usize = 3;
 
-/// Count fragment ions in `frag_mz_1` that match one in `frag_mz_2` within
-/// `mass_tol_ppm` (ppm computed relative to the `frag_mz_1` ion, matching the
-/// original numpy broadcast).
+/// Number of shared ions between two candidates.
+///
+/// ppm is taken relative to `frag_mz_1` only, so the count is not quite symmetric.
+/// Kept that way to match the numpy broadcast this replaces.
 fn fragment_overlap(frag_mz_1: &[f32], frag_mz_2: &[f32], mass_tol_ppm: f32) -> usize {
     frag_mz_1
         .iter()
@@ -35,10 +28,10 @@ fn fragment_overlap(frag_mz_1: &[f32], frag_mz_2: &[f32], mass_tol_ppm: f32) -> 
         .sum()
 }
 
-/// Per-window m/z bounds, reduced from the DIA cycle.
+/// m/z bounds of each DIA isolation window.
 ///
-/// `cycle` is the alphaDIA cycle array of shape `(1, n_windows, n_scans, 2)`; a
-/// window spans the widest isolation range over its scans.
+/// Built from the cycle array, shape `(1, n_windows, n_scans, 2)`. A window spans
+/// the widest isolation range over its scans.
 pub struct WindowBounds {
     lower: Vec<f32>,
     upper: Vec<f32>,
@@ -74,10 +67,8 @@ impl WindowBounds {
         Ok(Self { lower, upper })
     }
 
-    /// Index of the first window containing `mz`.
-    ///
-    /// Falls back to window 0 when no window matches, mirroring the `np.argmax` the
-    /// Python implementation used on an all-false row.
+    /// Falls back to window 0 when nothing matches, as `np.argmax` did on an
+    /// all-false row. Precursors outside every window are rare and get dropped later.
     fn index_of(&self, mz: f32) -> usize {
         self.lower
             .iter()
@@ -87,9 +78,7 @@ impl WindowBounds {
     }
 }
 
-/// Sweep one DIA window, given its member rows in priority order.
-///
-/// Returns the surviving rows' validity aligned with `rows`.
+/// Sweep one window. `rows` is in priority order, and the result aligns with it.
 fn compete_within_window(
     rows: &[usize],
     rt_observed: &[f32],
@@ -113,8 +102,7 @@ fn compete_within_window(
             if i == j || !valid[j] {
                 continue;
             }
-            // Phrased as a positive test so a non-finite RT never competes, matching
-            // the `delta_rt < rt_tol_seconds` guard in the Python implementation.
+            // Positive test so a NaN retention time never competes.
             let within_rt_tolerance =
                 (rt_observed[rows[i]] - rt_observed[rows[j]]).abs() < rt_tol_seconds;
             if !within_rt_tolerance {
@@ -130,8 +118,8 @@ fn compete_within_window(
     valid
 }
 
-/// Group rows by DIA window, ordered within each window by descending priority
-/// (ascending `proba`, ties broken by ascending `precursor_idx`).
+/// Group rows by window, best `proba` first. `precursor_idx` breaks ties so the
+/// outcome does not depend on the order the caller passed.
 fn windows_in_priority_order(
     window_idx: &[usize],
     proba: &[f64],
@@ -157,11 +145,10 @@ fn windows_in_priority_order(
     windows
 }
 
-/// Run fragment competition over all candidates and return a `valid` mask in the
-/// same order as the inputs.
+/// Returns a `valid` mask in the order the candidates were passed.
 ///
-/// `fragment_mz` is the full fragment array; `frag_start_idx`/`frag_stop_idx` are
-/// offsets into it.
+/// `fragment_mz` holds every candidate's ions; `frag_start_idx`/`frag_stop_idx`
+/// slice into it.
 #[allow(clippy::too_many_arguments)]
 pub fn compete_for_fragments(
     precursor_mz: &[f32],
@@ -237,8 +224,7 @@ fn validate_lengths(
     Ok(())
 }
 
-/// Check that every `[frag_start_idx[i], frag_stop_idx[i])` range is a valid, in-bounds
-/// slice of `fragment_mz`, since `compete_within_window` indexes it unchecked.
+/// The sweep slices `fragment_mz` unchecked, so every range has to be valid up front.
 fn validate_fragment_ranges(
     frag_start_idx: &[i64],
     frag_stop_idx: &[i64],

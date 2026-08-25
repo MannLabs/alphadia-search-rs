@@ -1,10 +1,8 @@
-//! Fragment competition: remove candidates that share fragment signal with a
-//! higher-priority candidate observed nearby in retention time. Port of
-//! `alphadia/fragcomp/fragcomp.py::FragmentCompetition`.
+//! Fragment competition: drop candidates whose fragment signal is already claimed
+//! by a better-scoring candidate nearby in retention time.
 //!
-//! The numeric work lives here in Rust — DIA-window assignment, priority ranking
-//! and the overlap sweep. Python keeps the dataframe bookkeeping (candidate
-//! hashing and fragment index lookup).
+//! Python keeps only the dataframe bookkeeping (candidate hashing and fragment
+//! index lookup); everything numeric happens here.
 
 mod algorithm;
 #[cfg(test)]
@@ -15,7 +13,7 @@ use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-/// Python-facing fragment-competition sweep (thin arrays-in / arrays-out interface).
+/// Arrays in, mask out.
 #[pyclass]
 pub struct FragmentCompetition {
     rt_tol_seconds: f32,
@@ -24,11 +22,8 @@ pub struct FragmentCompetition {
 
 #[pymethods]
 impl FragmentCompetition {
-    /// Create a fragment-competition sweep.
-    ///
-    /// * `rt_tol_seconds` — candidates within this RT distance compete.
-    /// * `mass_tol_ppm` — fragments within this ppm tolerance are considered the same
-    ///   ion.
+    /// * `rt_tol_seconds` - candidates closer than this in RT compete.
+    /// * `mass_tol_ppm` - fragments closer than this count as the same ion.
     #[new]
     fn new(rt_tol_seconds: f32, mass_tol_ppm: f32) -> Self {
         Self {
@@ -37,22 +32,18 @@ impl FragmentCompetition {
         }
     }
 
-    /// Sweep all candidates and return a `valid` mask in the order they were passed.
+    /// Returns a `valid` mask in the order the candidates were passed.
     ///
-    /// Candidates may be passed in any order. They are grouped by the DIA isolation
-    /// window containing `precursor_mz` and, within a window, ranked by ascending
-    /// `proba` (ties broken by ascending `precursor_idx`); of two candidates that
-    /// compete for the same fragments, the higher-ranked one survives.
+    /// Candidates only compete inside their own DIA window, and the better `proba`
+    /// wins. Order does not matter, so callers need not sort anything.
     ///
-    /// `fragment_mz` is the full fragment array and `frag_start_idx`/`frag_stop_idx`
-    /// are offsets into it. `cycle` is the DIA cycle array, shape
-    /// `(1, n_windows, n_scans, 2)`.
+    /// `fragment_mz` holds every candidate's ions and `frag_start_idx`/`frag_stop_idx`
+    /// slice into it. `cycle` has shape `(1, n_windows, n_scans, 2)`.
     ///
-    /// Arrays are borrowed, not copied, so all of them must be C-contiguous.
+    /// Arrays are borrowed rather than copied, so they must be C-contiguous.
     ///
-    /// Raises `ValueError` if the per-candidate arrays have mismatched lengths or if
-    /// a fragment index range falls outside `fragment_mz`, and `TypeError` if an
-    /// array is not contiguous.
+    /// Raises `ValueError` on mismatched lengths or an out-of-range fragment slice,
+    /// `TypeError` on a non-contiguous array.
     #[allow(clippy::too_many_arguments)]
     fn compete<'py>(
         &self,

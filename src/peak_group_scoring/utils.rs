@@ -438,18 +438,19 @@ pub fn calculate_dot_product(a: &[f32], b: &[f32]) -> f32 {
 
 /// Calculate Full Width at Half Maximum (FWHM) for retention time from an XIC profile
 ///
-/// Finds the maximum peak in the XIC slice and calculates the FWHM by finding points
-/// where the intensity is half of the maximum. The slice should be centered at the maximum
-/// and have an odd number of elements.
+/// Locates the profile apex and measures the width between the half-maximum crossings
+/// on either flank. Each crossing is linearly interpolated between adjacent cycles for
+/// sub-cycle precision, and the two flanks are treated independently so asymmetric peaks
+/// are handled correctly. A flank that never falls to half maximum within the profile is
+/// clamped to the profile edge.
 ///
 /// Parameters:
 /// - xic_profile: Intensity profile (median profile across fragments)
-/// - cycle_start_idx: Starting cycle index in the RT array
-/// - cycle_stop_idx: Ending cycle index in the RT array (exclusive)
-/// - rt_values: Array of retention time values
+/// - cycle_start_idx: Index of the profile's first cycle in the RT array
+/// - rt_values: Array of retention time values indexed by cycle
 ///
 /// Returns:
-/// - FWHM in retention time units, or 0.0 if cannot be calculated
+/// - FWHM in retention time units, or 0.0 if it cannot be calculated
 pub fn calculate_fwhm_rt(
     xic_profile: &[f32],
     cycle_start_idx: usize,
@@ -459,18 +460,58 @@ pub fn calculate_fwhm_rt(
         return 0.0;
     }
 
-    let half_size = xic_profile.len() / 2;
-    let center_intensity = xic_profile[half_size];
+    // Locate the apex rather than assuming the profile is centered on it: the extraction
+    // window is centered on the scoring maximum, which need not coincide with the apex of
+    // the median fragment profile.
+    let (apex_idx, apex_intensity) = xic_profile.iter().enumerate().fold(
+        (0usize, f32::NEG_INFINITY),
+        |(best_idx, best_val), (idx, &val)| {
+            if val > best_val {
+                (idx, val)
+            } else {
+                (best_idx, best_val)
+            }
+        },
+    );
 
-    for i in 0..half_size {
-        let mean_intensity = (xic_profile[half_size - i] + xic_profile[half_size + i]) / 2.0;
+    if apex_intensity <= 0.0 {
+        return 0.0;
+    }
 
-        if mean_intensity <= center_intensity / 2.0 {
-            let left_rt = rt_values[cycle_start_idx + half_size - i];
-            let right_rt = rt_values[cycle_start_idx + half_size + i];
-            return right_rt - left_rt;
+    let half_max = apex_intensity / 2.0;
+    let rt_at = |idx: usize| rt_values[cycle_start_idx + idx];
+
+    // Interpolate the retention time at which the intensity equals half maximum between an
+    // `outer` cycle (at or below half maximum) and the adjacent `inner` cycle towards the
+    // apex (above half maximum).
+    let interpolate_crossing = |outer: usize, inner: usize| -> f32 {
+        let outer_intensity = xic_profile[outer];
+        let inner_intensity = xic_profile[inner];
+        let fraction = if inner_intensity > outer_intensity {
+            (half_max - outer_intensity) / (inner_intensity - outer_intensity)
+        } else {
+            0.0
+        };
+        rt_at(outer) + fraction * (rt_at(inner) - rt_at(outer))
+    };
+
+    // Left flank: walk from the apex towards the profile start.
+    let mut left_rt = rt_at(0);
+    for idx in (0..apex_idx).rev() {
+        if xic_profile[idx] <= half_max {
+            left_rt = interpolate_crossing(idx, idx + 1);
+            break;
         }
     }
 
-    0.0
+    // Right flank: walk from the apex towards the profile end.
+    let mut right_rt = rt_at(xic_profile.len() - 1);
+    for idx in (apex_idx + 1)..xic_profile.len() {
+        if xic_profile[idx] <= half_max {
+            right_rt = interpolate_crossing(idx, idx - 1);
+            break;
+        }
+    }
+
+    right_rt - left_rt
 }

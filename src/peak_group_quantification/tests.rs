@@ -90,11 +90,18 @@ fn test_update_method_empty_dict() {
     });
 }
 
+/// The quantification method this build ships as its default.
+///
+/// Benchmarking branches that flip the default change this line alongside
+/// `QuantificationParameters::new`, so the two cannot drift apart unnoticed.
+#[cfg(test)]
+const EXPECTED_DEFAULT_METHOD: QuantificationMethod = QuantificationMethod::Sum;
+
 #[test]
-fn test_quantification_method_defaults_to_sum() {
+fn test_quantification_method_default_is_the_expected_one() {
     let params = QuantificationParameters::new();
-    assert_eq!(params.method, QuantificationMethod::Sum);
-    assert_eq!(params.get_method(), "sum");
+    assert_eq!(params.method, EXPECTED_DEFAULT_METHOD);
+    assert_eq!(params.get_method(), EXPECTED_DEFAULT_METHOD.as_str());
 }
 
 #[test]
@@ -198,11 +205,13 @@ fn test_update_rejects_an_unknown_method() {
     Python::attach(|py| {
         let mut params = QuantificationParameters::new();
 
+        let original = params.method;
+
         let dict = PyDict::new(py);
         dict.set_item("method", "not_a_method").unwrap();
 
         assert!(params.update(&dict).is_err());
         // A rejected update must leave the parameters untouched.
-        assert_eq!(params.method, QuantificationMethod::Sum);
+        assert_eq!(params.method, original);
     });
 }

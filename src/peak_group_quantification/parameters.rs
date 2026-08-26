@@ -149,7 +149,7 @@ impl QuantificationParameters {
             // very large number to capture them all by default
             top_k_fragments: 10000,
             // the historical behaviour, kept as the default so that existing searches are unaffected
-            method: QuantificationMethod::Sum,
+            method: QuantificationMethod::ProfileProjection,
             // swept optimum reported for the same smoother in Pioneer
             template_smoothing_lambda: 5e-7,
             // a fragment correlating below 0.5 with the peak group disagrees about the shape

@@ -95,7 +95,7 @@ fn test_update_method_empty_dict() {
 /// Benchmarking branches that flip the default change this line alongside
 /// `QuantificationParameters::new`, so the two cannot drift apart unnoticed.
 #[cfg(test)]
-const EXPECTED_DEFAULT_METHOD: QuantificationMethod = QuantificationMethod::Sum;
+const EXPECTED_DEFAULT_METHOD: QuantificationMethod = QuantificationMethod::ProfileProjection;
 
 #[test]
 fn test_quantification_method_default_is_the_expected_one() {

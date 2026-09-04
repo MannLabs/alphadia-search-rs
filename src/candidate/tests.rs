@@ -6,8 +6,9 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 41);
+    // The names and the feature_values array must stay the same length, or columns shift
+    assert_eq!(feature_names.len(), NUM_FEATURES);
+    assert_eq!(feature_names.len(), 56);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -159,51 +160,53 @@ fn test_candidate_collection_from_arrays_roundtrip() {
 fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
     pyo3::Python::initialize();
 
-    let feature = CandidateFeature::new(
-        5,     // precursor_idx
-        2,     // rank
-        0.95,  // score
-        0.8,   // mean_correlation
-        0.75,  // median_correlation
-        0.05,  // correlation_std
-        0.9,   // intensity_correlation
-        12.0,  // num_fragments
-        30.0,  // num_scans
-        3.0,   // num_over_95
-        5.0,   // num_over_90
-        8.0,   // num_over_80
-        15.0,  // num_over_50
-        20.0,  // num_over_0
-        5.0,   // num_over_0_rank_0_5
-        6.0,   // num_over_0_rank_6_11
-        5.0,   // num_over_0_rank_12_17
-        4.0,   // num_over_0_rank_18_23
-        3.0,   // num_over_50_rank_0_5
-        4.0,   // num_over_50_rank_6_11
-        4.0,   // num_over_50_rank_12_17
-        4.0,   // num_over_50_rank_18_23
-        100.0, // hyperscore_intensity_observation
-        120.0, // hyperscore_intensity_library
-        80.0,  // hyperscore_inverse_mass_error
-        123.4, // rt_observed
-        -2.5,  // delta_rt
-        4.0,   // longest_b_series
-        6.0,   // longest_y_series
-        10.0,  // naa
-        2.5,   // weighted_mass_error
-        3.2,   // log10_b_ion_intensity
-        3.8,   // log10_y_ion_intensity
-        15.5,  // fwhm_rt
-        50.0,  // idf_hyperscore
-        10.5,  // idf_xic_dot_product
-        8.2,   // idf_intensity_dot_product
-        100.0, // median_profile_sum
-        95.0,  // median_profile_sum_filtered
-        12.0,  // num_profiles
-        11.0,  // num_profiles_filtered
-        5.0,   // num_over_0_top6_idf
-        3.0,   // num_over_50_top6_idf
-    );
+    // the new features keep their defaults; the assertions below cover the original set
+    let feature = CandidateFeature {
+        precursor_idx: 5,
+        rank: 2,
+        score: 0.95,
+        mean_correlation: 0.8,
+        median_correlation: 0.75,
+        correlation_std: 0.05,
+        intensity_correlation: 0.9,
+        num_fragments: 12.0,
+        num_scans: 30.0,
+        num_over_95: 3.0,
+        num_over_90: 5.0,
+        num_over_80: 8.0,
+        num_over_50: 15.0,
+        num_over_0: 20.0,
+        num_over_0_rank_0_5: 5.0,
+        num_over_0_rank_6_11: 6.0,
+        num_over_0_rank_12_17: 5.0,
+        num_over_0_rank_18_23: 4.0,
+        num_over_50_rank_0_5: 3.0,
+        num_over_50_rank_6_11: 4.0,
+        num_over_50_rank_12_17: 4.0,
+        num_over_50_rank_18_23: 4.0,
+        hyperscore_intensity_observation: 100.0,
+        hyperscore_intensity_library: 120.0,
+        hyperscore_inverse_mass_error: 80.0,
+        rt_observed: 123.4,
+        delta_rt: -2.5,
+        longest_b_series: 4.0,
+        longest_y_series: 6.0,
+        naa: 10.0,
+        weighted_mass_error: 2.5,
+        log10_b_ion_intensity: 3.2,
+        log10_y_ion_intensity: 3.8,
+        fwhm_rt: 15.5,
+        idf_hyperscore: 50.0,
+        idf_xic_dot_product: 10.5,
+        idf_intensity_dot_product: 8.2,
+        median_profile_sum: 100.0,
+        median_profile_sum_filtered: 95.0,
+        num_profiles: 12.0,
+        num_profiles_filtered: 11.0,
+        num_over_0_top6_idf: 5.0,
+        num_over_50_top6_idf: 3.0,
+        ..CandidateFeature::default()
+    };
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 
     Python::attach(|py| {

@@ -515,3 +515,244 @@ pub fn calculate_fwhm_rt(
 
     right_rt - left_rt
 }
+
+// ============= Distribution shape of the per-fragment correlations =============
+
+/// Smallest correlation among the fragments selected by `mask`, or 0.0 if none are.
+///
+/// The mean and median say how well the peak group agrees overall; the minimum says
+/// whether *any* fragment disagrees, which is what an interfered peak looks like.
+pub fn masked_min(values: &[f32], mask: &[bool]) -> f32 {
+    values
+        .iter()
+        .zip(mask)
+        .filter(|(_, &keep)| keep)
+        .map(|(&value, _)| value)
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0)
+}
+
+/// Interquartile range of `values`, a spread estimate that ignores single outliers.
+pub fn interquartile_range(values: &[f32]) -> f32 {
+    if values.len() < 4 {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    quantile_of_sorted(&sorted, 0.75) - quantile_of_sorted(&sorted, 0.25)
+}
+
+fn quantile_of_sorted(sorted: &[f32], q: f32) -> f32 {
+    let position = q * (sorted.len() - 1) as f32;
+    let lower = position.floor() as usize;
+    let upper = position.ceil() as usize;
+    if lower == upper {
+        return sorted[lower];
+    }
+    sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower as f32)
+}
+
+/// Mean of `values` weighted by `weights`, ignoring entries with zero weight.
+pub fn weighted_mean(values: &[f32], weights: &[f32]) -> f32 {
+    let total: f32 = weights.iter().sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    values
+        .iter()
+        .zip(weights)
+        .map(|(&value, &weight)| value * weight)
+        .sum::<f32>()
+        / total
+}
+
+/// Mean of `values` over the entries selected by `mask`.
+pub fn masked_mean(values: &[f32], mask: &[bool]) -> f32 {
+    let (sum, count) = values
+        .iter()
+        .zip(mask)
+        .filter(|(_, &keep)| keep)
+        .fold((0.0f32, 0usize), |(sum, count), (&value, _)| {
+            (sum + value, count + 1)
+        });
+    if count == 0 {
+        0.0
+    } else {
+        sum / count as f32
+    }
+}
+
+// ============= Mass error distribution =============
+
+/// Standard deviation of the mass errors over matched fragments only.
+///
+/// Unmatched fragments carry a mass error of exactly 0.0, so including them would pull
+/// the spread towards zero and make a bad match look consistent.
+pub fn masked_std(values: &[f32], mask: &[bool]) -> f32 {
+    let kept: Vec<f32> = values
+        .iter()
+        .zip(mask)
+        .filter(|(_, &keep)| keep)
+        .map(|(&value, _)| value)
+        .collect();
+    if kept.len() < 2 {
+        return 0.0;
+    }
+    let mean = kept.iter().sum::<f32>() / kept.len() as f32;
+    let variance =
+        kept.iter().map(|value| (value - mean).powi(2)).sum::<f32>() / (kept.len() - 1) as f32;
+    variance.sqrt()
+}
+
+/// Largest absolute mass error over matched fragments, in ppm.
+pub fn masked_max_abs(values: &[f32], mask: &[bool]) -> f32 {
+    values
+        .iter()
+        .zip(mask)
+        .filter(|(_, &keep)| keep)
+        .map(|(&value, _)| value.abs())
+        .fold(0.0f32, f32::max)
+}
+
+// ============= Fragment intensity distribution =============
+
+/// Shannon entropy of the normalised fragment intensities, in nats.
+///
+/// A real peptide spreads intensity over several fragments in a reproducible pattern;
+/// noise tends to concentrate in one or spread uniformly. See Li et al., Nat Methods 2021.
+pub fn spectral_entropy(intensities: &[f32]) -> f32 {
+    let total: f32 = intensities.iter().filter(|&&value| value > 0.0).sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    -intensities
+        .iter()
+        .filter(|&&value| value > 0.0)
+        .map(|&value| {
+            let probability = value / total;
+            probability * probability.ln()
+        })
+        .sum::<f32>()
+}
+
+/// Cosine similarity between observed and library fragment intensities.
+///
+/// The existing dot products are unnormalised, so they conflate "bright" with "similar";
+/// this isolates the shape of the pattern from its magnitude.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let norm_a = a.iter().map(|value| value * value).sum::<f32>().sqrt();
+    let norm_b = b.iter().map(|value| value * value).sum::<f32>().sqrt();
+    if norm_a <= 0.0 || norm_b <= 0.0 {
+        return 0.0;
+    }
+    a.iter()
+        .zip(b)
+        .map(|(&left, &right)| left * right)
+        .sum::<f32>()
+        / (norm_a * norm_b)
+}
+
+/// Share of the total observed intensity carried by the single brightest fragment.
+pub fn top_intensity_fraction(intensities: &[f32]) -> f32 {
+    let total: f32 = intensities.iter().sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    intensities.iter().fold(0.0f32, |best, &value| best.max(value)) / total
+}
+
+/// Number of fragments needed to reach 80% of the total observed intensity.
+pub fn fragments_to_intensity_share(intensities: &[f32], share: f32) -> f32 {
+    let total: f32 = intensities.iter().sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let mut sorted = intensities.to_vec();
+    sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut cumulative = 0.0;
+    for (count, value) in sorted.iter().enumerate() {
+        cumulative += value;
+        if cumulative >= share * total {
+            return (count + 1) as f32;
+        }
+    }
+    sorted.len() as f32
+}
+
+// ============= Co-elution and peak shape =============
+
+/// Index of the largest value in a profile.
+fn apex_index(profile: &[f32]) -> Option<usize> {
+    profile
+        .iter()
+        .enumerate()
+        .filter(|(_, value)| value.is_finite())
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(index, _)| index)
+}
+
+/// Spread and mean offset of the per-fragment apex positions, in cycles.
+///
+/// Fragments of one peptide co-elute, so their XIC apexes should coincide; scattered
+/// apexes are the signature of a peak group assembled from unrelated signals. This is
+/// the co-elution score classic DIA scoring uses and the ng feature set lacks entirely.
+pub fn apex_agreement(profiles: &Array2<f32>) -> (f32, f32) {
+    let apexes: Vec<f32> = profiles
+        .rows()
+        .into_iter()
+        .filter(|row| row.iter().any(|&value| value > 0.0))
+        .filter_map(|row| apex_index(row.to_slice().unwrap_or(&[])).map(|index| index as f32))
+        .collect();
+
+    if apexes.len() < 2 {
+        return (0.0, 0.0);
+    }
+
+    let mut sorted = apexes.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = quantile_of_sorted(&sorted, 0.5);
+
+    let mean = apexes.iter().sum::<f32>() / apexes.len() as f32;
+    let variance = apexes.iter().map(|value| (value - mean).powi(2)).sum::<f32>()
+        / (apexes.len() - 1) as f32;
+    let mean_abs_offset =
+        apexes.iter().map(|value| (value - median).abs()).sum::<f32>() / apexes.len() as f32;
+
+    (variance.sqrt(), mean_abs_offset)
+}
+
+/// How much of the median profile sits at the window edges rather than the centre.
+///
+/// A real chromatographic peak rises and falls inside the extraction window; a flat or
+/// truncated profile is either noise or a badly placed window.
+pub fn profile_edge_ratio(median_profile: &[f32]) -> f32 {
+    if median_profile.len() < 3 {
+        return 0.0;
+    }
+    let apex = median_profile
+        .iter()
+        .fold(0.0f32, |best, &value| best.max(value));
+    if apex <= 0.0 {
+        return 0.0;
+    }
+    let edge = median_profile[0].max(median_profile[median_profile.len() - 1]);
+    edge / apex
+}
+
+/// Asymmetry of the median profile: mass to the right of the apex minus mass to the left.
+///
+/// Chromatographic peaks tail predictably; strong asymmetry in the other direction, or
+/// none at all, distinguishes real elution from a noise plateau.
+pub fn profile_asymmetry(median_profile: &[f32]) -> f32 {
+    let Some(apex) = apex_index(median_profile) else {
+        return 0.0;
+    };
+    let total: f32 = median_profile.iter().sum();
+    if total <= 0.0 {
+        return 0.0;
+    }
+    let left: f32 = median_profile[..apex].iter().sum();
+    let right: f32 = median_profile[apex + 1..].iter().sum();
+    (right - left) / total
+}

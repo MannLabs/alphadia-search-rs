@@ -9,9 +9,12 @@ use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
-    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
-    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
+    apex_agreement, calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt,
+    calculate_hyperscore, calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series,
+    correlation_axis_0, cosine_similarity, filter_non_zero, fragments_to_intensity_share,
+    intensity_ion_series, interquartile_range, masked_max_abs, masked_mean, masked_min,
+    masked_std, median_axis_0, normalize_profiles, profile_asymmetry, profile_edge_ratio,
+    spectral_entropy, top_intensity_fraction, weighted_mean,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -292,51 +295,98 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
-        // Create and return candidate feature
-        Some(CandidateFeature::new(
-            candidate.precursor_idx,
-            candidate.rank,
-            candidate.score,
+        // Shape of the correlation distribution. Restricted to matched fragments, because an
+        // unmatched fragment has an all-zero profile and would otherwise dominate the minimum.
+        let matched_correlations: Vec<f32> = correlations
+            .iter()
+            .zip(&matched_mask_intensity)
+            .filter(|(_, &matched)| matched)
+            .map(|(&value, _)| value)
+            .collect();
+        let correlation_min = masked_min(&correlations, &matched_mask_intensity);
+        let correlation_iqr = interquartile_range(&matched_correlations);
+        let weighted_mean_correlation = weighted_mean(&correlations, &precursor.fragment_intensity);
+        let mask_top3 = create_ranked_mask(&precursor.fragment_intensity, 0, 3);
+        let top3_correlation = masked_mean(&correlations, &mask_top3);
+
+        // Mass error consistency. Unmatched fragments carry an error of exactly 0.0, so
+        // including them would make a poor match look well calibrated.
+        let mass_error_std = masked_std(&fragment_mass_errors, &matched_mask_intensity);
+        let mass_error_mean_signed = masked_mean(&fragment_mass_errors, &matched_mask_intensity);
+        let mass_error_max_abs = masked_max_abs(&fragment_mass_errors, &matched_mask_intensity);
+
+        // Shape of the observed fragment intensity pattern
+        let spectral_entropy_value = spectral_entropy(observation_intensities_slice);
+        let intensity_cosine_library =
+            cosine_similarity(observation_intensities_slice, &precursor.fragment_intensity);
+        let intensity_top_fraction = top_intensity_fraction(observation_intensities_slice);
+        let n_fragments_80pct_intensity =
+            fragments_to_intensity_share(observation_intensities_slice, 0.8);
+
+        // Fragment co-elution and chromatographic peak shape
+        let (apex_delta_std, mean_abs_apex_delta) = apex_agreement(&normalized_xic);
+        let profile_edge_ratio_value = profile_edge_ratio(&median_profile_filtered);
+        let profile_asymmetry_value = profile_asymmetry(&median_profile_filtered);
+
+        Some(CandidateFeature {
+            precursor_idx: candidate.precursor_idx,
+            rank: candidate.rank,
+            score: candidate.score,
             mean_correlation,
             median_correlation,
             correlation_std,
             intensity_correlation,
-            num_fragments as f32,
-            num_scans as f32,
-            num_over_95 as f32,
-            num_over_90 as f32,
-            num_over_80 as f32,
-            num_over_50 as f32,
-            num_over_0 as f32,
-            num_over_0_rank_0_5 as f32,
-            num_over_0_rank_6_11 as f32,
-            num_over_0_rank_12_17 as f32,
-            num_over_0_rank_18_23 as f32,
-            num_over_50_rank_0_5 as f32,
-            num_over_50_rank_6_11 as f32,
-            num_over_50_rank_12_17 as f32,
-            num_over_50_rank_18_23 as f32,
+            num_fragments: num_fragments as f32,
+            num_scans: num_scans as f32,
+            num_over_95: num_over_95 as f32,
+            num_over_90: num_over_90 as f32,
+            num_over_80: num_over_80 as f32,
+            num_over_50: num_over_50 as f32,
+            num_over_0: num_over_0 as f32,
+            num_over_0_rank_0_5: num_over_0_rank_0_5 as f32,
+            num_over_0_rank_6_11: num_over_0_rank_6_11 as f32,
+            num_over_0_rank_12_17: num_over_0_rank_12_17 as f32,
+            num_over_0_rank_18_23: num_over_0_rank_18_23 as f32,
+            num_over_50_rank_0_5: num_over_50_rank_0_5 as f32,
+            num_over_50_rank_6_11: num_over_50_rank_6_11 as f32,
+            num_over_50_rank_12_17: num_over_50_rank_12_17 as f32,
+            num_over_50_rank_18_23: num_over_50_rank_18_23 as f32,
             hyperscore_intensity_observation,
             hyperscore_intensity_library,
             hyperscore_inverse_mass_error,
             rt_observed,
             delta_rt,
-            longest_b_series as f32,
-            longest_y_series as f32,
-            precursor.naa as f32,
+            longest_b_series: longest_b_series as f32,
+            longest_y_series: longest_y_series as f32,
+            naa: precursor.naa as f32,
             weighted_mass_error,
             log10_b_ion_intensity,
             log10_y_ion_intensity,
             fwhm_rt,
             idf_hyperscore,
             idf_xic_dot_product,
-            log_idf_intensity_dot_product,
+            idf_intensity_dot_product: log_idf_intensity_dot_product,
             median_profile_sum,
             median_profile_sum_filtered,
-            num_profiles as f32,
-            num_profiles_filtered as f32,
-            num_over_0_top6_idf as f32,
-            num_over_50_top6_idf as f32,
-        ))
+            num_profiles: num_profiles as f32,
+            num_profiles_filtered: num_profiles_filtered as f32,
+            num_over_0_top6_idf: num_over_0_top6_idf as f32,
+            num_over_50_top6_idf: num_over_50_top6_idf as f32,
+            correlation_min,
+            correlation_iqr,
+            weighted_mean_correlation,
+            top3_correlation,
+            mass_error_std,
+            mass_error_mean_signed,
+            mass_error_max_abs,
+            spectral_entropy: spectral_entropy_value,
+            intensity_cosine_library,
+            intensity_top_fraction,
+            n_fragments_80pct_intensity,
+            apex_delta_std,
+            mean_abs_apex_delta,
+            profile_edge_ratio: profile_edge_ratio_value,
+            profile_asymmetry: profile_asymmetry_value,
+        })
     }
 }

@@ -116,75 +116,25 @@ impl SpecLibFlat {
         fragment_position: PyReadonlyArray1<'_, u8>,
         fragment_type: PyReadonlyArray1<'_, u8>,
     ) -> Self {
-        // Convert arrays to vectors
-        let precursor_idx_vec = precursor_idx.as_array().to_vec();
-        let precursor_mz_library_vec = precursor_mz_library.as_array().to_vec();
-        let precursor_mz_vec = precursor_mz.as_array().to_vec();
-        let precursor_rt_library_vec = precursor_rt_library.as_array().to_vec();
-        let precursor_rt_vec = precursor_rt.as_array().to_vec();
-        let precursor_naa_vec = precursor_naa.as_array().to_vec();
-        let flat_frag_start_idx_vec = flat_frag_start_idx.as_array().to_vec();
-        let flat_frag_stop_idx_vec = flat_frag_stop_idx.as_array().to_vec();
-        let fragment_mz_library_vec = fragment_mz_library.as_array().to_vec();
-        let fragment_mz_vec = fragment_mz.as_array().to_vec();
-        let fragment_intensity_vec = fragment_intensity.as_array().to_vec();
-        let fragment_cardinality_vec = fragment_cardinality.as_array().to_vec();
-        let fragment_charge_vec = fragment_charge.as_array().to_vec();
-        let fragment_loss_type_vec = fragment_loss_type.as_array().to_vec();
-        let fragment_number_vec = fragment_number.as_array().to_vec();
-        let fragment_position_vec = fragment_position.as_array().to_vec();
-        let fragment_type_vec = fragment_type.as_array().to_vec();
-
-        // Create indices for sorting
-        let mut indices: Vec<usize> = (0..precursor_idx_vec.len()).collect();
-
-        // Sort indices by precursor_idx values
-        indices.sort_by_key(|&i| precursor_idx_vec[i]);
-
-        // Reorder all precursor arrays according to sorted indices
-        let sorted_precursor_idx: Vec<usize> =
-            indices.iter().map(|&i| precursor_idx_vec[i]).collect();
-        let sorted_precursor_mz_library: Vec<f32> = indices
-            .iter()
-            .map(|&i| precursor_mz_library_vec[i])
-            .collect();
-        let sorted_precursor_mz: Vec<f32> = indices.iter().map(|&i| precursor_mz_vec[i]).collect();
-        let sorted_precursor_rt_library: Vec<f32> = indices
-            .iter()
-            .map(|&i| precursor_rt_library_vec[i])
-            .collect();
-        let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt_vec[i]).collect();
-        let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa_vec[i]).collect();
-        let sorted_flat_frag_start_idx: Vec<usize> = indices
-            .iter()
-            .map(|&i| flat_frag_start_idx_vec[i])
-            .collect();
-        let sorted_flat_frag_stop_idx: Vec<usize> =
-            indices.iter().map(|&i| flat_frag_stop_idx_vec[i]).collect();
-
-        // Create IDF from fragment m/z library values
-        let idf = InverseDocumentFrequency::new(&fragment_mz_library_vec);
-
-        Self {
-            precursor_idx: sorted_precursor_idx,
-            precursor_mz_library: sorted_precursor_mz_library,
-            precursor_mz: sorted_precursor_mz,
-            precursor_rt_library: sorted_precursor_rt_library,
-            precursor_rt: sorted_precursor_rt,
-            precursor_naa: sorted_precursor_naa,
-            flat_frag_start_idx: sorted_flat_frag_start_idx,
-            flat_frag_stop_idx: sorted_flat_frag_stop_idx,
-            fragment_mz_library: fragment_mz_library_vec,
-            fragment_mz: fragment_mz_vec,
-            fragment_intensity: fragment_intensity_vec,
-            fragment_cardinality: fragment_cardinality_vec,
-            fragment_charge: fragment_charge_vec,
-            fragment_loss_type: fragment_loss_type_vec,
-            fragment_number: fragment_number_vec,
-            fragment_position: fragment_position_vec,
-            fragment_type: fragment_type_vec,
-            idf,
-        }
+        Self::from_vecs(
+            precursor_idx.as_array().to_vec(),
+            precursor_mz_library.as_array().to_vec(),
+            precursor_mz.as_array().to_vec(),
+            precursor_rt_library.as_array().to_vec(),
+            precursor_rt.as_array().to_vec(),
+            precursor_naa.as_array().to_vec(),
+            flat_frag_start_idx.as_array().to_vec(),
+            flat_frag_stop_idx.as_array().to_vec(),
+            fragment_mz_library.as_array().to_vec(),
+            fragment_mz.as_array().to_vec(),
+            fragment_intensity.as_array().to_vec(),
+            fragment_cardinality.as_array().to_vec(),
+            fragment_charge.as_array().to_vec(),
+            fragment_loss_type.as_array().to_vec(),
+            fragment_number.as_array().to_vec(),
+            fragment_position.as_array().to_vec(),
+            fragment_type.as_array().to_vec(),
+        )
     }
 
     #[getter]
@@ -346,6 +296,75 @@ pub fn filter_sort_fragments(
 
 // Regular Rust implementation (not exposed to Python)
 impl SpecLibFlat {
+    /// Builds the library from plain vectors, without a Python interpreter.
+    ///
+    /// The precursor arrays are reordered by `precursor_idx` so that lookups can use binary
+    /// search. The fragment arrays keep their library order.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_vecs(
+        precursor_idx: Vec<usize>,
+        precursor_mz_library: Vec<f32>,
+        precursor_mz: Vec<f32>,
+        precursor_rt_library: Vec<f32>,
+        precursor_rt: Vec<f32>,
+        precursor_naa: Vec<u8>,
+        flat_frag_start_idx: Vec<usize>,
+        flat_frag_stop_idx: Vec<usize>,
+        fragment_mz_library: Vec<f32>,
+        fragment_mz: Vec<f32>,
+        fragment_intensity: Vec<f32>,
+        fragment_cardinality: Vec<u8>,
+        fragment_charge: Vec<u8>,
+        fragment_loss_type: Vec<u8>,
+        fragment_number: Vec<u8>,
+        fragment_position: Vec<u8>,
+        fragment_type: Vec<u8>,
+    ) -> Self {
+        // Create indices for sorting
+        let mut indices: Vec<usize> = (0..precursor_idx.len()).collect();
+
+        // Sort indices by precursor_idx values
+        indices.sort_by_key(|&i| precursor_idx[i]);
+
+        // Reorder all precursor arrays according to sorted indices
+        let sorted_precursor_idx: Vec<usize> = indices.iter().map(|&i| precursor_idx[i]).collect();
+        let sorted_precursor_mz_library: Vec<f32> =
+            indices.iter().map(|&i| precursor_mz_library[i]).collect();
+        let sorted_precursor_mz: Vec<f32> = indices.iter().map(|&i| precursor_mz[i]).collect();
+        let sorted_precursor_rt_library: Vec<f32> =
+            indices.iter().map(|&i| precursor_rt_library[i]).collect();
+        let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt[i]).collect();
+        let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa[i]).collect();
+        let sorted_flat_frag_start_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_start_idx[i]).collect();
+        let sorted_flat_frag_stop_idx: Vec<usize> =
+            indices.iter().map(|&i| flat_frag_stop_idx[i]).collect();
+
+        // Create IDF from fragment m/z library values
+        let idf = InverseDocumentFrequency::new(&fragment_mz_library);
+
+        Self {
+            precursor_idx: sorted_precursor_idx,
+            precursor_mz_library: sorted_precursor_mz_library,
+            precursor_mz: sorted_precursor_mz,
+            precursor_rt_library: sorted_precursor_rt_library,
+            precursor_rt: sorted_precursor_rt,
+            precursor_naa: sorted_precursor_naa,
+            flat_frag_start_idx: sorted_flat_frag_start_idx,
+            flat_frag_stop_idx: sorted_flat_frag_stop_idx,
+            fragment_mz_library,
+            fragment_mz,
+            fragment_intensity,
+            fragment_cardinality,
+            fragment_charge,
+            fragment_loss_type,
+            fragment_number,
+            fragment_position,
+            fragment_type,
+            idf,
+        }
+    }
+
     pub fn get_precursor(&self, index: usize) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];

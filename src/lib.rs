@@ -5,6 +5,7 @@ use pyo3::PyErr;
 pub mod benchmark;
 pub mod calibration;
 pub mod candidate;
+pub mod candidate_context;
 pub mod constants;
 pub mod convolution;
 mod dense_xic_observation;
@@ -32,6 +33,7 @@ pub mod utils;
 
 use crate::calibration::CalibrationEstimator;
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
+use crate::candidate_context::CandidateContext;
 use crate::dia_data::DIAData;
 use crate::fragment_competition::FragmentCompetition;
 use crate::intensity_drift::{DriftCurve, IntensityDriftCorrection};
@@ -91,6 +93,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CandidateFeatureCollection>()?;
     m.add_class::<CalibrationEstimator>()?;
     m.add_class::<FragmentCompetition>()?;
+    m.add_class::<CandidateContext>()?;
     m.add_class::<IntensityDriftCorrection>()?;
     m.add_class::<DriftCurve>()?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;

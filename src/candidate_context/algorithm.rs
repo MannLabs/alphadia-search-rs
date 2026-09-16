@@ -9,24 +9,10 @@ use crate::candidate::{Candidate, CandidateCollection};
 use crate::speclib_flat::SpecLibFlat;
 use crate::traits::DIADataTrait;
 
-/// Single source of truth for the feature names, in the order of [`ContextFeatures::values`].
-pub const CONTEXT_FEATURE_NAMES: &[&str] = &[
-    "ctx_candidate_density",
-    "ctx_n_competitors",
-    "ctx_n_competitors_higher",
-    "ctx_claimant_rank",
-    "ctx_shared_frac_any",
-    "ctx_shared_frac_higher",
-    "ctx_shared_lib_intensity_frac_higher",
-    "ctx_competitor_log_ratio",
-];
-
-/// Same fragment set as `ScoringParameters` uses on the alphaDIA side.
-pub const DEFAULT_TOP_K_FRAGMENTS: usize = 12;
 /// Fewer shared ions are a coincidence, see `fragment_competition`.
 pub const DEFAULT_MIN_SHARED: usize = 3;
 /// Apex cycles of two co-eluting candidates differ by at most one cycle in practice.
-pub const DEFAULT_CYCLE_RADIUS: usize = 1;
+pub const DEFAULT_CYCLE_RADIUS: u32 = 1;
 
 /// Layout of the packed index key: 16 bits window, 16 bits cycle, 32 bits log-m/z bin.
 const WINDOW_SHIFT: u32 = 48;
@@ -42,7 +28,7 @@ pub struct ContextParameters {
     pub mass_tolerance: f32,
     pub top_k_fragments: usize,
     pub min_shared: usize,
-    pub cycle_radius: usize,
+    pub cycle_radius: u32,
 }
 
 impl ContextParameters {
@@ -79,21 +65,19 @@ pub struct ContextFeatures {
     pub competitor_log_ratio: f32,
 }
 
-impl ContextFeatures {
-    /// The feature values in the order of [`CONTEXT_FEATURE_NAMES`].
-    pub fn values(&self) -> [f32; CONTEXT_FEATURE_NAMES.len()] {
-        [
-            self.candidate_density,
-            self.n_competitors,
-            self.n_competitors_higher,
-            self.claimant_rank,
-            self.shared_frac_any,
-            self.shared_frac_higher,
-            self.shared_lib_intensity_frac_higher,
-            self.competitor_log_ratio,
-        ]
-    }
-}
+/// The output columns, name and accessor side by side so that neither can drift from the other.
+pub const FEATURES: &[(&str, fn(&ContextFeatures) -> f32)] = &[
+    ("ctx_candidate_density", |f| f.candidate_density),
+    ("ctx_n_competitors", |f| f.n_competitors),
+    ("ctx_n_competitors_higher", |f| f.n_competitors_higher),
+    ("ctx_claimant_rank", |f| f.claimant_rank),
+    ("ctx_shared_frac_any", |f| f.shared_frac_any),
+    ("ctx_shared_frac_higher", |f| f.shared_frac_higher),
+    ("ctx_shared_lib_intensity_frac_higher", |f| {
+        f.shared_lib_intensity_frac_higher
+    }),
+    ("ctx_competitor_log_ratio", |f| f.competitor_log_ratio),
+];
 
 /// Width of one log-m/z bin. It is twice the tolerance, so two m/z values within the tolerance
 /// differ in `ln(m/z)` by less than one bin and therefore fall into the same or an adjacent bin.
@@ -129,34 +113,33 @@ struct IndexEntry {
     mz: f32,
 }
 
-struct FragmentIndex {
-    /// Sorted by `key`.
-    entries: Vec<IndexEntry>,
-}
-
-impl FragmentIndex {
-    /// The entries whose key lies in the inclusive range `[lo, hi]`.
-    fn range(&self, lo: u64, hi: u64) -> &[IndexEntry] {
-        let start = self.entries.partition_point(|entry| entry.key < lo);
-        let end = self.entries.partition_point(|entry| entry.key <= hi);
-        &self.entries[start..end.max(start)]
-    }
-}
-
-/// What the query phase needs to know about every other candidate.
+/// What the query phase needs to know about every candidate.
 struct CandidateSlot {
     precursor_idx: usize,
     /// The first isolation window that contains the precursor m/z, if any.
     window: Option<u32>,
     cycle: u32,
     score: f32,
+    /// The fragments the scorer uses; empty if the precursor is not in the library.
+    fragment_mz: Vec<f32>,
+    fragment_intensity: Vec<f32>,
 }
 
 struct RunIndex {
     slots: Vec<CandidateSlot>,
-    fragments: FragmentIndex,
+    /// Sorted by `key`.
+    entries: Vec<IndexEntry>,
     /// One key `(window, cycle, 0)` per candidate with a window, sorted. Serves the density.
     positions: Vec<u64>,
+}
+
+impl RunIndex {
+    /// The entries whose key lies in the inclusive range `[lo, hi]`.
+    fn range(&self, lo: u64, hi: u64) -> &[IndexEntry] {
+        let start = self.entries.partition_point(|entry| entry.key < lo);
+        let end = self.entries.partition_point(|entry| entry.key <= hi);
+        &self.entries[start..end.max(start)]
+    }
 }
 
 fn validate_sizes<T: DIADataTrait>(
@@ -194,12 +177,9 @@ fn build_index<T: DIADataTrait + Sync>(
     candidates: &CandidateCollection,
     params: &ContextParameters,
 ) -> RunIndex {
-    let bin_width = log_mz_bin_width(params.mass_tolerance);
-
-    let (slots, entries_per_candidate): (Vec<CandidateSlot>, Vec<Vec<IndexEntry>>) = candidates
+    let slots: Vec<CandidateSlot> = candidates
         .par_iter()
-        .enumerate()
-        .map(|(candidate_idx, candidate)| {
+        .map(|candidate| {
             let precursor = lib.get_precursor_by_idx_filtered(
                 candidate.precursor_idx,
                 true,
@@ -212,30 +192,34 @@ fn build_index<T: DIADataTrait + Sync>(
                     .first()
                     .map(|&window| window as u32)
             });
-            let cycle = candidate.cycle_center as u32;
-            let entries = match (&precursor, window) {
-                (Some(precursor), Some(window)) => precursor
-                    .fragment_mz
-                    .iter()
-                    .map(|&mz| IndexEntry {
-                        key: pack_key(window, cycle, log_mz_bin(mz, bin_width)),
-                        candidate: candidate_idx as u32,
-                        mz,
-                    })
-                    .collect(),
-                _ => Vec::new(),
-            };
-            let slot = CandidateSlot {
+            let (fragment_mz, fragment_intensity) = precursor
+                .map(|precursor| (precursor.fragment_mz, precursor.fragment_intensity))
+                .unwrap_or_default();
+            CandidateSlot {
                 precursor_idx: candidate.precursor_idx,
                 window,
-                cycle,
+                cycle: candidate.cycle_center as u32,
                 score: candidate.score,
-            };
-            (slot, entries)
+                fragment_mz,
+                fragment_intensity,
+            }
         })
-        .unzip();
+        .collect();
 
-    let mut entries: Vec<IndexEntry> = entries_per_candidate.into_par_iter().flatten().collect();
+    let bin_width = log_mz_bin_width(params.mass_tolerance);
+    let mut entries: Vec<IndexEntry> = slots
+        .par_iter()
+        .enumerate()
+        .flat_map_iter(|(candidate_idx, slot)| {
+            slot.fragment_mz.iter().filter_map(move |&mz| {
+                Some(IndexEntry {
+                    key: pack_key(slot.window?, slot.cycle, log_mz_bin(mz, bin_width)),
+                    candidate: candidate_idx as u32,
+                    mz,
+                })
+            })
+        })
+        .collect();
     entries.par_sort_unstable_by_key(|entry| entry.key);
 
     let mut positions: Vec<u64> = slots
@@ -246,16 +230,8 @@ fn build_index<T: DIADataTrait + Sync>(
 
     RunIndex {
         slots,
-        fragments: FragmentIndex { entries },
+        entries,
         positions,
-    }
-}
-
-/// Counts the fragments this candidate shares with every other candidate.
-fn increment(shared_counts: &mut Vec<(u32, usize)>, other: u32) {
-    match shared_counts.iter_mut().find(|(idx, _)| *idx == other) {
-        Some((_, count)) => *count += 1,
-        None => shared_counts.push((other, 1)),
     }
 }
 
@@ -263,7 +239,6 @@ fn candidate_features(
     candidate_idx: usize,
     candidate: &Candidate,
     index: &RunIndex,
-    lib: &SpecLibFlat,
     params: &ContextParameters,
 ) -> ContextFeatures {
     // Rank 1 means that no higher-scoring competitor claims this candidate's fragments. This
@@ -279,9 +254,11 @@ fn candidate_features(
         return features;
     };
 
-    let radius = params.cycle_radius as u32;
-    let cycle_lo = slot.cycle.saturating_sub(radius);
-    let cycle_hi = (slot.cycle + radius).min(MAX_CYCLES as u32 - 1);
+    let cycle_lo = slot.cycle.saturating_sub(params.cycle_radius);
+    let cycle_hi = slot
+        .cycle
+        .saturating_add(params.cycle_radius)
+        .min(MAX_CYCLES as u32 - 1);
 
     let neighbours = count_in_range(
         &index.positions,
@@ -291,91 +268,72 @@ fn candidate_features(
     // The candidate itself is always one of the neighbours.
     features.candidate_density = neighbours.saturating_sub(1) as f32;
 
-    let Some(precursor) = lib.get_precursor_by_idx_filtered(
-        candidate.precursor_idx,
-        true,
-        true,
-        params.top_k_fragments,
-    ) else {
-        return features;
-    };
-    let num_fragments = precursor.fragment_mz.len();
+    let num_fragments = slot.fragment_mz.len();
     if num_fragments == 0 {
         return features;
     }
 
+    // Every `(other candidate, fragment)` pair within the tolerance. Two ions of one other
+    // candidate can both lie within the tolerance of one fragment; they are one match.
     let bin_width = log_mz_bin_width(params.mass_tolerance);
-    let mut matched_per_fragment: Vec<Vec<u32>> = Vec::with_capacity(num_fragments);
-    let mut shared_counts: Vec<(u32, usize)> = Vec::new();
-
-    for &mz in &precursor.fragment_mz {
+    let mut matches: Vec<(u32, usize)> = Vec::new();
+    for (fragment, &mz) in slot.fragment_mz.iter().enumerate() {
         let tolerance = mz * params.mass_tolerance * 1e-6;
         let bin = log_mz_bin(mz, bin_width);
-        let mut matched: Vec<u32> = Vec::new();
         for cycle in cycle_lo..=cycle_hi {
             let lo = pack_key(window, cycle, bin.saturating_sub(1));
             let hi = pack_key(window, cycle, bin.saturating_add(1));
-            for entry in index.fragments.range(lo, hi) {
+            for entry in index.range(lo, hi) {
                 let other = &index.slots[entry.candidate as usize];
-                if other.precursor_idx == slot.precursor_idx {
-                    continue;
-                }
-                if (entry.mz - mz).abs() <= tolerance {
-                    matched.push(entry.candidate);
+                if other.precursor_idx != slot.precursor_idx && (entry.mz - mz).abs() <= tolerance {
+                    matches.push((entry.candidate, fragment));
                 }
             }
         }
-        // Two ions of one other candidate can both lie within the tolerance; they are one match.
-        matched.sort_unstable();
-        matched.dedup();
-        for &other in &matched {
-            increment(&mut shared_counts, other);
-        }
-        matched_per_fragment.push(matched);
     }
+    matches.sort_unstable();
+    matches.dedup();
 
+    // The matches are grouped by other candidate, so `higher` comes out sorted.
     let mut n_competitors = 0usize;
     let mut higher: Vec<u32> = Vec::new();
     let mut best_competitor_score = f32::NEG_INFINITY;
-    for &(other, count) in &shared_counts {
-        if count < params.min_shared {
+    for shared in matches.chunk_by(|a, b| a.0 == b.0) {
+        if shared.len() < params.min_shared {
             continue;
         }
         n_competitors += 1;
-        let other_score = index.slots[other as usize].score;
+        let other_score = index.slots[shared[0].0 as usize].score;
         best_competitor_score = best_competitor_score.max(other_score);
         if other_score > slot.score {
-            higher.push(other);
+            higher.push(shared[0].0);
         }
     }
-    higher.sort_unstable();
 
-    let mut n_matched_any = 0usize;
-    let mut n_claimed_higher = 0usize;
-    let mut intensity_claimed_higher = 0.0f32;
-    let mut intensity_total = 0.0f32;
-    for (matched, &intensity) in matched_per_fragment
-        .iter()
-        .zip(&precursor.fragment_intensity)
-    {
-        intensity_total += intensity;
-        if !matched.is_empty() {
-            n_matched_any += 1;
-        }
-        if matched
-            .iter()
-            .any(|other| higher.binary_search(other).is_ok())
-        {
-            n_claimed_higher += 1;
-            intensity_claimed_higher += intensity;
+    let mut matched_any = vec![false; num_fragments];
+    let mut claimed_higher = vec![false; num_fragments];
+    for &(other, fragment) in &matches {
+        matched_any[fragment] = true;
+        if higher.binary_search(&other).is_ok() {
+            claimed_higher[fragment] = true;
         }
     }
+    let intensity_total: f32 = slot.fragment_intensity.iter().sum();
+    let intensity_claimed_higher: f32 = slot
+        .fragment_intensity
+        .iter()
+        .zip(&claimed_higher)
+        .filter(|(_, &claimed)| claimed)
+        .map(|(&intensity, _)| intensity)
+        .sum();
 
     features.n_competitors = n_competitors as f32;
     features.n_competitors_higher = higher.len() as f32;
     features.claimant_rank = 1.0 + higher.len() as f32;
-    features.shared_frac_any = n_matched_any as f32 / num_fragments as f32;
-    features.shared_frac_higher = n_claimed_higher as f32 / num_fragments as f32;
+    features.shared_frac_any =
+        matched_any.iter().filter(|&&matched| matched).count() as f32 / num_fragments as f32;
+    features.shared_frac_higher =
+        claimed_higher.iter().filter(|&&claimed| claimed).count() as f32 / num_fragments as f32;
     features.shared_lib_intensity_frac_higher = if intensity_total > 0.0 {
         intensity_claimed_higher / intensity_total
     } else {
@@ -406,14 +364,14 @@ pub fn compute_context_features<T: DIADataTrait + Sync>(
         .par_iter()
         .enumerate()
         .map(|(candidate_idx, candidate)| {
-            candidate_features(candidate_idx, candidate, &index, lib, params)
+            candidate_features(candidate_idx, candidate, &index, params)
         })
         .collect();
 
     println!(
         "Computed context features for {} candidates ({} indexed fragments) in {:.2}s",
         candidates.len(),
-        index.fragments.entries.len(),
+        index.entries.len(),
         start_time.elapsed().as_secs_f64()
     );
     Ok(features)

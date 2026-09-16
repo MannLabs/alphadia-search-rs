@@ -320,13 +320,9 @@ impl SpecLibFlat {
         fragment_position: Vec<u8>,
         fragment_type: Vec<u8>,
     ) -> Self {
-        // Create indices for sorting
         let mut indices: Vec<usize> = (0..precursor_idx.len()).collect();
-
-        // Sort indices by precursor_idx values
         indices.sort_by_key(|&i| precursor_idx[i]);
 
-        // Reorder all precursor arrays according to sorted indices
         let sorted_precursor_idx: Vec<usize> = indices.iter().map(|&i| precursor_idx[i]).collect();
         let sorted_precursor_mz_library: Vec<f32> =
             indices.iter().map(|&i| precursor_mz_library[i]).collect();
@@ -340,7 +336,6 @@ impl SpecLibFlat {
         let sorted_flat_frag_stop_idx: Vec<usize> =
             indices.iter().map(|&i| flat_frag_stop_idx[i]).collect();
 
-        // Create IDF from fragment m/z library values
         let idf = InverseDocumentFrequency::new(&fragment_mz_library);
 
         Self {

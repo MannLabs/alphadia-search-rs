@@ -34,8 +34,8 @@ constructor:
 
 | parameter | default | meaning |
 |---|---|---|
-| `mass_tolerance` | required | two fragment m/z are the same ion if they are closer than this value in ppm |
-| `top_k_fragments` | 12 | fragments per candidate, as in scoring |
+| `mass_tolerance` | required | two fragment m/z are the same ion if they lie within this value in ppm of each other |
+| `top_k_fragments` | required | fragments per candidate, the same value as used for scoring |
 | `min_shared` | 3 | two candidates compete if they share this many fragment m/z or more |
 | `cycle_radius` | 1 | two candidates are compared if their apex cycles are at most this far apart |
 

@@ -5,7 +5,7 @@
 
 use super::algorithm::{
     compute_context_features, log_mz_bin, log_mz_bin_width, pack_key, ContextFeatures,
-    ContextParameters, CONTEXT_FEATURE_NAMES,
+    ContextParameters,
 };
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::constants::{FragmentType, Loss};
@@ -97,11 +97,12 @@ fn library(precursors: &[(usize, f32, &[(f32, f32)])]) -> SpecLibFlat {
     )
 }
 
+/// The features only read the apex cycle, so start and stop can equal it.
 fn candidate(precursor_idx: usize, rank: usize, score: f32, cycle: usize) -> Candidate {
-    Candidate::new(precursor_idx, rank, score, cycle - 3, cycle, cycle + 4)
+    Candidate::new(precursor_idx, rank, score, cycle, cycle, cycle)
 }
 
-fn params(min_shared: usize, cycle_radius: usize) -> ContextParameters {
+fn params(min_shared: usize, cycle_radius: u32) -> ContextParameters {
     ContextParameters {
         mass_tolerance: MASS_TOLERANCE_PPM,
         top_k_fragments: 12,
@@ -119,7 +120,13 @@ fn row(features: &[ContextFeatures], precursor_idx: usize, rank: usize) -> &Cont
 
 /// No neighbour, no match, no competitor: only the claimant rank is non-zero, at its base of 1.
 fn assert_no_competition(features: &ContextFeatures) {
-    assert_eq!(features.values(), [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0]);
+    let expected = ContextFeatures {
+        precursor_idx: features.precursor_idx,
+        rank: features.rank,
+        claimant_rank: 1.0,
+        ..Default::default()
+    };
+    assert_eq!(*features, expected);
 }
 
 /// The scenario of `DOCS.md`: A (precursor 0) and B (precursor 1) share three fragments at
@@ -192,15 +199,6 @@ fn test_pack_key_follows_lexicographic_order() {
 #[test]
 fn test_pack_key_bins_are_consecutive() {
     assert_eq!(pack_key(3, 20, 101), pack_key(3, 20, 100) + 1);
-}
-
-#[test]
-fn test_feature_values_match_names() {
-    assert_eq!(CONTEXT_FEATURE_NAMES.len(), 8);
-    assert_eq!(
-        ContextFeatures::default().values().len(),
-        CONTEXT_FEATURE_NAMES.len()
-    );
 }
 
 #[test]
@@ -397,4 +395,16 @@ fn test_cycle_beyond_the_packed_key_is_rejected() {
     let result = compute_context_features(&dia_data, &lib, &candidates, &params(3, 1));
 
     assert!(result.unwrap_err().contains("cycles"));
+}
+
+#[test]
+fn test_huge_cycle_radius_still_counts_the_candidate_itself() {
+    let dia_data = dia_data(&[WINDOW_LOW]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A)]);
+    let candidates = CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 10)]);
+
+    let features =
+        compute_context_features(&dia_data, &lib, &candidates, &params(3, u32::MAX)).unwrap();
+
+    assert_no_competition(row(&features, 0, 0));
 }

@@ -9,14 +9,14 @@ mod algorithm;
 mod tests;
 
 pub use algorithm::{
-    compute_context_features, ContextFeatures, ContextParameters, CONTEXT_FEATURE_NAMES,
-    DEFAULT_CYCLE_RADIUS, DEFAULT_MIN_SHARED, DEFAULT_TOP_K_FRAGMENTS,
+    compute_context_features, ContextFeatures, ContextParameters, DEFAULT_CYCLE_RADIUS,
+    DEFAULT_MIN_SHARED, FEATURES,
 };
 
 use crate::candidate::CandidateCollection;
 use crate::dia_data::DIAData;
 use crate::speclib_flat::SpecLibFlat;
-use numpy::{ndarray::Array1, IntoPyArray};
+use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
@@ -33,8 +33,8 @@ pub struct CandidateContext {
 
 #[pymethods]
 impl CandidateContext {
-    /// * `mass_tolerance` - two fragment m/z are the same ion if they are closer than this
-    ///   value in ppm.
+    /// * `mass_tolerance` - two fragment m/z are the same ion if they lie within this value in
+    ///   ppm of each other.
     /// * `top_k_fragments` - fragments per candidate, the same value as used for scoring.
     /// * `min_shared` - two candidates compete if they share this many fragment m/z or more.
     /// * `cycle_radius` - two candidates are compared if their apex cycles are at most this
@@ -44,7 +44,7 @@ impl CandidateContext {
     #[new]
     #[pyo3(signature = (
         mass_tolerance,
-        top_k_fragments = DEFAULT_TOP_K_FRAGMENTS,
+        top_k_fragments,
         min_shared = DEFAULT_MIN_SHARED,
         cycle_radius = DEFAULT_CYCLE_RADIUS,
     ))]
@@ -52,7 +52,7 @@ impl CandidateContext {
         mass_tolerance: f32,
         top_k_fragments: usize,
         min_shared: usize,
-        cycle_radius: usize,
+        cycle_radius: u32,
     ) -> PyResult<Self> {
         let params = ContextParameters {
             mass_tolerance,
@@ -78,35 +78,20 @@ impl CandidateContext {
         let features = compute_context_features(dia_data, lib, candidates, &self.params)
             .map_err(PyValueError::new_err)?;
 
-        let n = features.len();
+        let dict = PyDict::new(py);
         let precursor_idx: Vec<u64> = features.iter().map(|f| f.precursor_idx as u64).collect();
         let rank: Vec<u64> = features.iter().map(|f| f.rank as u64).collect();
-        let mut columns: Vec<Vec<f32>> = (0..CONTEXT_FEATURE_NAMES.len())
-            .map(|_| Vec::with_capacity(n))
-            .collect();
-        for feature in &features {
-            for (column, value) in columns.iter_mut().zip(feature.values()) {
-                column.push(value);
-            }
-        }
-
-        let dict = PyDict::new(py);
-        dict.set_item(
-            "precursor_idx",
-            Array1::from_vec(precursor_idx).into_pyarray(py),
-        )?;
-        dict.set_item("rank", Array1::from_vec(rank).into_pyarray(py))?;
-        for (name, column) in CONTEXT_FEATURE_NAMES.iter().zip(columns) {
-            dict.set_item(name, Array1::from_vec(column).into_pyarray(py))?;
+        dict.set_item("precursor_idx", precursor_idx.into_pyarray(py))?;
+        dict.set_item("rank", rank.into_pyarray(py))?;
+        for (name, value) in FEATURES {
+            let values: Vec<f32> = features.iter().map(value).collect();
+            dict.set_item(*name, values.into_pyarray(py))?;
         }
         Ok(dict.into())
     }
 
     #[staticmethod]
     pub fn get_feature_names() -> Vec<String> {
-        CONTEXT_FEATURE_NAMES
-            .iter()
-            .map(|name| name.to_string())
-            .collect()
+        FEATURES.iter().map(|(name, _)| name.to_string()).collect()
     }
 }

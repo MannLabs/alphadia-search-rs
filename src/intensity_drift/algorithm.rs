@@ -206,7 +206,7 @@ fn estimate_curve(
     // curve, ordered along the gradient
     let mut points = Vec::new();
     for ion in 0..intensity.len() {
-        let ion_rt = ion_rt(rt[ion], mean_rt[ion]);
+        let ion_rt = rt_or_mean(rt[ion], mean_rt[ion]);
         if intensity[ion] > 0.0 && reference[ion].is_finite() && ion_rt.is_finite() {
             points.push((ion_rt, intensity[ion].log2() - reference[ion]));
         }
@@ -240,7 +240,7 @@ fn apply_curve(intensity: &mut [f64], rt: &[f64], mean_rt: &[f64], curve: &mut D
         if intensity[ion] <= 0.0 {
             continue;
         }
-        let correction = curve.at(ion_rt(rt[ion], mean_rt[ion]));
+        let correction = curve.at(rt_or_mean(rt[ion], mean_rt[ion]));
         intensity[ion] /= correction.exp2();
         correction_sum += correction;
         n_corrected += 1;
@@ -251,19 +251,19 @@ fn apply_curve(intensity: &mut [f64], rt: &[f64], mean_rt: &[f64], curve: &mut D
     let level = centre.exp2();
     intensity
         .iter_mut()
-        .filter(|intensity| **intensity > 0.0)
-        .for_each(|intensity| *intensity *= level);
+        .filter(|value| **value > 0.0)
+        .for_each(|value| *value *= level);
     curve
         .correction
         .iter_mut()
         .for_each(|correction| *correction -= centre);
 }
 
-/// Retention time of an ion in one run.
+/// Retention time of an ion in one run, falling back to its mean over the other runs.
 ///
 /// A precursor without an identification in a run is placed at its mean retention time over
 /// the other runs, so that a cell with an intensity but no identification is still corrected.
-fn ion_rt(rt: f64, mean_rt: f64) -> f64 {
+fn rt_or_mean(rt: f64, mean_rt: f64) -> f64 {
     if rt.is_finite() {
         rt
     } else {
@@ -281,7 +281,7 @@ fn bin_points(points: &[(f64, f64)], parameters: &DriftParameters) -> (Vec<f64>,
         let bin = &points[edge[0]..edge[1]];
         bin_rt.push(bin.iter().map(|&(rt, _)| rt).sum::<f64>() / bin.len() as f64);
         deviation.clear();
-        deviation.extend(bin.iter().map(|&(_, deviation)| deviation));
+        deviation.extend(bin.iter().map(|&(_, value)| value));
         location.push(location_of(&mut deviation, parameters.statistic));
     }
     (bin_rt, location)

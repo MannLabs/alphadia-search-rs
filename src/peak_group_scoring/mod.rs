@@ -10,8 +10,12 @@ use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
-    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
-    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
+    calculate_hyperscore_combined, calculate_hyperscore_corr_weighted,
+    calculate_hyperscore_inverse_mass_error, calculate_hyperscore_strict,
+    calculate_longest_ion_series, calculate_xtandem_consecutive_strict,
+    calculate_xtandem_count_strict, calculate_xtandem_intensity_strict,
+    calculate_xtandem_openms_strict, correlation_axis_0, filter_non_zero, intensity_ion_series,
+    median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -216,6 +220,57 @@ impl PeakGroupScoring {
             &matched_mask_intensity,
         );
 
+        // --- New hyperscore variants ---
+        let hyperscore_v3_corr = calculate_hyperscore_corr_weighted(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
+        let hyperscore_v4_strict = calculate_hyperscore_strict(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
+        let hyperscore_v5_combined = calculate_hyperscore_combined(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
+        // --- X!Tandem-inspired variants (all use strict matching corr > 0.5) ---
+        let xtandem_openms = calculate_xtandem_openms_strict(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
+        let xtandem_count = calculate_xtandem_count_strict(
+            &precursor.fragment_type,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
+        let xtandem_intensity = calculate_xtandem_intensity_strict(
+            &precursor.fragment_type,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
+        let xtandem_consecutive = calculate_xtandem_consecutive_strict(
+            &precursor.fragment_type,
+            &precursor.fragment_number,
+            observation_intensities_slice,
+            &matched_mask_intensity,
+            &correlations,
+        );
+
         // Calculate longest continuous ion series
         let (longest_b_series, longest_y_series) = calculate_longest_ion_series(
             &precursor.fragment_type,
@@ -292,6 +347,128 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
+        // --- Fragment matching features (strict = corr > 0.5) ---
+        let mut n_b_strict = 0u32;
+        let mut sum_obs_strict = 0.0f64;
+        let mut sum_obs_all = 0.0f64;
+
+        for i in 0..precursor.fragment_type.len() {
+            if matched_mask_intensity[i] && observation_intensities_slice[i] > 0.0 {
+                sum_obs_all += observation_intensities_slice[i] as f64;
+                if correlations[i] > 0.5 {
+                    if precursor.fragment_type[i] == FragmentType::B {
+                        n_b_strict += 1;
+                    }
+                    sum_obs_strict += observation_intensities_slice[i] as f64;
+                }
+            }
+        }
+
+        let matched_intensity_fraction = if sum_obs_all > 0.0 {
+            (sum_obs_strict / sum_obs_all) as f32
+        } else {
+            0.0
+        };
+
+        let mut lib_vals_strict: Vec<f32> = Vec::new();
+        let mut obs_vals_strict: Vec<f32> = Vec::new();
+        for i in 0..precursor.fragment_type.len() {
+            if matched_mask_intensity[i] && correlations[i] > 0.5 {
+                lib_vals_strict.push(precursor.fragment_intensity[i]);
+                obs_vals_strict.push(observation_intensities_slice[i]);
+            }
+        }
+        let intensity_corr_strict = if lib_vals_strict.len() >= 2 {
+            calculate_correlation_safe(&obs_vals_strict, &lib_vals_strict)
+        } else {
+            0.0
+        };
+
+        // --- Smart aggregate features ---
+        let mut idf_weighted_count_strict = 0.0f32;
+        let mut idf_weighted_count_corr30 = 0.0f32;
+        let mut idf_corr_weighted_strict = 0.0f32;
+        let mut n_mass_strict_3ppm = 0u32;
+        let mut n_mass_strict_5ppm = 0u32;
+        let mut idf_mass_strict_3ppm = 0.0f32;
+        let mut idf_corr_mass_gaussian = 0.0f32;
+        let mut idf_corr_top6_sum = 0.0f32;
+
+        for i in 0..precursor.fragment_type.len() {
+            if !matched_mask_intensity[i] || observation_intensities_slice[i] <= 0.0 {
+                continue;
+            }
+
+            let corr = correlations[i];
+            let idf = idf_values[i];
+            let mass_err = fragment_mass_errors[i].abs();
+
+            if corr > 0.3 {
+                idf_weighted_count_corr30 += idf;
+            }
+            if corr > 0.5 {
+                idf_weighted_count_strict += idf;
+                idf_corr_weighted_strict += idf * corr;
+
+                if mass_err < 3.0 {
+                    n_mass_strict_3ppm += 1;
+                    idf_mass_strict_3ppm += idf;
+                }
+                if mass_err < 5.0 {
+                    n_mass_strict_5ppm += 1;
+                }
+            }
+
+            let corr_weight = corr.max(0.0);
+            let mass_weight = (-mass_err * mass_err / 18.0).exp();
+            idf_corr_mass_gaussian += idf * corr_weight * mass_weight;
+
+            if mask_top6_idf[i] {
+                idf_corr_top6_sum += idf * corr.max(0.0);
+            }
+        }
+
+        let composite_mult = idf_xic_dot_product * (num_over_50 as f32 + 1.0).ln();
+
+        // --- Elution profile features ---
+        let profile = median_profile_filtered.as_slice();
+        let n_scans_profile = profile.len();
+
+        let (apex_scan_local, apex_intensity) = profile
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, &v)| (i, v))
+            .unwrap_or((0, 0.0));
+
+        let center_local = if n_scans_profile > 0 {
+            (candidate.cycle_center as isize - cycle_start_idx as isize) as f32
+        } else {
+            0.0
+        };
+        let center_to_apex_offset = (center_local - apex_scan_local as f32).abs();
+
+        let profile_mean = if n_scans_profile > 0 {
+            profile.iter().sum::<f32>() / n_scans_profile as f32
+        } else {
+            0.0
+        };
+        let peak_sharpness = if profile_mean > 0.0 {
+            apex_intensity / profile_mean
+        } else {
+            0.0
+        };
+
+        let mut sorted_profile: Vec<f32> = profile.to_vec();
+        sorted_profile.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        let top3_sum: f32 = sorted_profile.iter().take(3).sum();
+        let total_sum: f32 = sorted_profile.iter().sum();
+        let peak_concentration = if total_sum > 0.0 {
+            top3_sum / total_sum
+        } else {
+            0.0
+        };
+
         // Create and return candidate feature
         Some(CandidateFeature::new(
             candidate.precursor_idx,
@@ -337,6 +514,29 @@ impl PeakGroupScoring {
             num_profiles_filtered as f32,
             num_over_0_top6_idf as f32,
             num_over_50_top6_idf as f32,
+            hyperscore_v3_corr,
+            hyperscore_v4_strict,
+            hyperscore_v5_combined,
+            xtandem_openms,
+            xtandem_count,
+            xtandem_intensity,
+            xtandem_consecutive,
+            n_b_strict as f32,
+            matched_intensity_fraction,
+            intensity_corr_strict,
+            apex_intensity,
+            center_to_apex_offset,
+            peak_sharpness,
+            peak_concentration,
+            idf_weighted_count_strict,
+            idf_weighted_count_corr30,
+            idf_corr_weighted_strict,
+            n_mass_strict_3ppm as f32,
+            n_mass_strict_5ppm as f32,
+            idf_mass_strict_3ppm,
+            idf_corr_mass_gaussian,
+            composite_mult,
+            idf_corr_top6_sum,
         ))
     }
 }

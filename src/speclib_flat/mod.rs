@@ -360,51 +360,6 @@ impl SpecLibFlat {
         }
     }
 
-    /// A minimal library for tests, from `(precursor_idx, precursor m/z, fragments)` where a
-    /// fragment is `(m/z, intensity)`. Every other field gets a placeholder, except the fragment
-    /// type and number: those are B and 2, so that the y1 filter of the scorer keeps every
-    /// fragment.
-    #[cfg(test)]
-    pub fn from_precursors(precursors: &[(usize, f32, &[(f32, f32)])]) -> Self {
-        let mut precursor_idx = Vec::new();
-        let mut precursor_mz = Vec::new();
-        let mut flat_frag_start_idx = Vec::new();
-        let mut flat_frag_stop_idx = Vec::new();
-        let mut fragment_mz = Vec::new();
-        let mut fragment_intensity = Vec::new();
-        for &(idx, mz, fragments) in precursors {
-            precursor_idx.push(idx);
-            precursor_mz.push(mz);
-            flat_frag_start_idx.push(fragment_mz.len());
-            for &(frag_mz, intensity) in fragments {
-                fragment_mz.push(frag_mz);
-                fragment_intensity.push(intensity);
-            }
-            flat_frag_stop_idx.push(fragment_mz.len());
-        }
-        let n_precursors = precursor_idx.len();
-        let n_fragments = fragment_mz.len();
-        Self::from_vecs(
-            precursor_idx,
-            precursor_mz.clone(),
-            precursor_mz,
-            vec![100.0; n_precursors],
-            vec![100.0; n_precursors],
-            vec![10; n_precursors],
-            flat_frag_start_idx,
-            flat_frag_stop_idx,
-            fragment_mz.clone(),
-            fragment_mz,
-            fragment_intensity,
-            vec![1; n_fragments],
-            vec![1; n_fragments],
-            vec![crate::constants::Loss::NONE; n_fragments],
-            vec![2; n_fragments],
-            vec![2; n_fragments],
-            vec![crate::constants::FragmentType::B; n_fragments],
-        )
-    }
-
     pub fn get_precursor(&self, index: usize) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];

@@ -8,6 +8,7 @@ use super::algorithm::{
     ContextParameters,
 };
 use crate::candidate::{Candidate, CandidateCollection};
+use crate::constants::{FragmentType, Loss};
 use crate::dia_data::DIAData;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
@@ -54,6 +55,49 @@ fn dia_data(windows: &[(f32, f32)]) -> DIAData {
     }
 }
 
+/// A library from `(precursor_idx, precursor m/z, fragments as (m/z, intensity))`. Every other
+/// field gets a placeholder, except the fragment type and number: those are B and 2, so that the
+/// y1 filter of the scorer keeps every fragment.
+fn library(precursors: &[(usize, f32, &[(f32, f32)])]) -> SpecLibFlat {
+    let mut precursor_idx = Vec::new();
+    let mut precursor_mz = Vec::new();
+    let mut flat_frag_start_idx = Vec::new();
+    let mut flat_frag_stop_idx = Vec::new();
+    let mut fragment_mz = Vec::new();
+    let mut fragment_intensity = Vec::new();
+    for &(idx, mz, fragments) in precursors {
+        precursor_idx.push(idx);
+        precursor_mz.push(mz);
+        flat_frag_start_idx.push(fragment_mz.len());
+        for &(frag_mz, intensity) in fragments {
+            fragment_mz.push(frag_mz);
+            fragment_intensity.push(intensity);
+        }
+        flat_frag_stop_idx.push(fragment_mz.len());
+    }
+    let n_precursors = precursor_idx.len();
+    let n_fragments = fragment_mz.len();
+    SpecLibFlat::from_vecs(
+        precursor_idx,
+        precursor_mz.clone(),
+        precursor_mz,
+        vec![100.0; n_precursors],
+        vec![100.0; n_precursors],
+        vec![10; n_precursors],
+        flat_frag_start_idx,
+        flat_frag_stop_idx,
+        fragment_mz.clone(),
+        fragment_mz,
+        fragment_intensity,
+        vec![1; n_fragments],
+        vec![1; n_fragments],
+        vec![Loss::NONE; n_fragments],
+        vec![2; n_fragments],
+        vec![2; n_fragments],
+        vec![FragmentType::B; n_fragments],
+    )
+}
+
 /// The features only read the apex cycle, so start and stop can equal it.
 fn candidate(precursor_idx: usize, rank: usize, score: f32, cycle: usize) -> Candidate {
     Candidate::new(precursor_idx, rank, score, cycle, cycle, cycle)
@@ -92,7 +136,7 @@ fn assert_no_competition(features: &ContextFeatures) {
 /// fragments of A at cycle 10 but lies in another isolation window.
 fn scenario() -> (DIAData, SpecLibFlat, CandidateCollection) {
     let dia_data = dia_data(&[WINDOW_LOW, WINDOW_HIGH]);
-    let lib = SpecLibFlat::from_precursors(&[
+    let lib = library(&[
         (0, 500.0, &FRAGMENTS_A),
         (1, 505.0, &FRAGMENTS_B),
         (2, 510.0, &FRAGMENTS_A),
@@ -234,7 +278,7 @@ fn test_min_shared_threshold_separates_matches_from_competitors() {
 #[test]
 fn test_cycle_radius_limits_the_comparison() {
     let dia_data = dia_data(&[WINDOW_LOW]);
-    let lib = SpecLibFlat::from_precursors(&[(0, 500.0, &FRAGMENTS_A), (1, 505.0, &FRAGMENTS_B)]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A), (1, 505.0, &FRAGMENTS_B)]);
     let candidates =
         CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 10), candidate(1, 0, 1.0, 11)]);
 
@@ -254,7 +298,7 @@ fn test_cycle_radius_limits_the_comparison() {
 #[test]
 fn test_other_rank_of_the_same_precursor_is_not_a_competitor() {
     let dia_data = dia_data(&[WINDOW_LOW]);
-    let lib = SpecLibFlat::from_precursors(&[(0, 500.0, &FRAGMENTS_A)]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A)]);
     let candidates =
         CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 10), candidate(0, 1, 1.0, 11)]);
 
@@ -276,7 +320,7 @@ fn test_fragments_within_tolerance_match_across_bins() {
         .iter()
         .map(|&(mz, intensity)| (mz * (1.0 + 8e-6), intensity))
         .collect();
-    let lib = SpecLibFlat::from_precursors(&[(0, 500.0, &FRAGMENTS_A), (1, 505.0, &shifted)]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A), (1, 505.0, &shifted)]);
     let candidates =
         CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 10), candidate(1, 0, 1.0, 10)]);
 
@@ -297,7 +341,7 @@ fn test_fragments_within_tolerance_match_across_bins() {
 #[test]
 fn test_candidate_without_library_precursor_or_window_has_no_competition() {
     let dia_data = dia_data(&[WINDOW_LOW]);
-    let lib = SpecLibFlat::from_precursors(&[
+    let lib = library(&[
         (0, 500.0, &FRAGMENTS_A),
         (1, 505.0, &FRAGMENTS_B),
         (2, 900.0, &FRAGMENTS_A),
@@ -322,7 +366,7 @@ fn test_candidate_without_library_precursor_or_window_has_no_competition() {
 #[test]
 fn test_empty_candidates_give_empty_result() {
     let dia_data = dia_data(&[WINDOW_LOW]);
-    let lib = SpecLibFlat::from_precursors(&[(0, 500.0, &FRAGMENTS_A)]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A)]);
 
     let features =
         compute_context_features(&dia_data, &lib, &CandidateCollection::new(), &params()).unwrap();
@@ -357,7 +401,7 @@ fn test_invalid_parameters_are_rejected() {
 #[test]
 fn test_cycle_beyond_the_packed_key_is_rejected() {
     let dia_data = dia_data(&[WINDOW_LOW]);
-    let lib = SpecLibFlat::from_precursors(&[(0, 500.0, &FRAGMENTS_A)]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A)]);
     let candidates = CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 1 << 16)]);
 
     let result = compute_context_features(&dia_data, &lib, &candidates, &params());
@@ -368,7 +412,7 @@ fn test_cycle_beyond_the_packed_key_is_rejected() {
 #[test]
 fn test_huge_cycle_radius_still_counts_the_candidate_itself() {
     let dia_data = dia_data(&[WINDOW_LOW]);
-    let lib = SpecLibFlat::from_precursors(&[(0, 500.0, &FRAGMENTS_A)]);
+    let lib = library(&[(0, 500.0, &FRAGMENTS_A)]);
     let candidates = CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 10)]);
     let everything = ContextParameters {
         cycle_radius: u32::MAX,

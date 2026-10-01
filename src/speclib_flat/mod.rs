@@ -146,6 +146,15 @@ impl SpecLibFlat {
     pub fn num_fragments(&self) -> usize {
         self.fragment_mz.len()
     }
+
+    /// Rebuilds the fragment IDF from the fragments of the given precursors only.
+    ///
+    /// By default the IDF counts every library fragment. Passing the target precursors keeps
+    /// decoy fragments out of the document frequencies, so the IDF of a fragment does not depend
+    /// on how the decoys were generated. Indices not in the library are ignored.
+    fn set_idf_precursors(&mut self, precursor_idx: PyReadonlyArray1<'_, usize>) {
+        self.idf = self.idf_of_precursors(precursor_idx.as_slice().unwrap_or(&[]));
+    }
 }
 
 /// Apply fragment filtering and return filtered fragment vectors
@@ -296,6 +305,18 @@ pub fn filter_sort_fragments(
 
 // Regular Rust implementation (not exposed to Python)
 impl SpecLibFlat {
+    /// The IDF over the library fragments of the given precursors.
+    pub fn idf_of_precursors(&self, precursor_idx: &[usize]) -> InverseDocumentFrequency {
+        let mut fragment_mz: Vec<f32> = Vec::new();
+        for idx in precursor_idx {
+            if let Ok(i) = self.precursor_idx.binary_search(idx) {
+                let (start, stop) = (self.flat_frag_start_idx[i], self.flat_frag_stop_idx[i]);
+                fragment_mz.extend_from_slice(&self.fragment_mz_library[start..stop]);
+            }
+        }
+        InverseDocumentFrequency::new(&fragment_mz)
+    }
+
     /// Builds the library from plain vectors, without a Python interpreter.
     ///
     /// The precursor arrays are reordered by `precursor_idx` so that lookups can use binary

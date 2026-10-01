@@ -744,3 +744,35 @@ fn test_speclib_flat_empty_idf() {
     assert_eq!(idf_values, vec![1.0, 1.0, 1.0]);
     assert_eq!(empty_speclib.idf.total_fragments, 0.0);
 }
+
+#[test]
+fn test_idf_of_precursors_counts_only_their_fragments() {
+    // precursor 1 has two fragments at 100, precursor 2 two at 200
+    let speclib = SpecLibFlat::from_vecs(
+        vec![1, 2],
+        vec![300.0, 400.0],
+        vec![300.0, 400.0],
+        vec![30.0, 40.0],
+        vec![30.0, 40.0],
+        vec![10, 10],
+        vec![0, 2],
+        vec![2, 4],
+        vec![100.0, 100.0, 200.0, 200.0],
+        vec![100.0, 100.0, 200.0, 200.0],
+        vec![1.0; 4],
+        vec![1; 4],
+        vec![1; 4],
+        vec![Loss::NONE; 4],
+        vec![1; 4],
+        vec![1; 4],
+        vec![FragmentType::B; 4],
+    );
+
+    let idf = speclib.idf_of_precursors(&[1, 99]);
+
+    // two fragments counted, both at 100: IDF(100) = ln(2/2) = 0, IDF(200) = ln(2/1)
+    let values = idf.get_idf(&[100.0, 200.0]);
+    assert!(values[0].abs() < 1e-6);
+    assert!((values[1] - 2.0_f32.ln()).abs() < 1e-6);
+    assert!((idf.total_fragments - 2.0).abs() < 1e-6);
+}

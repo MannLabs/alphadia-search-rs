@@ -744,3 +744,90 @@ fn test_speclib_flat_empty_idf() {
     assert_eq!(idf_values, vec![1.0, 1.0, 1.0]);
     assert_eq!(empty_speclib.idf.total_fragments, 0.0);
 }
+
+/// Two precursors with three fragments each: precursor 0 a target at 100 / 200 / 300, precursor 1 its decoy at
+/// 110 / 210 / 310 with the intensities in a different order.
+fn target_decoy_speclib() -> SpecLibFlat {
+    SpecLibFlat::from_vecs(
+        vec![0, 1],
+        vec![500.0, 505.0],
+        vec![500.0, 505.0],
+        vec![30.0, 30.0],
+        vec![30.0, 30.0],
+        vec![10, 10],
+        vec![0, 3],
+        vec![3, 6],
+        vec![100.0, 200.0, 300.0, 310.0, 210.0, 110.0],
+        vec![100.0, 200.0, 300.0, 310.0, 210.0, 110.0],
+        vec![30.0, 20.0, 10.0, 10.0, 20.0, 30.0],
+        vec![1; 6],
+        vec![1; 6],
+        vec![Loss::NONE; 6],
+        vec![1, 2, 3, 3, 2, 1],
+        vec![1, 2, 3, 3, 2, 1],
+        vec![FragmentType::B; 6],
+    )
+}
+
+#[test]
+fn test_set_idf_counts_only_the_counted_fragments() {
+    // given: the decoy fragments are looked up at the m/z of their target fragment, only the target is counted
+    let mut speclib = target_decoy_speclib();
+    let idf_mz = vec![100.0, 200.0, 300.0, 300.0, 200.0, 100.0];
+    let counted = vec![true, true, true, false, false, false];
+
+    // when
+    speclib.set_idf_from_vecs(idf_mz, &counted).unwrap();
+
+    // then: three counted fragments in three bins, so every bin has ln(3 / 1)
+    assert_eq!(speclib.idf.total_fragments, 3.0);
+    let idf_values = speclib.idf.get_idf(&[100.0, 110.0]);
+    assert!((idf_values[0] - 3.0_f32.ln()).abs() < 1e-6);
+    assert!((idf_values[1] - 3.0_f32.ln()).abs() < 1e-6);
+}
+
+#[test]
+fn test_filtered_precursor_carries_the_idf_mz_of_its_fragments() {
+    // given
+    let mut speclib = target_decoy_speclib();
+    let idf_mz = vec![100.0, 200.0, 300.0, 300.0, 200.0, 100.0];
+    speclib
+        .set_idf_from_vecs(idf_mz, &[true, true, true, false, false, false])
+        .unwrap();
+
+    // when: the decoy's fragments come back sorted by m/z, top 2 by intensity
+    let decoy = speclib.get_precursor_filtered(1, true, false, 2);
+
+    // then: each kept fragment keeps the lookup m/z of its own library row, and the library m/z is unchanged
+    assert_eq!(decoy.fragment_mz, vec![110.0, 210.0]);
+    assert_eq!(decoy.fragment_mz_library, vec![110.0, 210.0]);
+    assert_eq!(decoy.fragment_idf_mz, vec![100.0, 200.0]);
+    assert_eq!(
+        speclib.get_precursor(1).fragment_idf_mz,
+        vec![300.0, 200.0, 100.0]
+    );
+}
+
+#[test]
+fn test_default_idf_mz_is_the_library_mz() {
+    // given / when
+    let speclib = target_decoy_speclib();
+
+    // then
+    assert_eq!(
+        speclib.get_precursor(1).fragment_idf_mz,
+        speclib.get_precursor(1).fragment_mz_library
+    );
+}
+
+#[test]
+fn test_set_idf_rejects_arrays_of_the_wrong_length() {
+    // given
+    let mut speclib = target_decoy_speclib();
+
+    // when
+    let result = speclib.set_idf_from_vecs(vec![100.0; 5], &[true; 6]);
+
+    // then
+    assert!(result.unwrap_err().contains("one entry per fragment (6)"));
+}

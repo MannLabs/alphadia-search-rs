@@ -270,7 +270,7 @@ impl PeakGroupScoring {
         let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
 
         // Calculate IDF values for this precursor's fragments
-        let idf_values = lib.idf.get_idf(&precursor.fragment_mz_library);
+        let idf_values = lib.idf.get_idf(&precursor.fragment_idf_mz);
 
         // Calculate IDF-based scores
         let idf_hyperscore = calculate_hyperscore(

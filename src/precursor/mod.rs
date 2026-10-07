@@ -14,6 +14,8 @@ pub struct Precursor {
     pub fragment_number: Vec<u8>,
     pub fragment_position: Vec<u8>,
     pub fragment_type: Vec<u8>,
+    /// m/z each fragment's IDF is looked up at
+    pub fragment_idf_mz: Vec<f32>,
 }
 
 #[cfg(test)]

@@ -65,6 +65,11 @@ pub struct SpecLibFlat {
     /// Fragment type values
     fragment_type: Vec<u8>,
 
+    /// Fragment m/z values the IDF is looked up at, in library fragment order.
+    /// Defaults to fragment_mz_library; `set_idf` can give a fragment the m/z of another fragment, for example a decoy
+    /// fragment the m/z of the corresponding target fragment.
+    fragment_idf_mz: Vec<f32>,
+
     /// Fragment IDF calculator
     pub idf: InverseDocumentFrequency,
 }
@@ -91,6 +96,7 @@ impl SpecLibFlat {
             fragment_number: Vec::new(),
             fragment_position: Vec::new(),
             fragment_type: Vec::new(),
+            fragment_idf_mz: Vec::new(),
             idf: InverseDocumentFrequency::new(&[]),
         }
     }
@@ -145,6 +151,22 @@ impl SpecLibFlat {
     #[getter]
     pub fn num_fragments(&self) -> usize {
         self.fragment_mz.len()
+    }
+
+    /// Sets the m/z each fragment's IDF is looked up at and rebuilds the IDF from the counted fragments.
+    ///
+    /// Both arrays are in library fragment order. The document frequencies count `fragment_idf_mz` of the fragments
+    /// with `counted` set; every fragment is looked up at its `fragment_idf_mz`. The library fragment m/z is left
+    /// unchanged.
+    fn set_idf(
+        &mut self,
+        fragment_idf_mz: PyReadonlyArray1<'_, f32>,
+        counted: PyReadonlyArray1<'_, bool>,
+    ) -> PyResult<()> {
+        let fragment_idf_mz = fragment_idf_mz.as_array().to_vec();
+        let counted = counted.as_array().to_vec();
+        self.set_idf_from_vecs(fragment_idf_mz, &counted)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 }
 
@@ -201,6 +223,40 @@ pub fn filter_sort_fragments(
     filter_y1_ions: bool,
     top_k_fragments: usize,
 ) -> FragmentData {
+    filter_sort_fragments_with_source(
+        fragment_mz,
+        fragment_mz_library,
+        fragment_intensity,
+        fragment_cardinality,
+        fragment_charge,
+        fragment_loss_type,
+        fragment_number,
+        fragment_position,
+        fragment_type,
+        non_zero,
+        filter_y1_ions,
+        top_k_fragments,
+    )
+    .0
+}
+
+/// Same as `filter_sort_fragments`, and also returns the offset of each returned fragment in the input arrays.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
+pub fn filter_sort_fragments_with_source(
+    fragment_mz: &[f32],
+    fragment_mz_library: &[f32],
+    fragment_intensity: &[f32],
+    fragment_cardinality: &[u8],
+    fragment_charge: &[u8],
+    fragment_loss_type: &[u8],
+    fragment_number: &[u8],
+    fragment_position: &[u8],
+    fragment_type: &[u8],
+    non_zero: bool,
+    filter_y1_ions: bool,
+    top_k_fragments: usize,
+) -> (FragmentData, Vec<usize>) {
     let mut fragment_data: Vec<(f32, f32, f32, u8, u8, u8, u8, u8, u8, usize)> = (0..fragment_mz
         .len())
         .map(|idx| {
@@ -256,6 +312,7 @@ pub fn filter_sort_fragments(
     let mut number_vec = Vec::new();
     let mut position_vec = Vec::new();
     let mut type_vec = Vec::new();
+    let mut source_vec = Vec::new();
 
     for (
         mz,
@@ -267,9 +324,10 @@ pub fn filter_sort_fragments(
         number,
         position,
         frag_type,
-        _,
+        source,
     ) in fragment_data
     {
+        source_vec.push(source);
         mz_vec.push(mz);
         mz_library_vec.push(mz_library);
         intensity_vec.push(intensity);
@@ -282,15 +340,18 @@ pub fn filter_sort_fragments(
     }
 
     (
-        mz_vec,
-        mz_library_vec,
-        intensity_vec,
-        cardinality_vec,
-        charge_vec,
-        loss_type_vec,
-        number_vec,
-        position_vec,
-        type_vec,
+        (
+            mz_vec,
+            mz_library_vec,
+            intensity_vec,
+            cardinality_vec,
+            charge_vec,
+            loss_type_vec,
+            number_vec,
+            position_vec,
+            type_vec,
+        ),
+        source_vec,
     )
 }
 
@@ -337,6 +398,7 @@ impl SpecLibFlat {
             indices.iter().map(|&i| flat_frag_stop_idx[i]).collect();
 
         let idf = InverseDocumentFrequency::new(&fragment_mz_library);
+        let fragment_idf_mz = fragment_mz_library.clone();
 
         Self {
             precursor_idx: sorted_precursor_idx,
@@ -356,8 +418,34 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
+            fragment_idf_mz,
             idf,
         }
+    }
+
+    /// Rust side of `set_idf`; returns an error message if an array does not have one entry per fragment.
+    pub fn set_idf_from_vecs(
+        &mut self,
+        fragment_idf_mz: Vec<f32>,
+        counted: &[bool],
+    ) -> Result<(), String> {
+        let num_fragments = self.fragment_mz.len();
+        if fragment_idf_mz.len() != num_fragments || counted.len() != num_fragments {
+            return Err(format!(
+                "set_idf needs one entry per fragment ({num_fragments}), got {} m/z and {} counted flags",
+                fragment_idf_mz.len(),
+                counted.len()
+            ));
+        }
+        let counted_mz: Vec<f32> = fragment_idf_mz
+            .iter()
+            .zip(counted)
+            .filter(|(_, &is_counted)| is_counted)
+            .map(|(&mz, _)| mz)
+            .collect();
+        self.idf = InverseDocumentFrequency::new(&counted_mz);
+        self.fragment_idf_mz = fragment_idf_mz;
+        Ok(())
     }
 
     pub fn get_precursor(&self, index: usize) -> Precursor {
@@ -379,6 +467,7 @@ impl SpecLibFlat {
         let fragment_number = self.fragment_number[start_idx..stop_idx].to_vec();
         let fragment_position = self.fragment_position[start_idx..stop_idx].to_vec();
         let fragment_type = self.fragment_type[start_idx..stop_idx].to_vec();
+        let fragment_idf_mz = self.fragment_idf_mz[start_idx..stop_idx].to_vec();
 
         Precursor {
             precursor_idx,
@@ -396,6 +485,7 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
+            fragment_idf_mz,
         }
     }
 
@@ -426,16 +516,19 @@ impl SpecLibFlat {
         let raw_fragment_type = &self.fragment_type[start_idx..stop_idx];
 
         let (
-            fragment_mz,
-            fragment_mz_library,
-            fragment_intensity,
-            fragment_cardinality,
-            fragment_charge,
-            fragment_loss_type,
-            fragment_number,
-            fragment_position,
-            fragment_type,
-        ) = filter_sort_fragments(
+            (
+                fragment_mz,
+                fragment_mz_library,
+                fragment_intensity,
+                fragment_cardinality,
+                fragment_charge,
+                fragment_loss_type,
+                fragment_number,
+                fragment_position,
+                fragment_type,
+            ),
+            source,
+        ) = filter_sort_fragments_with_source(
             raw_fragment_mz,
             raw_fragment_mz_library,
             raw_fragment_intensity,
@@ -449,6 +542,10 @@ impl SpecLibFlat {
             filter_y1_ions,
             top_k_fragments,
         );
+        let fragment_idf_mz = source
+            .iter()
+            .map(|&offset| self.fragment_idf_mz[start_idx + offset])
+            .collect();
 
         Precursor {
             precursor_idx,
@@ -466,6 +563,7 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
+            fragment_idf_mz,
         }
     }
 

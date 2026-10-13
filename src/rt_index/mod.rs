@@ -43,6 +43,11 @@ impl RTIndex {
         self.rt.is_empty()
     }
 
+    /// Returns the mean cycle time in retention time units.
+    pub fn delta_t(&self) -> f32 {
+        self.delta_t
+    }
+
     /// Creates an RTIndex from an AlphaRawView.
     ///
     /// Extracts retention times for MS1 scans (where delta_scan_idx is 0).

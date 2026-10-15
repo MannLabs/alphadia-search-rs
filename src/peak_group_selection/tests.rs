@@ -111,3 +111,18 @@ fn test_update_method_partial() {
         assert_eq!(params.rt_tolerance, 150.0);
     });
 }
+
+#[test]
+fn test_candidate_cycle_limits_apex_near_run_start() {
+    assert_eq!(candidate_cycle_limits(2, 5, 100), (0, 8));
+}
+
+#[test]
+fn test_candidate_cycle_limits_apex_near_run_end() {
+    assert_eq!(candidate_cycle_limits(97, 5, 100), (92, 100));
+}
+
+#[test]
+fn test_candidate_cycle_limits_interior() {
+    assert_eq!(candidate_cycle_limits(50, 5, 100), (45, 56));
+}

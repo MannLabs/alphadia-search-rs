@@ -45,6 +45,11 @@ pub const FEATURE_NAMES: &[&str] = &[
     "num_profiles_filtered",
     "num_over_0_top6_idf",
     "num_over_50_top6_idf",
+    "log10_ms1_intensity",
+    "ms1_isotope_correlation",
+    "ms1_profile_correlation",
+    "ms1_isotope_coelution",
+    "ms1_mass_error",
 ];
 
 #[derive(Debug, Clone)]
@@ -92,6 +97,11 @@ pub struct CandidateFeature {
     pub num_profiles_filtered: f32,
     pub num_over_0_top6_idf: f32,
     pub num_over_50_top6_idf: f32,
+    pub log10_ms1_intensity: f32,
+    pub ms1_isotope_correlation: f32,
+    pub ms1_profile_correlation: f32,
+    pub ms1_isotope_coelution: f32,
+    pub ms1_mass_error: f32,
 }
 
 impl CandidateFeature {
@@ -185,7 +195,22 @@ impl CandidateFeature {
             num_profiles_filtered,
             num_over_0_top6_idf,
             num_over_50_top6_idf,
+            log10_ms1_intensity: 0.0,
+            ms1_isotope_correlation: 0.0,
+            ms1_profile_correlation: 0.0,
+            ms1_isotope_coelution: 0.0,
+            ms1_mass_error: 0.0,
         }
+    }
+
+    /// The candidate with its MS1 features set.
+    pub fn with_ms1(mut self, ms1: &crate::peak_group_scoring::ms1::Ms1Features) -> Self {
+        self.log10_ms1_intensity = ms1.log10_ms1_intensity;
+        self.ms1_isotope_correlation = ms1.ms1_isotope_correlation;
+        self.ms1_profile_correlation = ms1.ms1_profile_correlation;
+        self.ms1_isotope_coelution = ms1.ms1_isotope_coelution;
+        self.ms1_mass_error = ms1.ms1_mass_error;
+        self
     }
 }
 
@@ -263,6 +288,11 @@ impl CandidateFeatureCollection {
         let mut num_profiles_filtered = Array1::<f32>::zeros(n);
         let mut num_over_0_top6_idf = Array1::<f32>::zeros(n);
         let mut num_over_50_top6_idf = Array1::<f32>::zeros(n);
+        let mut log10_ms1_intensity = Array1::<f32>::zeros(n);
+        let mut ms1_isotope_correlation = Array1::<f32>::zeros(n);
+        let mut ms1_profile_correlation = Array1::<f32>::zeros(n);
+        let mut ms1_isotope_coelution = Array1::<f32>::zeros(n);
+        let mut ms1_mass_error = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -308,6 +338,11 @@ impl CandidateFeatureCollection {
             num_profiles_filtered[i] = feature.num_profiles_filtered;
             num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
             num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
+            log10_ms1_intensity[i] = feature.log10_ms1_intensity;
+            ms1_isotope_correlation[i] = feature.ms1_isotope_correlation;
+            ms1_profile_correlation[i] = feature.ms1_profile_correlation;
+            ms1_isotope_coelution[i] = feature.ms1_isotope_coelution;
+            ms1_mass_error[i] = feature.ms1_mass_error;
         }
 
         let dict = PyDict::new(py);
@@ -405,6 +440,21 @@ impl CandidateFeatureCollection {
             "num_over_50_top6_idf",
             num_over_50_top6_idf.into_pyarray(py),
         )?;
+
+        dict.set_item("log10_ms1_intensity", log10_ms1_intensity.into_pyarray(py))?;
+        dict.set_item(
+            "ms1_isotope_correlation",
+            ms1_isotope_correlation.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "ms1_profile_correlation",
+            ms1_profile_correlation.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "ms1_isotope_coelution",
+            ms1_isotope_coelution.into_pyarray(py),
+        )?;
+        dict.set_item("ms1_mass_error", ms1_mass_error.into_pyarray(py))?;
 
         Ok(dict.into())
     }

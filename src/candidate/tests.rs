@@ -6,8 +6,17 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 41);
+    // Verify we have the expected number of f32 features (41 MS2 + 5 MS1)
+    assert_eq!(feature_names.len(), 46);
+    for name in [
+        "log10_ms1_intensity",
+        "ms1_isotope_correlation",
+        "ms1_profile_correlation",
+        "ms1_isotope_coelution",
+        "ms1_mass_error",
+    ] {
+        assert!(feature_names.contains(&name.to_string()));
+    }
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));

@@ -8,6 +8,8 @@ pub struct ScoringParameters {
     pub mass_tolerance: f32,
     #[pyo3(get)]
     pub top_k_fragments: usize,
+    #[pyo3(get)]
+    pub ms1_mass_tolerance: f32,
 }
 
 #[pymethods]
@@ -19,6 +21,8 @@ impl ScoringParameters {
             mass_tolerance: 7.0,
             // maximum number of fragments to use for scoring per precursor. depends on the number of fragments in the precursor.
             top_k_fragments: 100,
+            // maximum mass error for matching precursor isotopes in the MS1 scans, in ppm
+            ms1_mass_tolerance: 10.0,
         }
     }
 
@@ -28,6 +32,9 @@ impl ScoringParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("ms1_mass_tolerance")? {
+            self.ms1_mass_tolerance = value.extract::<f32>()?;
         }
         Ok(())
     }

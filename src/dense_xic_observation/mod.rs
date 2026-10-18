@@ -114,7 +114,7 @@ impl DenseXICMZObservation {
         )
     }
 
-    /// Like `new`, but over the given observations.
+    /// Like `new`, but over the given observations, e.g. the MS1 survey scans for isotope XICs.
     pub fn from_observations<T: DIADataTrait>(
         dia_data: &T,
         valid_obs_idxs: Vec<usize>,

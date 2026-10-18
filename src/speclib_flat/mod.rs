@@ -1,6 +1,6 @@
 use crate::idf::InverseDocumentFrequency;
 use crate::precursor::Precursor;
-use numpy::PyReadonlyArray1;
+use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -67,6 +67,18 @@ pub struct SpecLibFlat {
 
     /// Fragment IDF calculator
     pub idf: InverseDocumentFrequency,
+
+    /// Precursor charge, sorted according to precursor_idx order; empty until `set_isotopes` is called
+    precursor_charge: Vec<u8>,
+
+    /// Monoisotopic m/z at which the MS1 isotopes are extracted, sorted according to precursor_idx order
+    precursor_ms1_mz: Vec<f32>,
+
+    /// Library isotope abundances, `num_isotopes` per precursor, sorted according to precursor_idx order
+    precursor_isotope_intensity: Vec<f32>,
+
+    /// Number of isotopes per precursor in `precursor_isotope_intensity`
+    num_isotopes: usize,
 }
 
 /// (m/z used for extraction, library m/z, library intensity, charge) of a fragment.
@@ -95,6 +107,10 @@ impl SpecLibFlat {
             fragment_position: Vec::new(),
             fragment_type: Vec::new(),
             idf: InverseDocumentFrequency::new(&[]),
+            precursor_charge: Vec::new(),
+            precursor_ms1_mz: Vec::new(),
+            precursor_isotope_intensity: Vec::new(),
+            num_isotopes: 0,
         }
     }
 
@@ -138,6 +154,27 @@ impl SpecLibFlat {
             fragment_position.as_array().to_vec(),
             fragment_type.as_array().to_vec(),
         )
+    }
+
+    /// Set precursor charges, MS1 m/z and library isotope abundances ([precursor, isotope]) for MS1 scoring.
+    ///
+    /// The MS1 m/z may differ from the precursor m/z: a decoy is scored at its target's mass and envelope.
+    /// Precursors not listed keep no isotopes, so their MS1 features take the missing values.
+    fn set_isotopes(
+        &mut self,
+        precursor_idx: PyReadonlyArray1<'_, usize>,
+        charge: PyReadonlyArray1<'_, u8>,
+        ms1_mz: PyReadonlyArray1<'_, f32>,
+        isotope_intensity: PyReadonlyArray2<'_, f32>,
+    ) {
+        let isotope_intensity = isotope_intensity.as_array();
+        self.set_isotopes_from_vecs(
+            &precursor_idx.as_array().to_vec(),
+            &charge.as_array().to_vec(),
+            &ms1_mz.as_array().to_vec(),
+            isotope_intensity.ncols(),
+            &isotope_intensity.iter().copied().collect::<Vec<f32>>(),
+        );
     }
 
     #[getter]
@@ -360,6 +397,10 @@ impl SpecLibFlat {
             fragment_position,
             fragment_type,
             idf,
+            precursor_charge: Vec::new(),
+            precursor_ms1_mz: Vec::new(),
+            precursor_isotope_intensity: Vec::new(),
+            num_isotopes: 0,
         }
     }
 
@@ -397,6 +438,51 @@ impl SpecLibFlat {
                     )
                 })
                 .collect(),
+        ))
+    }
+
+    /// `isotope_intensity` is row-major [precursor, isotope] with `num_isotopes` columns.
+    pub fn set_isotopes_from_vecs(
+        &mut self,
+        precursor_idx: &[usize],
+        charge: &[u8],
+        ms1_mz: &[f32],
+        num_isotopes: usize,
+        isotope_intensity: &[f32],
+    ) {
+        let n = self.precursor_idx.len();
+        self.num_isotopes = num_isotopes;
+        self.precursor_charge = vec![0; n];
+        self.precursor_ms1_mz = vec![0.0; n];
+        self.precursor_isotope_intensity = vec![0.0; n * num_isotopes];
+        for (row, &idx) in precursor_idx.iter().enumerate() {
+            if let Ok(array_index) = self.precursor_idx.binary_search(&idx) {
+                self.precursor_charge[array_index] = charge[row];
+                self.precursor_ms1_mz[array_index] = ms1_mz[row];
+                self.precursor_isotope_intensity
+                    [array_index * num_isotopes..(array_index + 1) * num_isotopes]
+                    .copy_from_slice(
+                        &isotope_intensity[row * num_isotopes..(row + 1) * num_isotopes],
+                    );
+            }
+        }
+    }
+
+    /// Charge, MS1 m/z and library isotope abundances of a precursor, if `set_isotopes` provided them.
+    pub fn get_isotopes_by_idx(&self, precursor_idx: usize) -> Option<(u8, f32, &[f32])> {
+        if self.num_isotopes == 0 {
+            return None;
+        }
+        let array_index = self.precursor_idx.binary_search(&precursor_idx).ok()?;
+        let charge = self.precursor_charge[array_index];
+        if charge == 0 {
+            return None;
+        }
+        let start = array_index * self.num_isotopes;
+        Some((
+            charge,
+            self.precursor_ms1_mz[array_index],
+            &self.precursor_isotope_intensity[start..start + self.num_isotopes],
         ))
     }
 

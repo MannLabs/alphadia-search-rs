@@ -744,3 +744,59 @@ fn test_speclib_flat_empty_idf() {
     assert_eq!(idf_values, vec![1.0, 1.0, 1.0]);
     assert_eq!(empty_speclib.idf.total_fragments, 0.0);
 }
+
+fn two_precursor_speclib() -> SpecLibFlat {
+    // unsorted on purpose: the isotopes must follow the precursor_idx order
+    SpecLibFlat::from_vecs(
+        vec![7, 3],
+        vec![600.0, 500.0],
+        vec![600.0, 500.0],
+        vec![10.0, 20.0],
+        vec![10.0, 20.0],
+        vec![9, 8],
+        vec![0, 1],
+        vec![1, 2],
+        vec![300.0, 400.0],
+        vec![300.0, 400.0],
+        vec![1.0, 1.0],
+        vec![1, 1],
+        vec![1, 1],
+        vec![Loss::NONE, Loss::NONE],
+        vec![2, 3],
+        vec![2, 3],
+        vec![FragmentType::B, FragmentType::Y],
+    )
+}
+
+#[test]
+fn test_speclib_flat_isotopes_follow_precursor_idx() {
+    let mut speclib = two_precursor_speclib();
+    assert!(speclib.get_isotopes_by_idx(3).is_none());
+
+    speclib.set_isotopes_from_vecs(
+        &[7, 3],
+        &[2, 3],
+        &[700.0, 300.0],
+        3,
+        &[1.0, 0.5, 0.1, 1.0, 0.8, 0.3],
+    );
+
+    let (charge, ms1_mz, abundance) = speclib.get_isotopes_by_idx(3).unwrap();
+    assert_eq!(charge, 3);
+    assert_eq!(ms1_mz, 300.0);
+    assert_eq!(abundance, &[1.0, 0.8, 0.3]);
+    let (charge, ms1_mz, abundance) = speclib.get_isotopes_by_idx(7).unwrap();
+    assert_eq!(charge, 2);
+    assert_eq!(ms1_mz, 700.0);
+    assert_eq!(abundance, &[1.0, 0.5, 0.1]);
+    assert!(speclib.get_isotopes_by_idx(5).is_none());
+}
+
+#[test]
+fn test_speclib_flat_isotopes_unlisted_precursor_has_none() {
+    let mut speclib = two_precursor_speclib();
+    speclib.set_isotopes_from_vecs(&[7], &[2], &[700.0], 2, &[1.0, 0.5]);
+
+    assert!(speclib.get_isotopes_by_idx(3).is_none());
+    assert_eq!(speclib.get_isotopes_by_idx(7).unwrap().2, &[1.0, 0.5]);
+}

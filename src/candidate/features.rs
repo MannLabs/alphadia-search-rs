@@ -54,6 +54,14 @@ pub const FEATURE_NAMES: &[&str] = &[
     "log_ratio_std",
     "y_intensity_correlation",
     "complementary_pairs",
+    "ms1_iso_cosine",
+    "ms1_n_isotopes",
+    "ms1_log_m0_apex",
+    "ms1_contrast",
+    "ms1_m_minus1_share",
+    "ms1_frag_corr",
+    "ms1_iso_m1_err",
+    "ms1_ppm_signed",
 ];
 
 #[derive(Debug, Clone)]
@@ -110,6 +118,14 @@ pub struct CandidateFeature {
     pub log_ratio_std: f32,
     pub y_intensity_correlation: f32,
     pub complementary_pairs: f32,
+    pub ms1_iso_cosine: f32,
+    pub ms1_n_isotopes: f32,
+    pub ms1_log_m0_apex: f32,
+    pub ms1_contrast: f32,
+    pub ms1_m_minus1_share: f32,
+    pub ms1_frag_corr: f32,
+    pub ms1_iso_m1_err: f32,
+    pub ms1_ppm_signed: f32,
 }
 
 impl CandidateFeature {
@@ -221,7 +237,28 @@ impl CandidateFeature {
             log_ratio_std,
             y_intensity_correlation,
             complementary_pairs,
+            ms1_iso_cosine: 0.0,
+            ms1_n_isotopes: 0.0,
+            ms1_log_m0_apex: 0.0,
+            ms1_contrast: 0.0,
+            ms1_m_minus1_share: 0.0,
+            ms1_frag_corr: 0.0,
+            ms1_iso_m1_err: 0.0,
+            ms1_ppm_signed: 0.0,
         }
+    }
+
+    /// The candidate with its MS1 features set.
+    pub fn with_ms1(mut self, ms1: &crate::peak_group_scoring::ms1::Ms1Features) -> Self {
+        self.ms1_iso_cosine = ms1.ms1_iso_cosine;
+        self.ms1_n_isotopes = ms1.ms1_n_isotopes;
+        self.ms1_log_m0_apex = ms1.ms1_log_m0_apex;
+        self.ms1_contrast = ms1.ms1_contrast;
+        self.ms1_m_minus1_share = ms1.ms1_m_minus1_share;
+        self.ms1_frag_corr = ms1.ms1_frag_corr;
+        self.ms1_iso_m1_err = ms1.ms1_iso_m1_err;
+        self.ms1_ppm_signed = ms1.ms1_ppm_signed;
+        self
     }
 }
 
@@ -308,6 +345,14 @@ impl CandidateFeatureCollection {
         let mut log_ratio_std = Array1::<f32>::zeros(n);
         let mut y_intensity_correlation = Array1::<f32>::zeros(n);
         let mut complementary_pairs = Array1::<f32>::zeros(n);
+        let mut ms1_iso_cosine = Array1::<f32>::zeros(n);
+        let mut ms1_n_isotopes = Array1::<f32>::zeros(n);
+        let mut ms1_log_m0_apex = Array1::<f32>::zeros(n);
+        let mut ms1_contrast = Array1::<f32>::zeros(n);
+        let mut ms1_m_minus1_share = Array1::<f32>::zeros(n);
+        let mut ms1_frag_corr = Array1::<f32>::zeros(n);
+        let mut ms1_iso_m1_err = Array1::<f32>::zeros(n);
+        let mut ms1_ppm_signed = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -362,6 +407,14 @@ impl CandidateFeatureCollection {
             log_ratio_std[i] = feature.log_ratio_std;
             y_intensity_correlation[i] = feature.y_intensity_correlation;
             complementary_pairs[i] = feature.complementary_pairs;
+            ms1_iso_cosine[i] = feature.ms1_iso_cosine;
+            ms1_n_isotopes[i] = feature.ms1_n_isotopes;
+            ms1_log_m0_apex[i] = feature.ms1_log_m0_apex;
+            ms1_contrast[i] = feature.ms1_contrast;
+            ms1_m_minus1_share[i] = feature.ms1_m_minus1_share;
+            ms1_frag_corr[i] = feature.ms1_frag_corr;
+            ms1_iso_m1_err[i] = feature.ms1_iso_m1_err;
+            ms1_ppm_signed[i] = feature.ms1_ppm_signed;
         }
 
         let dict = PyDict::new(py);
@@ -480,6 +533,15 @@ impl CandidateFeatureCollection {
             y_intensity_correlation.into_pyarray(py),
         )?;
         dict.set_item("complementary_pairs", complementary_pairs.into_pyarray(py))?;
+
+        dict.set_item("ms1_iso_cosine", ms1_iso_cosine.into_pyarray(py))?;
+        dict.set_item("ms1_n_isotopes", ms1_n_isotopes.into_pyarray(py))?;
+        dict.set_item("ms1_log_m0_apex", ms1_log_m0_apex.into_pyarray(py))?;
+        dict.set_item("ms1_contrast", ms1_contrast.into_pyarray(py))?;
+        dict.set_item("ms1_m_minus1_share", ms1_m_minus1_share.into_pyarray(py))?;
+        dict.set_item("ms1_frag_corr", ms1_frag_corr.into_pyarray(py))?;
+        dict.set_item("ms1_iso_m1_err", ms1_iso_m1_err.into_pyarray(py))?;
+        dict.set_item("ms1_ppm_signed", ms1_ppm_signed.into_pyarray(py))?;
 
         Ok(dict.into())
     }

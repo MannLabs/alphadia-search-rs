@@ -23,6 +23,7 @@ use crate::utils::{
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
+pub mod ms1;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
@@ -60,6 +61,7 @@ impl PeakGroupScoring {
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
+        let ms1_observations = dia_data.ms1_observations();
 
         // Parallel iteration over candidates to score each one
         let scored_candidates: Vec<CandidateFeature> = candidates
@@ -72,9 +74,13 @@ impl PeakGroupScoring {
                     true, // Filter Y1 ions by default
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => {
-                        self.score_candidate_generic(dia_data, lib, &precursor, candidate)
-                    }
+                    Some(precursor) => self.score_candidate_generic(
+                        dia_data,
+                        lib,
+                        &precursor,
+                        candidate,
+                        &ms1_observations,
+                    ),
                     None => {
                         eprintln!(
                             "Warning: Candidate precursor_idx {} not found in library. Skipping.",
@@ -109,6 +115,7 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         precursor: &Precursor,
         candidate: &Candidate,
+        ms1_observations: &[usize],
     ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
@@ -320,60 +327,85 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
+        let ms1_features = match lib.get_isotopes_by_idx(candidate.precursor_idx) {
+            Some((charge, ms1_mz, isotope_intensity)) if !ms1_observations.is_empty() => {
+                let isotope_mz = ms1::isotope_mz(ms1_mz, charge, isotope_intensity.len());
+                let ms1_xic = DenseXICMZObservation::from_observations(
+                    dia_data,
+                    ms1_observations.to_vec(),
+                    cycle_start_idx,
+                    cycle_stop_idx,
+                    self.params.ms1_mass_tolerance,
+                    &isotope_mz,
+                );
+                ms1::ms1_features(
+                    &ms1_xic.dense_xic,
+                    &ms1_xic.dense_mz,
+                    ms1_mz,
+                    isotope_intensity,
+                    &median_profile_filtered,
+                )
+            }
+            _ => ms1::Ms1Features::missing(),
+        };
+
         // Create and return candidate feature
-        Some(CandidateFeature::new(
-            candidate.precursor_idx,
-            candidate.rank,
-            candidate.score,
-            mean_correlation,
-            median_correlation,
-            correlation_std,
-            intensity_correlation,
-            num_fragments as f32,
-            num_scans as f32,
-            num_over_95 as f32,
-            num_over_90 as f32,
-            num_over_80 as f32,
-            num_over_50 as f32,
-            num_over_0 as f32,
-            num_over_0_rank_0_5 as f32,
-            num_over_0_rank_6_11 as f32,
-            num_over_0_rank_12_17 as f32,
-            num_over_0_rank_18_23 as f32,
-            num_over_50_rank_0_5 as f32,
-            num_over_50_rank_6_11 as f32,
-            num_over_50_rank_12_17 as f32,
-            num_over_50_rank_18_23 as f32,
-            hyperscore_intensity_observation,
-            hyperscore_intensity_library,
-            hyperscore_inverse_mass_error,
-            rt_observed,
-            delta_rt,
-            longest_b_series as f32,
-            longest_y_series as f32,
-            precursor.naa as f32,
-            weighted_mass_error,
-            log10_b_ion_intensity,
-            log10_y_ion_intensity,
-            fwhm_rt,
-            idf_hyperscore,
-            idf_xic_dot_product,
-            log_idf_intensity_dot_product,
-            median_profile_sum,
-            median_profile_sum_filtered,
-            num_profiles as f32,
-            num_profiles_filtered as f32,
-            num_over_0_top6_idf as f32,
-            num_over_50_top6_idf as f32,
-            ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
-            long_ion_intensity_share,
-            lib_explained,
-            correlation_gap,
-            log_ratio_std,
-            y_intensity_correlation,
-            complementary_pairs,
-        ))
+        Some(
+            CandidateFeature::new(
+                candidate.precursor_idx,
+                candidate.rank,
+                candidate.score,
+                mean_correlation,
+                median_correlation,
+                correlation_std,
+                intensity_correlation,
+                num_fragments as f32,
+                num_scans as f32,
+                num_over_95 as f32,
+                num_over_90 as f32,
+                num_over_80 as f32,
+                num_over_50 as f32,
+                num_over_0 as f32,
+                num_over_0_rank_0_5 as f32,
+                num_over_0_rank_6_11 as f32,
+                num_over_0_rank_12_17 as f32,
+                num_over_0_rank_18_23 as f32,
+                num_over_50_rank_0_5 as f32,
+                num_over_50_rank_6_11 as f32,
+                num_over_50_rank_12_17 as f32,
+                num_over_50_rank_18_23 as f32,
+                hyperscore_intensity_observation,
+                hyperscore_intensity_library,
+                hyperscore_inverse_mass_error,
+                rt_observed,
+                delta_rt,
+                longest_b_series as f32,
+                longest_y_series as f32,
+                precursor.naa as f32,
+                weighted_mass_error,
+                log10_b_ion_intensity,
+                log10_y_ion_intensity,
+                fwhm_rt,
+                idf_hyperscore,
+                idf_xic_dot_product,
+                log_idf_intensity_dot_product,
+                median_profile_sum,
+                median_profile_sum_filtered,
+                num_profiles as f32,
+                num_profiles_filtered as f32,
+                num_over_0_top6_idf as f32,
+                num_over_50_top6_idf as f32,
+                ion_position_mean,
+                num_over_50_long_ions,
+                num_over_50_short_ions,
+                long_ion_intensity_share,
+                lib_explained,
+                correlation_gap,
+                log_ratio_std,
+                y_intensity_correlation,
+                complementary_pairs,
+            )
+            .with_ms1(&ms1_features),
+        )
     }
 }

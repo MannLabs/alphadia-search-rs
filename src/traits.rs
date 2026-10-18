@@ -18,6 +18,16 @@ pub trait DIADataTrait {
 
     fn memory_footprint_bytes(&self) -> usize;
 
+    /// Observations of the MS1 survey scans, which carry no isolation window (alpharaw stores [-1, -1]).
+    fn ms1_observations(&self) -> Vec<usize> {
+        self.quadrupole_observations()
+            .iter()
+            .enumerate()
+            .filter(|(_, obs)| obs.isolation_window()[1] < 0.0)
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
     fn memory_footprint_mb(&self) -> f64 {
         self.memory_footprint_bytes() as f64 / (1024.0 * 1024.0)
     }
@@ -25,6 +35,8 @@ pub trait DIADataTrait {
 
 /// Trait for quadrupole observation types that support XIC slice filling
 pub trait QuadrupoleObservationTrait {
+    fn isolation_window(&self) -> [f32; 2];
+
     fn fill_xic_slice(
         &self,
         mz_index: &MZIndex,

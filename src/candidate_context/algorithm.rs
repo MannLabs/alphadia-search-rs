@@ -29,6 +29,11 @@ pub struct ContextParameters {
     pub top_k_fragments: usize,
     pub min_shared: usize,
     pub cycle_radius: u32,
+    /// Apex cycle offsets at which the features are measured again. If not empty, every feature
+    /// is reported as its value at the apex minus its mean over the offsets that lie inside the
+    /// run: the same window and fragment set away from the peak give the chance level of this
+    /// candidate's fragment masses, which differs between decoy schemes and target peptides.
+    pub background_offsets: Vec<i32>,
 }
 
 impl ContextParameters {
@@ -241,6 +246,43 @@ fn candidate_features(
     index: &RunIndex,
     params: &ContextParameters,
 ) -> ContextFeatures {
+    let slot_cycle = index.slots[candidate_idx].cycle;
+    let mut features = features_at_cycle(candidate_idx, candidate, index, params, slot_cycle);
+    let background: Vec<ContextFeatures> = params
+        .background_offsets
+        .iter()
+        .filter_map(|&offset| {
+            let cycle = slot_cycle as i64 + offset as i64;
+            (0..MAX_CYCLES as i64)
+                .contains(&cycle)
+                .then(|| features_at_cycle(candidate_idx, candidate, index, params, cycle as u32))
+        })
+        .collect();
+    if background.is_empty() {
+        return features;
+    }
+    let mean = |value: fn(&ContextFeatures) -> f32| {
+        background.iter().map(value).sum::<f32>() / background.len() as f32
+    };
+    features.candidate_density -= mean(|f| f.candidate_density);
+    features.n_competitors -= mean(|f| f.n_competitors);
+    features.n_competitors_higher -= mean(|f| f.n_competitors_higher);
+    features.claimant_rank = 1.0 + features.n_competitors_higher;
+    features.shared_frac_any -= mean(|f| f.shared_frac_any);
+    features.shared_frac_higher -= mean(|f| f.shared_frac_higher);
+    features.shared_lib_intensity_frac_higher -= mean(|f| f.shared_lib_intensity_frac_higher);
+    features.competitor_log_ratio -= mean(|f| f.competitor_log_ratio);
+    features
+}
+
+/// The features of a candidate as if its apex were at `cycle`; the index is unchanged.
+fn features_at_cycle(
+    candidate_idx: usize,
+    candidate: &Candidate,
+    index: &RunIndex,
+    params: &ContextParameters,
+    cycle: u32,
+) -> ContextFeatures {
     // Rank 1 means that no higher-scoring competitor claims this candidate's fragments. This
     // holds for a candidate without a window or without fragments as well.
     let mut features = ContextFeatures {
@@ -254,9 +296,8 @@ fn candidate_features(
         return features;
     };
 
-    let cycle_lo = slot.cycle.saturating_sub(params.cycle_radius);
-    let cycle_hi = slot
-        .cycle
+    let cycle_lo = cycle.saturating_sub(params.cycle_radius);
+    let cycle_hi = cycle
         .saturating_add(params.cycle_radius)
         .min(MAX_CYCLES as u32 - 1);
 

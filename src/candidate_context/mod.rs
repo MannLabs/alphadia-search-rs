@@ -39,6 +39,8 @@ impl CandidateContext {
     /// * `min_shared` - two candidates compete if they share this many fragment m/z or more.
     /// * `cycle_radius` - two candidates are compared if their apex cycles are at most this
     ///   many cycles apart.
+    /// * `background_offsets` - apex cycle offsets of the background; if not empty, every feature
+    ///   is reported minus its mean at these offsets.
     ///
     /// Raises `ValueError` if the tolerance is not positive or if a count is zero.
     #[new]
@@ -47,18 +49,21 @@ impl CandidateContext {
         top_k_fragments,
         min_shared = DEFAULT_MIN_SHARED,
         cycle_radius = DEFAULT_CYCLE_RADIUS,
+        background_offsets = Vec::new(),
     ))]
     fn new(
         mass_tolerance: f32,
         top_k_fragments: usize,
         min_shared: usize,
         cycle_radius: u32,
+        background_offsets: Vec<i32>,
     ) -> PyResult<Self> {
         let params = ContextParameters {
             mass_tolerance,
             top_k_fragments,
             min_shared,
             cycle_radius,
+            background_offsets,
         };
         params.validate().map_err(PyValueError::new_err)?;
         Ok(Self { params })

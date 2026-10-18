@@ -38,6 +38,7 @@ constructor:
 | `top_k_fragments` | required | fragments per candidate, the same value as used for scoring |
 | `min_shared` | 3 | two candidates compete if they share this many fragment m/z or more |
 | `cycle_radius` | 1 | two candidates are compared if their apex cycles are at most this far apart |
+| `background_offsets` | empty | apex cycle offsets of the background; if not empty, every feature is reported minus its mean at these offsets |
 
 # Output
 
@@ -75,6 +76,18 @@ The density is the number of candidates with the same window and a cycle within
 
 The index is built once per call and dropped afterwards. Its size is the number of candidate
 fragments times 16 bytes. Both phases run in parallel over the candidates.
+
+# Background
+
+How many co-eluting candidates share a candidate's fragments depends on how common its fragment
+masses are, and that differs between decoy schemes and target peptides: alphaDIA's inner decoys
+map many residues onto L/V/S, so their fragment ladders coincide with other candidates' more
+often than a false target's do, and the classifier learns to recognise decoys from it. With
+`background_offsets`, the features are measured again with the apex moved by each offset (the
+index stays as it is), in the same window and with the same fragments, and their mean is
+subtracted. What remains is the competition at the peak beyond the chance level of this fragment
+set. Offsets whose cycle lies outside the 16-bit cycle range are skipped. `ctx_claimant_rank` is
+`1 + ctx_n_competitors_higher` after the subtraction.
 
 # Contract
 

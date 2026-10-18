@@ -110,6 +110,7 @@ fn params() -> ContextParameters {
         top_k_fragments: 12,
         min_shared: 3,
         cycle_radius: 1,
+        background_offsets: Vec::new(),
     }
 }
 
@@ -422,4 +423,41 @@ fn test_huge_cycle_radius_still_counts_the_candidate_itself() {
     let features = compute_context_features(&dia_data, &lib, &candidates, &everything).unwrap();
 
     assert_no_competition(row(&features, 0, 0));
+}
+
+#[test]
+fn test_background_offsets_subtract_the_chance_level() {
+    // B shares three m/z with A at A's apex and with C, the same fragments as A, ten cycles
+    // later: B's sharing is as common away from its apex as at it, so nothing is left over.
+    let dia_data = dia_data(&[WINDOW_LOW]);
+    let lib = library(&[
+        (0, 500.0, &FRAGMENTS_A),
+        (1, 505.0, &FRAGMENTS_B),
+        (2, 510.0, &FRAGMENTS_A),
+    ]);
+    let candidates = CandidateCollection::from_vec(vec![
+        candidate(0, 0, 2.0, 10),
+        candidate(1, 0, 1.0, 10),
+        candidate(2, 0, 3.0, 20),
+    ]);
+    let background = ContextParameters {
+        background_offsets: vec![10],
+        ..params()
+    };
+
+    let features = compute_context_features(&dia_data, &lib, &candidates, &background).unwrap();
+    let b = row(&features, 1, 0);
+    assert_eq!(b.n_competitors, 0.0);
+    assert_eq!(b.n_competitors_higher, 0.0);
+    assert_eq!(b.claimant_rank, 1.0);
+    assert_eq!(b.shared_frac_any, 0.0);
+    assert_eq!(b.shared_frac_higher, 0.0);
+
+    // An offset outside the run is skipped, so the apex values stay as they are.
+    let outside = ContextParameters {
+        background_offsets: vec![-100],
+        ..params()
+    };
+    let apex_only = compute_context_features(&dia_data, &lib, &candidates, &outside).unwrap();
+    assert_eq!(row(&apex_only, 1, 0).n_competitors, 1.0);
 }

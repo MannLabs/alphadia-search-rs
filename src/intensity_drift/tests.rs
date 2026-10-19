@@ -1,6 +1,7 @@
 //! These tests cover the removal of a run's drift with both statistics, the level of a run
-//! that must survive it, the ions and runs the estimator ignores, the merging of sparse bins
-//! and the retention time fallback.
+//! that must survive it, the ions and runs the estimator ignores, the merging of sparse bins,
+//! the retention time fallback and the lookup of every ion's retention time through its
+//! precursor.
 
 use approx::assert_abs_diff_eq;
 
@@ -25,11 +26,13 @@ fn noise(seed: usize) -> f64 {
 }
 
 /// Run-major tables of `N_RUNS` runs that share all ions, with `drift_log2` imposed on run 0
-/// over the gradient. The ions elute evenly spread over the gradient.
+/// over the gradient. The ions elute evenly spread over the gradient, every ion is its own
+/// precursor.
 struct Tables {
     intensity: Vec<f64>,
     correlation: Vec<f64>,
     rt: Vec<f64>,
+    precursor: Vec<usize>,
 }
 
 impl Tables {
@@ -55,18 +58,23 @@ impl Tables {
             intensity,
             correlation: vec![CORRELATION; N_RUNS * N_IONS],
             rt: rt.repeat(N_RUNS),
+            precursor: (0..N_IONS).collect(),
         }
     }
 
     fn correct(&self, parameters: &DriftParameters) -> Vec<f64> {
-        correct_drift(
-            &self.intensity,
-            &self.correlation,
-            &self.rt,
-            N_IONS,
-            parameters,
-        )
-        .0
+        self.correct_with(&self.rt, &self.precursor, parameters)
+    }
+
+    fn correct_with(
+        &self,
+        rt: &[f64],
+        precursor: &[usize],
+        parameters: &DriftParameters,
+    ) -> Vec<f64> {
+        let mut corrected = self.intensity.clone();
+        correct_drift(&mut corrected, &self.correlation, rt, precursor, parameters);
+        corrected
     }
 
     /// Log2 change the correction applied to one cell.
@@ -77,12 +85,8 @@ impl Tables {
 
 fn parameters(statistic: Statistic) -> DriftParameters {
     DriftParameters {
-        bin_seconds: 30.0,
-        min_correlation: 0.8,
-        min_observations: 3,
-        min_ions_per_bin: 100,
-        min_ions_per_run: 500,
         statistic,
+        ..DriftParameters::DEFAULT
     }
 }
 
@@ -216,11 +220,12 @@ fn test_skips_a_run_with_too_few_usable_ions() {
         ..parameters(Statistic::Mode)
     };
 
-    let (corrected, curves) = correct_drift(
-        &tables.intensity,
+    let mut corrected = tables.intensity.clone();
+    let curves = correct_drift(
+        &mut corrected,
         &tables.correlation,
         &tables.rt,
-        N_IONS,
+        &tables.precursor,
         &parameters,
     );
 
@@ -243,7 +248,7 @@ fn test_merges_sparse_bins_and_appends_trailing_ions() {
             }
         })
         .collect();
-    let intensity = [deviating_run, vec![1.0; n_ions]].concat();
+    let mut intensity = [deviating_run, vec![1.0; n_ions]].concat();
     let parameters = DriftParameters {
         bin_seconds: 10.0,
         min_observations: 2,
@@ -252,17 +257,16 @@ fn test_merges_sparse_bins_and_appends_trailing_ions() {
         ..parameters(Statistic::Median)
     };
 
-    let (_, curves) = correct_drift(
-        &intensity,
+    let curves = correct_drift(
+        &mut intensity,
         &vec![CORRELATION; 2 * n_ions],
         &rt.repeat(2),
-        n_ions,
+        &(0..n_ions).collect::<Vec<_>>(),
         &parameters,
     );
 
     // [0, 100) and [100, 250), the trailing 50 ions merged into the second bin
     let curve = curves[0].as_ref().expect("the run has a curve");
-    assert_eq!(curve.n_ions, n_ions);
     assert_abs_diff_eq!(curve.rt[0], 49.5, epsilon = 1e-9);
     assert_abs_diff_eq!(curve.rt[1], 174.5, epsilon = 1e-9);
     assert_eq!(curve.rt.len(), 2);
@@ -276,14 +280,7 @@ fn test_places_an_ion_without_rt_at_its_mean_rt() {
     let mut rt = tables.rt.clone();
     rt[ion] = f64::NAN;
 
-    let corrected = correct_drift(
-        &tables.intensity,
-        &tables.correlation,
-        &rt,
-        N_IONS,
-        &parameters(Statistic::Mode),
-    )
-    .0;
+    let corrected = tables.correct_with(&rt, &tables.precursor, &parameters(Statistic::Mode));
 
     assert_abs_diff_eq!(
         tables.change(&corrected, 0, ion),
@@ -293,8 +290,23 @@ fn test_places_an_ion_without_rt_at_its_mean_rt() {
 }
 
 #[test]
-fn test_rejects_an_unknown_statistic() {
-    assert!(Statistic::from_name("mode").is_ok());
-    assert!(Statistic::from_name("median").is_ok());
-    assert!(Statistic::from_name("mean").is_err());
+fn test_looks_up_the_rt_of_every_ion_through_its_precursor() {
+    // ions 2k and 2k + 1 share precursor k, which elutes at the rt of ion 2k
+    let tables = Tables::new(0.3);
+    let n_precursors = N_IONS / 2;
+    let precursor: Vec<usize> = (0..N_IONS).map(|ion| ion / 2).collect();
+    let rt: Vec<f64> = tables.rt.iter().step_by(2).copied().collect();
+    assert_eq!(rt.len(), N_RUNS * n_precursors);
+
+    let corrected = tables.correct_with(&rt, &precursor, &parameters(Statistic::Mode));
+
+    for run in 0..N_RUNS {
+        for ion in (0..N_IONS).step_by(2) {
+            assert_abs_diff_eq!(
+                tables.change(&corrected, run, ion),
+                tables.change(&corrected, run, ion + 1),
+                epsilon = 1e-9
+            );
+        }
+    }
 }

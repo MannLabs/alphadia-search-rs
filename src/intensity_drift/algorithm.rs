@@ -12,7 +12,6 @@
 
 use std::ops::Range;
 
-use pyo3::prelude::*;
 use rayon::prelude::*;
 
 /// Histogram the mode is read from: bin width in log2 and the central percentile range that
@@ -33,23 +32,12 @@ pub enum Statistic {
     /// a part of the proteome changes between the runs.
     Mode,
     /// Median of the bin.
+    // kept as the reference estimator the mode is compared against in the tests
+    #[allow(dead_code)]
     Median,
 }
 
-impl Statistic {
-    /// The identifiers the caller selects a statistic by.
-    pub fn from_name(name: &str) -> Result<Self, String> {
-        match name {
-            "mode" => Ok(Self::Mode),
-            "median" => Ok(Self::Median),
-            _ => Err(format!(
-                "unknown intensity drift statistic '{name}', expected 'mode' or 'median'"
-            )),
-        }
-    }
-}
-
-/// Configuration of the estimator. The defaults live with the caller.
+/// Configuration of the estimator.
 pub struct DriftParameters {
     /// Width of the fixed retention time bins the curve is estimated in.
     pub bin_seconds: f64,
@@ -64,11 +52,19 @@ pub struct DriftParameters {
     pub statistic: Statistic,
 }
 
+impl DriftParameters {
+    pub const DEFAULT: Self = Self {
+        bin_seconds: 30.0,
+        min_correlation: 0.8,
+        min_observations: 3,
+        min_ions_per_bin: 100,
+        min_ions_per_run: 500,
+        statistic: Statistic::Mode,
+    };
+}
+
 /// The log2 correction of one run, at the mean retention time of every merged bin.
-#[pyclass(frozen, get_all)]
 pub struct DriftCurve {
-    /// Ions the curve was estimated from.
-    pub n_ions: usize,
     /// Mean retention time of every merged bin, ascending.
     pub rt: Vec<f64>,
     /// Re-centred log2 correction of every merged bin.
@@ -78,7 +74,7 @@ pub struct DriftCurve {
 impl DriftCurve {
     /// The log2 correction at `rt`, linear between the bins and constant outside them.
     ///
-    /// An ion that no run places in retention time is not corrected.
+    /// A precursor that no run places in retention time is not corrected.
     fn at(&self, rt: f64) -> f64 {
         if rt.is_finite() {
             interpolate(rt, &self.rt, &self.correction)
@@ -88,45 +84,79 @@ impl DriftCurve {
     }
 }
 
-/// Corrects the retention time dependent intensity drift of every run.
+/// Corrects the retention time dependent intensity drift of every run, in place.
 ///
-/// The matrices are run-major: row `run` of each holds the `n_ions` cells of that run.
-/// `intensity` is linear and zero marks a missing value, `correlation` holds the cross-run
-/// fragment correlations and `rt` the observed retention time of every ion's precursor, NaN
-/// where the run has no identification for it. `n_ions` must not be zero.
+/// The matrices are run-major: row `run` of `intensity` and `correlation` holds the ion cells
+/// of that run, row `run` of `rt` its precursor cells. `intensity` is linear and zero marks a
+/// missing value, `correlation` holds the cross-run fragment correlations and `rt` the
+/// observed retention time of every precursor, NaN where the run has no identification for
+/// it. `precursor` gives the precursor column of every ion and must not be empty.
 ///
-/// Gives the corrected intensities in the same layout, and the curve of every run with
-/// `None` for the runs that were left unchanged.
+/// Gives the curve of every run, `None` for the runs that were left unchanged.
 pub fn correct_drift(
-    intensity: &[f64],
+    intensity: &mut [f64],
     correlation: &[f64],
     rt: &[f64],
-    n_ions: usize,
+    precursor: &[usize],
     parameters: &DriftParameters,
-) -> (Vec<f64>, Vec<Option<DriftCurve>>) {
+) -> Vec<Option<DriftCurve>> {
+    let n_ions = precursor.len();
+    let n_precursors = rt.len() / (intensity.len() / n_ions);
     let reference = reference_levels(intensity, correlation, n_ions, parameters);
-    let mean_rt = mean_retention_times(rt, n_ions);
+    let mean_rt = mean_retention_times(rt, n_precursors);
 
     let mut curves: Vec<Option<DriftCurve>> = intensity
         .par_chunks_exact(n_ions)
-        .zip(rt.par_chunks_exact(n_ions))
+        .zip(rt.par_chunks_exact(n_precursors))
         .map(|(run_intensity, run_rt)| {
-            estimate_curve(run_intensity, run_rt, &reference, &mean_rt, parameters)
+            let ion_rt = IonRt::new(run_rt, &mean_rt, precursor);
+            estimate_curve(run_intensity, &ion_rt, &reference, parameters)
         })
         .collect();
 
-    let mut corrected = intensity.to_vec();
-    corrected
+    intensity
         .par_chunks_exact_mut(n_ions)
-        .zip(rt.par_chunks_exact(n_ions))
+        .zip(rt.par_chunks_exact(n_precursors))
         .zip(curves.par_iter_mut())
-        .for_each(|((run_corrected, run_rt), curve)| {
+        .for_each(|((run_intensity, run_rt), curve)| {
             if let Some(curve) = curve {
-                apply_curve(run_corrected, run_rt, &mean_rt, curve);
+                let ion_rt = IonRt::new(run_rt, &mean_rt, precursor);
+                apply_curve(run_intensity, &ion_rt, curve);
             }
         });
 
-    (corrected, curves)
+    curves
+}
+
+/// Retention time of every ion in one run, looked up through its precursor.
+///
+/// A precursor without an identification in the run is placed at its mean retention time
+/// over the other runs, so that a cell with an intensity but no identification is still
+/// corrected.
+struct IonRt<'a> {
+    run_rt: &'a [f64],
+    mean_rt: &'a [f64],
+    precursor: &'a [usize],
+}
+
+impl<'a> IonRt<'a> {
+    fn new(run_rt: &'a [f64], mean_rt: &'a [f64], precursor: &'a [usize]) -> Self {
+        Self {
+            run_rt,
+            mean_rt,
+            precursor,
+        }
+    }
+
+    fn get(&self, ion: usize) -> f64 {
+        let precursor = self.precursor[ion];
+        let rt = self.run_rt[precursor];
+        if rt.is_finite() {
+            rt
+        } else {
+            self.mean_rt[precursor]
+        }
+    }
 }
 
 /// The across-run log2 level of every ion, NaN for the ions that must not shape a curve.
@@ -170,16 +200,16 @@ fn reference_levels(
         .collect()
 }
 
-/// Mean retention time of every ion over the runs that identified it, NaN if none did.
-fn mean_retention_times(rt: &[f64], n_ions: usize) -> Vec<f64> {
-    let n_runs = rt.len() / n_ions;
-    (0..n_ions)
+/// Mean retention time of every precursor over the runs that identified it, NaN if none did.
+fn mean_retention_times(rt: &[f64], n_precursors: usize) -> Vec<f64> {
+    let n_runs = rt.len() / n_precursors;
+    (0..n_precursors)
         .into_par_iter()
-        .map(|ion| {
+        .map(|precursor| {
             let mut sum = 0.0;
             let mut n_runs_with_rt = 0;
             for run in 0..n_runs {
-                let value = rt[run * n_ions + ion];
+                let value = rt[run * n_precursors + precursor];
                 if value.is_finite() {
                     sum += value;
                     n_runs_with_rt += 1;
@@ -197,18 +227,17 @@ fn mean_retention_times(rt: &[f64], n_ions: usize) -> Vec<f64> {
 /// The curve of one run, `None` if the run cannot be estimated and is left unchanged.
 fn estimate_curve(
     intensity: &[f64],
-    rt: &[f64],
+    ion_rt: &IonRt,
     reference: &[f64],
-    mean_rt: &[f64],
     parameters: &DriftParameters,
 ) -> Option<DriftCurve> {
     // retention time and log2 deviation from the across-run level of the ions that shape the
     // curve, ordered along the gradient
     let mut points = Vec::new();
     for ion in 0..intensity.len() {
-        let ion_rt = rt_or_mean(rt[ion], mean_rt[ion]);
-        if intensity[ion] > 0.0 && reference[ion].is_finite() && ion_rt.is_finite() {
-            points.push((ion_rt, intensity[ion].log2() - reference[ion]));
+        let rt = ion_rt.get(ion);
+        if intensity[ion] > 0.0 && reference[ion].is_finite() && rt.is_finite() {
+            points.push((rt, intensity[ion].log2() - reference[ion]));
         }
     }
     if points.len() < parameters.min_ions_per_run {
@@ -222,7 +251,6 @@ fn estimate_curve(
         return None;
     }
     Some(DriftCurve {
-        n_ions: points.len(),
         rt: bin_rt,
         correction: moving_average(&location, CURVE_SMOOTHING_BINS),
     })
@@ -233,14 +261,14 @@ fn estimate_curve(
 /// Only the shape along the gradient is removed this way; the level of a run stays with the
 /// downstream normalization. The bin curve is re-centred by the same mean, so that it reports
 /// what was applied.
-fn apply_curve(intensity: &mut [f64], rt: &[f64], mean_rt: &[f64], curve: &mut DriftCurve) {
+fn apply_curve(intensity: &mut [f64], ion_rt: &IonRt, curve: &mut DriftCurve) {
     let mut correction_sum = 0.0;
     let mut n_corrected = 0;
     for ion in 0..intensity.len() {
         if intensity[ion] <= 0.0 {
             continue;
         }
-        let correction = curve.at(rt_or_mean(rt[ion], mean_rt[ion]));
+        let correction = curve.at(ion_rt.get(ion));
         intensity[ion] /= correction.exp2();
         correction_sum += correction;
         n_corrected += 1;
@@ -257,18 +285,6 @@ fn apply_curve(intensity: &mut [f64], rt: &[f64], mean_rt: &[f64], curve: &mut D
         .correction
         .iter_mut()
         .for_each(|correction| *correction -= centre);
-}
-
-/// Retention time of an ion in one run, falling back to its mean over the other runs.
-///
-/// A precursor without an identification in a run is placed at its mean retention time over
-/// the other runs, so that a cell with an intensity but no identification is still corrected.
-fn rt_or_mean(rt: f64, mean_rt: f64) -> f64 {
-    if rt.is_finite() {
-        rt
-    } else {
-        mean_rt
-    }
 }
 
 /// Mean retention time and deviation location of every merged bin.

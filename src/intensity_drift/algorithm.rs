@@ -231,8 +231,6 @@ fn estimate_curve(
     reference: &[f64],
     parameters: &DriftParameters,
 ) -> Option<DriftCurve> {
-    // retention time and log2 deviation from the across-run level of the ions that shape the
-    // curve, ordered along the gradient
     let mut points = Vec::new();
     for ion in 0..intensity.len() {
         let rt = ion_rt.get(ion);
@@ -321,7 +319,6 @@ fn bin_edges(points: &[(f64, f64)], parameters: &DriftParameters) -> Vec<usize> 
 
     if edges[edges.len() - 1] < n_points {
         if edges.len() > 1 {
-            // extend the last bin over the trailing ions
             *edges.last_mut().unwrap() = n_points;
         } else {
             // no bin ever filled: all ions form a single bin
@@ -350,7 +347,6 @@ fn mode_of_sorted(deviation: &[f64]) -> f64 {
     let low = percentile_of_sorted(deviation, MODE_PERCENTILE_LOW);
     let high = percentile_of_sorted(deviation, MODE_PERCENTILE_HIGH);
     let n_bins = ((high - low) / MODE_BIN_WIDTH).ceil() as usize;
-    // a distribution narrower than the smoothing window has no resolvable mode
     if n_bins < MODE_SMOOTHING_BINS {
         return percentile_of_sorted(deviation, 50.0);
     }

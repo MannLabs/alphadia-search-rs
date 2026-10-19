@@ -1,9 +1,4 @@
-//! Intensity drift correction: removes the retention time dependent part of every run's
-//! intensity deviation before label-free quantification.
-//!
-//! The estimator lives here in Rust (see [`algorithm`]). Python keeps only the dataframe
-//! bookkeeping: it places every precursor in retention time per run, hands the matrices over
-//! run-major and writes the corrected intensities back.
+//! Python binding of the intensity drift correction, see [`algorithm`].
 
 mod algorithm;
 #[cfg(test)]
@@ -25,8 +20,7 @@ use crate::intensity_drift::algorithm::{correct_drift, DriftParameters};
 ///
 /// Runs with too few usable ions are left unchanged.
 ///
-/// This function borrows the arrays and does not copy them. The arrays must therefore be
-/// C-contiguous.
+/// The arrays are borrowed rather than copied and must therefore be C-contiguous.
 ///
 /// Raises `ValueError` if the shapes do not agree or a precursor index is out of range.
 /// Raises `TypeError` if an array is not contiguous.
@@ -60,7 +54,7 @@ pub fn correct_intensity_drift(
             "precursor indices must be smaller than the {n_precursors} precursors of rt"
         )));
     }
-    // the run-major matrices are chunked by ion, an empty table has nothing to correct
+    // the matrices are chunked by the number of ions, which must not be zero
     if n_ions == 0 {
         return Ok(());
     }

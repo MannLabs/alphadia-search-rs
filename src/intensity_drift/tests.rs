@@ -1,8 +1,3 @@
-//! These tests cover the removal of a run's drift with both statistics, the level of a run
-//! that must survive it, the ions and runs the estimator ignores, the merging of sparse bins,
-//! the retention time fallback and the lookup of every ion's retention time through its
-//! precursor.
-
 use approx::assert_abs_diff_eq;
 
 use super::algorithm::{correct_drift, DriftParameters, Statistic};

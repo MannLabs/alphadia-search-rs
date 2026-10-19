@@ -6,8 +6,8 @@ const N_RUNS: usize = 6;
 const N_IONS: usize = 2000;
 const GRADIENT_SECONDS: f64 = 1500.0;
 const MEAN_LEVEL_LOG2: f64 = 15.0;
-/// Spread of the ion levels and of the noise on every cell, in log2. The noise has to be
-/// wider than the mode histogram's smoothing window for the mode to be resolvable.
+/// Spread of the ion levels and of the noise on every cell, in log2. The noise must span more
+/// than `MODE_SMOOTHING_BINS` histogram bins, otherwise the mode falls back to the median.
 const LEVEL_SPREAD_LOG2: f64 = 4.0;
 const NOISE_LOG2: f64 = 0.3;
 const CORRELATION: f64 = 0.95;
@@ -20,9 +20,10 @@ fn noise(seed: usize) -> f64 {
     (hashed >> 33) as f64 / (1u64 << 31) as f64 - 0.5
 }
 
-/// Run-major tables of `N_RUNS` runs that share all ions, with `drift_log2` imposed on run 0
-/// over the gradient. The ions elute evenly spread over the gradient, every ion is its own
-/// precursor.
+/// Run-major tables of `N_RUNS` runs and `N_IONS` ions, one precursor per ion.
+///
+/// The ion RTs are evenly spaced over `GRADIENT_SECONDS`. Run 0 carries a log2 drift rising
+/// linearly from 0 to `drift_log2` over the gradient.
 struct Tables {
     intensity: Vec<f64>,
     correlation: Vec<f64>,
@@ -72,7 +73,7 @@ impl Tables {
         corrected
     }
 
-    /// Log2 change the correction applied to one cell.
+    /// Log2 ratio of the corrected to the original intensity of one cell.
     fn change(&self, corrected: &[f64], run: usize, ion: usize) -> f64 {
         (corrected[run * N_IONS + ion] / self.intensity[run * N_IONS + ion]).log2()
     }

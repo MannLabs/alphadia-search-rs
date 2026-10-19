@@ -1,4 +1,4 @@
-//! Python binding of the intensity drift correction, see [`algorithm`].
+//! Python binding of the intensity drift correction, see `algorithm`.
 
 mod algorithm;
 #[cfg(test)]
@@ -10,20 +10,19 @@ use pyo3::prelude::*;
 
 use crate::intensity_drift::algorithm::{correct_drift, DriftParameters};
 
-/// Divides the drift of every run out of `intensity`, in place.
+/// Corrects the RT-dependent intensity drift of every run in `intensity`, in place.
 ///
-/// `intensity` and `correlation` have the run-major shape `(n_runs, n_ions)`: `intensity`
-/// holds the linear fragment intensities where zero marks a missing value, `correlation` the
-/// cross-run fragment correlations. `rt` has the shape `(n_runs, n_precursors)` and holds the
-/// observed retention time of every precursor, NaN where a run has no identification for it.
-/// `precursor` gives the column of `rt` for every ion.
+/// * `intensity` — `(n_runs, n_ions)`, linear fragment intensities; 0 marks a missing cell.
+/// * `correlation` — `(n_runs, n_ions)`, cross-run fragment correlation.
+/// * `rt` — `(n_runs, n_precursors)`, observed precursor RT; NaN where the run has no
+///   identification.
+/// * `precursor` — `(n_ions,)`, column of `rt` for every ion.
 ///
-/// Runs with too few usable ions are left unchanged.
+/// The parameters are `DriftParameters::DEFAULT`. The arrays are borrowed, not copied, and
+/// must be C-contiguous.
 ///
-/// The arrays are borrowed rather than copied and must therefore be C-contiguous.
-///
-/// Raises `ValueError` if the shapes do not agree or a precursor index is out of range.
-/// Raises `TypeError` if an array is not contiguous.
+/// Raises `ValueError` if the shapes disagree or a precursor index is out of range, and
+/// `TypeError` if an array is not contiguous.
 #[pyfunction]
 pub fn correct_intensity_drift(
     mut intensity: PyReadwriteArray2<'_, f64>,

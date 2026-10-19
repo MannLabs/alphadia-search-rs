@@ -1,53 +1,58 @@
-//! Numeric core of the intensity drift correction.
+//! Correction of the retention time (RT) dependent intensity drift of every run.
 //!
-//! Intensities can drift along the gradient in a run-specific way (e.g. one condition being
-//! 0.3-0.6 log2 low after 1000 s). Per run, the log2 deviation from the across-run level of
-//! every ion is binned along retention time, the location of each bin is interpolated to
-//! every ion and divided out.
+//! Terms:
+//! - *ion*: a fragment ion, one column of the run-major intensity matrix.
+//! - *usable ion*: an ion observed in at least `min_observations` runs with a mean cross-run
+//!   correlation of at least `min_correlation`.
+//! - *reference level*: median log2 intensity of a usable ion over the runs it is observed in.
+//! - *deviation*: log2 intensity of a cell minus the reference level of its ion.
+//! - *bin*: an RT interval of `bin_seconds`, merged with its successors until it holds
+//!   `min_ions_per_bin` usable ions observed in the run.
+//! - *curve*: per run, the location of the deviations in every bin, smoothed over
+//!   `CURVE_SMOOTHING_BINS` bins and centred to zero mean over the run's observed cells.
+//! - *correction*: the curve linearly interpolated at the RT of a cell, in log2.
 //!
-//! The curve is re-centred to zero mean over the run's ions before it is applied, so only
-//! the *shape* along the gradient is removed. The level of a run is deliberately left to the
-//! downstream label-free quantification; removing it here would silently force the majority
-//! species to ratio 1.
+//! Every observed cell is divided by `2^correction`. Centring the curve keeps the mean log2
+//! level of every run; that level is left to the LFQ normalization, which would otherwise
+//! be forced towards a ratio of 1 for the majority of ions.
 
 use std::ops::Range;
 
 use rayon::prelude::*;
 
-/// Histogram the mode is read from: bin width in log2 and the central percentile range that
-/// keeps a few outliers from stretching the histogram.
+/// Mode histogram: bin width in log2 and the percentile range it spans, excluding outliers.
 const MODE_BIN_WIDTH: f64 = 0.02;
 const MODE_PERCENTILE_LOW: f64 = 2.0;
 const MODE_PERCENTILE_HIGH: f64 = 98.0;
-/// Window the mode histogram is smoothed over. A distribution narrower than this window has
-/// no resolvable mode.
+/// Moving-sum window of the mode histogram, in histogram bins. Deviations spanning fewer bins
+/// fall back to the median.
 const MODE_SMOOTHING_BINS: usize = 11;
-/// Window the curve is smoothed over its retention time bins with.
+/// Moving-average window of the curve, in RT bins.
 const CURVE_SMOOTHING_BINS: usize = 3;
 
-/// Per-bin location estimator of the deviation.
+/// Location estimator of the deviations in one bin.
 #[derive(Clone, Copy)]
 pub enum Statistic {
-    /// Mode of a smoothed histogram. Follows the unregulated majority of the ions even when
-    /// a part of the proteome changes between the runs.
+    /// Mode of the smoothed histogram. Robust to a subset of ions with a true abundance
+    /// change between the runs.
     Mode,
-    /// Median of the bin.
+    /// Median.
     // kept as the reference estimator the mode is compared against in the tests
     #[allow(dead_code)]
     Median,
 }
 
-/// Configuration of the estimator.
+/// Parameters of the correction, see the module documentation for the terms.
 pub struct DriftParameters {
-    /// Width of the fixed retention time bins the curve is estimated in.
+    /// Width of an RT bin before merging, in seconds.
     pub bin_seconds: f64,
-    /// Minimum mean cross-run correlation for an ion to shape a curve.
+    /// Minimum mean cross-run correlation of a usable ion.
     pub min_correlation: f64,
-    /// Minimum number of runs an ion must be observed in to shape a curve.
+    /// Minimum number of runs a usable ion is observed in.
     pub min_observations: usize,
-    /// Consecutive sparse bins are merged until they hold this many ions.
+    /// Minimum number of usable ions observed in the run per bin.
     pub min_ions_per_bin: usize,
-    /// Runs with fewer usable ions are left unchanged.
+    /// Minimum number of usable ions observed in a run; runs below it are not corrected.
     pub min_ions_per_run: usize,
     pub statistic: Statistic,
 }
@@ -63,18 +68,16 @@ impl DriftParameters {
     };
 }
 
-/// The log2 correction of one run, at the mean retention time of every merged bin.
+/// Curve of one run.
 pub struct DriftCurve {
-    /// Mean retention time of every merged bin, ascending.
+    /// Mean RT of the usable ions in every bin, ascending.
     pub rt: Vec<f64>,
-    /// Re-centred log2 correction of every merged bin.
+    /// Correction at `rt`, in log2.
     pub correction: Vec<f64>,
 }
 
 impl DriftCurve {
-    /// The log2 correction at `rt`, linear between the bins and constant outside them.
-    ///
-    /// A precursor that no run places in retention time is not corrected.
+    /// Correction at `rt`: linear between bins, constant outside them, 0 for a non-finite `rt`.
     fn at(&self, rt: f64) -> f64 {
         if rt.is_finite() {
             interpolate(rt, &self.rt, &self.correction)
@@ -84,15 +87,15 @@ impl DriftCurve {
     }
 }
 
-/// Corrects the retention time dependent intensity drift of every run, in place.
+/// Divides every observed cell of `intensity` by `2^correction`, in place.
 ///
-/// The matrices are run-major: row `run` of `intensity` and `correlation` holds the ion cells
-/// of that run, row `run` of `rt` its precursor cells. `intensity` is linear and zero marks a
-/// missing value, `correlation` holds the cross-run fragment correlations and `rt` the
-/// observed retention time of every precursor, NaN where the run has no identification for
-/// it. `precursor` gives the precursor column of every ion and must not be empty.
+/// * `intensity` — run-major `n_runs x n_ions`, linear; 0 marks a missing cell.
+/// * `correlation` — run-major `n_runs x n_ions`, cross-run fragment correlation.
+/// * `rt` — run-major `n_runs x n_precursors`, observed precursor RT; NaN where the run has
+///   no identification.
+/// * `precursor` — precursor column of `rt` for every ion; must not be empty.
 ///
-/// Gives the curve of every run, `None` for the runs that were left unchanged.
+/// Returns the curve of every run, `None` for a run that is not corrected.
 pub fn correct_drift(
     intensity: &mut [f64],
     correlation: &[f64],
@@ -128,11 +131,8 @@ pub fn correct_drift(
     curves
 }
 
-/// Retention time of every ion in one run, looked up through its precursor.
-///
-/// A precursor without an identification in the run is placed at its mean retention time
-/// over the other runs, so that a cell with an intensity but no identification is still
-/// corrected.
+/// RT of every ion in one run: the RT of its precursor in the run, or the mean RT of the
+/// precursor over all runs where the run has no identification.
 struct IonRt<'a> {
     run_rt: &'a [f64],
     mean_rt: &'a [f64],
@@ -159,11 +159,10 @@ impl<'a> IonRt<'a> {
     }
 }
 
-/// The across-run log2 level of every ion, NaN for the ions that must not shape a curve.
+/// Reference level of every ion, NaN for an ion that is not usable.
 ///
-/// An ion only shapes a curve if it was observed in `min_observations` runs and its mean
-/// cross-run correlation reaches `min_correlation`: a poorly correlating fragment carries
-/// interference rather than the drift of the run. Ions without a level are still corrected.
+/// The correlation threshold excludes fragments dominated by interference, whose deviation
+/// does not reflect the drift of the run.
 fn reference_levels(
     intensity: &[f64],
     correlation: &[f64],
@@ -200,7 +199,7 @@ fn reference_levels(
         .collect()
 }
 
-/// Mean retention time of every precursor over the runs that identified it, NaN if none did.
+/// Mean RT of every precursor over the runs with an identification, NaN if there is none.
 fn mean_retention_times(rt: &[f64], n_precursors: usize) -> Vec<f64> {
     let n_runs = rt.len() / n_precursors;
     (0..n_precursors)
@@ -224,7 +223,8 @@ fn mean_retention_times(rt: &[f64], n_precursors: usize) -> Vec<f64> {
         .collect()
 }
 
-/// The curve of one run, `None` if the run cannot be estimated and is left unchanged.
+/// Curve of one run, `None` for fewer than `min_ions_per_run` usable ions observed in the run
+/// or a single bin.
 fn estimate_curve(
     intensity: &[f64],
     ion_rt: &IonRt,
@@ -254,11 +254,10 @@ fn estimate_curve(
     })
 }
 
-/// Divides the curve out of one run, then multiplies its mean over the run's ions back in.
+/// Divides every observed cell of one run by `2^correction`, then centres the correction.
 ///
-/// Only the shape along the gradient is removed this way; the level of a run stays with the
-/// downstream normalization. The bin curve is re-centred by the same mean, so that it reports
-/// what was applied.
+/// The mean correction over the observed cells is multiplied back in and subtracted from
+/// `curve`, so the run keeps its mean log2 level and `curve` holds the applied correction.
 fn apply_curve(intensity: &mut [f64], ion_rt: &IonRt, curve: &mut DriftCurve) {
     let mut correction_sum = 0.0;
     let mut n_corrected = 0;
@@ -285,7 +284,7 @@ fn apply_curve(intensity: &mut [f64], ion_rt: &IonRt, curve: &mut DriftCurve) {
         .for_each(|correction| *correction -= centre);
 }
 
-/// Mean retention time and deviation location of every merged bin.
+/// Mean RT and location of the deviations of every bin.
 fn bin_points(points: &[(f64, f64)], parameters: &DriftParameters) -> (Vec<f64>, Vec<f64>) {
     let edges = bin_edges(points, parameters);
     let mut bin_rt = Vec::with_capacity(edges.len() - 1);
@@ -301,10 +300,9 @@ fn bin_points(points: &[(f64, f64)], parameters: &DriftParameters) -> (Vec<f64>,
     (bin_rt, location)
 }
 
-/// Start of every merged bin, plus the end of the last one.
+/// Start index of every bin in the RT-sorted `points`, followed by the end of the last bin.
 ///
-/// The fixed `bin_seconds` bins of `points` are merged with their successors until they hold
-/// `min_ions_per_bin` ions. The trailing ions that do not fill a bin join the last one.
+/// Points after the last full bin are added to it.
 fn bin_edges(points: &[(f64, f64)], parameters: &DriftParameters) -> Vec<usize> {
     let n_points = points.len();
     let fixed_bin = |point: usize| (points[point].0 / parameters.bin_seconds).floor();
@@ -328,7 +326,7 @@ fn bin_edges(points: &[(f64, f64)], parameters: &DriftParameters) -> Vec<usize> 
     edges
 }
 
-/// Location of the deviations of one bin. `deviation` is scratch space and gets sorted.
+/// Location of the deviations of one bin. Sorts `deviation`.
 fn location_of(deviation: &mut [f64], statistic: Statistic) -> f64 {
     deviation.sort_by(f64::total_cmp);
     match statistic {
@@ -337,12 +335,10 @@ fn location_of(deviation: &mut [f64], statistic: Statistic) -> f64 {
     }
 }
 
-/// Mode of sorted deviations, read from a smoothed histogram of their central percentile
-/// range.
+/// Mode of sorted deviations: centre of the maximum of the moving-summed histogram.
 ///
-/// The histogram is smoothed with a moving sum over `MODE_SMOOTHING_BINS`, counting the bins
-/// outside the histogram as empty. This pulls its ends down, so that the peak is not read off
-/// the trimmed edges.
+/// The moving sum counts bins outside the histogram as empty, which lowers both ends so the
+/// maximum is not taken at the percentile cut-offs.
 fn mode_of_sorted(deviation: &[f64]) -> f64 {
     let low = percentile_of_sorted(deviation, MODE_PERCENTILE_LOW);
     let high = percentile_of_sorted(deviation, MODE_PERCENTILE_HIGH);
@@ -384,9 +380,8 @@ fn moving_sum(values: &[f64], window: usize) -> Vec<f64> {
 
 /// Moving average over the `window` values centred on each value.
 ///
-/// The average divides by the neighbours inside the array rather than by the window width.
-/// Unlike zero padding this keeps the ends of the curve unbiased, which matters at the start
-/// and the end of the gradient where the drift is usually largest.
+/// Divides by the number of values inside the array rather than by `window`, which avoids
+/// biasing the ends of the gradient towards 0, where the drift is usually largest.
 fn moving_average(values: &[f64], window: usize) -> Vec<f64> {
     (0..values.len())
         .map(|index| {

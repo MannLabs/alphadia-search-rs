@@ -7,8 +7,8 @@ fragment peaks. Only one of them can own that signal.
 
 Fragment competition makes this assignment exclusive. Two candidates in the same isolation
 window compete if their retention times are closer than `rt_tol_seconds`, and if they share
-three fragment ions or more within `mass_tol_ppm`. The candidate with the better score keeps
-the signal:
+`min_overlapping_fragments` fragment ions or more (default three) within `mass_tol_ppm`. The
+candidate with the better score keeps the signal:
 
 ```text
 one isolation window, candidates sorted by proba (best first)
@@ -76,7 +76,8 @@ breaks a tie.
 
 **3. Compare the candidates of each window** in this order. Each valid candidate competes
 against all other valid candidates in the same window. If the two retention times are closer
-than `rt_tol_seconds`, and if the two candidates share three ions or more, the candidate that
+than `rt_tol_seconds`, and if the two candidates share `min_overlapping_fragments` ions or
+more, the candidate that
 is later in the order loses its fragments.
 
 To count the shared ions, the competition compares each pair of m/z values against
@@ -103,7 +104,7 @@ the comparisons are sequential, because of the order rule above.
 - A float input that contains NaN is an error. A NaN loses each comparison. It can therefore
   change which candidates survive.
 - The retention time tolerance and the ppm tolerance are exclusive (`<`). The threshold for
-  shared ions is inclusive (`>= 3`).
+  shared ions is inclusive (`>= min_overlapping_fragments`).
 - Window limits are half-open, `[lower, upper)`.
 - If no window contains a precursor m/z, the precursor gets window 0. It then competes with
   the candidates of window 0. This occurs only if the m/z is outside the acquisition range.

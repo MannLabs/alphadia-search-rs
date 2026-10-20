@@ -8,7 +8,7 @@ mod algorithm;
 #[cfg(test)]
 mod tests;
 
-use algorithm::WindowBounds;
+use algorithm::{WindowBounds, DEFAULT_MIN_OVERLAPPING_FRAGMENTS};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -22,6 +22,7 @@ use pyo3::prelude::*;
 pub struct FragmentCompetition {
     rt_tol_seconds: f32,
     mass_tol_ppm: f32,
+    min_overlapping_fragments: usize,
 }
 
 #[pymethods]
@@ -30,11 +31,15 @@ impl FragmentCompetition {
     ///   this value.
     /// * `mass_tol_ppm` - two fragments are the same ion if their m/z are closer than this
     ///   value.
+    /// * `min_overlapping_fragments` - two candidates compete if they share this number of
+    ///   ions or more. The default is 3.
     #[new]
-    fn new(rt_tol_seconds: f32, mass_tol_ppm: f32) -> Self {
+    #[pyo3(signature = (rt_tol_seconds, mass_tol_ppm, min_overlapping_fragments=DEFAULT_MIN_OVERLAPPING_FRAGMENTS))]
+    fn new(rt_tol_seconds: f32, mass_tol_ppm: f32, min_overlapping_fragments: usize) -> Self {
         Self {
             rt_tol_seconds,
             mass_tol_ppm,
+            min_overlapping_fragments,
         }
     }
 
@@ -77,6 +82,7 @@ impl FragmentCompetition {
             &bounds,
             self.rt_tol_seconds,
             self.mass_tol_ppm,
+            self.min_overlapping_fragments,
         )
         .map_err(PyValueError::new_err)?;
         Ok(valid.into_pyarray(py))

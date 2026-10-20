@@ -1,7 +1,7 @@
 //! These tests cover the two competition criteria (shared ions and retention time), the
 //! tolerance and threshold limits, the winner of a conflict, and the rejected inputs.
 
-use super::algorithm::{compete_for_fragments, WindowBounds};
+use super::algorithm::{compete_for_fragments, WindowBounds, DEFAULT_MIN_OVERLAPPING_FRAGMENTS};
 use numpy::ndarray::{Array4, ArrayView4};
 
 /// One window that contains all candidates. Only RT and overlap decide the result.
@@ -37,6 +37,7 @@ fn compete(
         &bounds,
         3.0,
         15.0,
+        DEFAULT_MIN_OVERLAPPING_FRAGMENTS,
     )
 }
 
@@ -321,7 +322,7 @@ fn test_nan_cycle_is_rejected() {
 fn test_overlap_threshold_boundary() {
     let cycle = single_window();
 
-    // Two shared ions. This is one less than the threshold.
+    // Two shared ions. This is one less than the default threshold.
     let valid = compete(
         &[500.0, 500.0],
         &[0, 1],
@@ -426,4 +427,28 @@ fn test_mass_tolerance_boundary() {
     )
     .unwrap();
     assert_eq!(valid, vec![true, false]);
+}
+
+#[test]
+fn test_min_overlapping_fragments_parameter() {
+    // Two shared ions: a coincidence at the default threshold, a conflict at a threshold of 2.
+    let bounds = WindowBounds::from_cycle(single_window().view()).unwrap();
+    let valid_for = |min_overlapping_fragments| {
+        compete_for_fragments(
+            &[500.0, 500.0],
+            &[0, 1],
+            &[0.1, 0.2],
+            &[10.0, 10.0],
+            &[0, 3],
+            &[3, 6],
+            &[100.0, 101.0, 102.0, 100.0, 101.0, 999.0],
+            &bounds,
+            3.0,
+            15.0,
+            min_overlapping_fragments,
+        )
+        .unwrap()
+    };
+    assert_eq!(valid_for(3), vec![true, true]);
+    assert_eq!(valid_for(2), vec![true, false]);
 }

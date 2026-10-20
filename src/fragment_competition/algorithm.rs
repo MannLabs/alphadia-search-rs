@@ -10,13 +10,12 @@
 use numpy::ndarray::ArrayView4;
 use rayon::prelude::*;
 
-/// Two candidates compete only if they share this number of ions or more. Fewer shared ions
-/// are a coincidence.
+/// Two candidates compete only if they share this number of ions or more, unless the caller
+/// gives another value. Fewer shared ions are a coincidence.
 ///
 /// This value is an empirical threshold, not a physical constant. With fewer than three
-/// ions, a shared series can occur by chance. No caller needs a different value, so this
-/// module keeps the value constant.
-const MIN_OVERLAPPING_FRAGMENTS: usize = 3;
+/// ions, a shared series can occur by chance.
+pub const DEFAULT_MIN_OVERLAPPING_FRAGMENTS: usize = 3;
 
 /// Counts the ions that two candidates have in common, within `mass_tol_ppm`.
 ///
@@ -101,6 +100,7 @@ fn compete_within_window(
     fragment_mz: &[f32],
     rt_tol_seconds: f32,
     mass_tol_ppm: f32,
+    min_overlapping_fragments: usize,
 ) -> Vec<bool> {
     let n = rows.len();
     let mut valid = vec![true; n];
@@ -120,7 +120,7 @@ fn compete_within_window(
             if delta_rt >= rt_tol_seconds {
                 continue;
             }
-            if fragment_overlap(frags_i, frags(rows[j]), mass_tol_ppm) >= MIN_OVERLAPPING_FRAGMENTS
+            if fragment_overlap(frags_i, frags(rows[j]), mass_tol_ppm) >= min_overlapping_fragments
             {
                 valid[j] = false;
             }
@@ -174,6 +174,7 @@ pub fn compete_for_fragments(
     bounds: &WindowBounds,
     rt_tol_seconds: f32,
     mass_tol_ppm: f32,
+    min_overlapping_fragments: usize,
 ) -> Result<Vec<bool>, String> {
     validate_lengths(
         precursor_mz,
@@ -203,6 +204,7 @@ pub fn compete_for_fragments(
                 fragment_mz,
                 rt_tol_seconds,
                 mass_tol_ppm,
+                min_overlapping_fragments,
             )
         })
         .collect();

@@ -10,7 +10,9 @@ const MEAN_LEVEL_LOG2: f64 = 15.0;
 /// than `MODE_SMOOTHING_BINS` histogram bins, otherwise the mode falls back to the median.
 const LEVEL_SPREAD_LOG2: f64 = 4.0;
 const NOISE_LOG2: f64 = 0.3;
-const CORRELATION: f64 = 0.95;
+const CORRELATION: f32 = 0.95;
+/// Tolerance of a log2 value written back to an `f32` cell.
+const F32_LOG2_EPSILON: f64 = 1e-6;
 
 /// Deterministic pseudo-random value in `[-0.5, 0.5)`.
 fn noise(seed: usize) -> f64 {
@@ -25,9 +27,9 @@ fn noise(seed: usize) -> f64 {
 /// The ion RTs are evenly spaced over `GRADIENT_SECONDS`. Run 0 carries a log2 drift rising
 /// linearly from 0 to `drift_log2` over the gradient.
 struct Tables {
-    intensity: Vec<f64>,
-    correlation: Vec<f64>,
-    rt: Vec<f64>,
+    intensity: Vec<f32>,
+    correlation: Vec<f32>,
+    rt: Vec<f32>,
     precursor: Vec<usize>,
 }
 
@@ -47,35 +49,47 @@ impl Tables {
                 } else {
                     0.0
                 };
-                intensity.push((level + drift).exp2());
+                intensity.push((level + drift).exp2() as f32);
             }
         }
         Self {
             intensity,
             correlation: vec![CORRELATION; N_RUNS * N_IONS],
-            rt: rt.repeat(N_RUNS),
+            rt: rt
+                .iter()
+                .map(|&rt| rt as f32)
+                .collect::<Vec<_>>()
+                .repeat(N_RUNS),
             precursor: (0..N_IONS).collect(),
         }
     }
 
-    fn correct(&self, parameters: &DriftParameters) -> Vec<f64> {
+    fn correct(&self, parameters: &DriftParameters) -> Vec<f32> {
         self.correct_with(&self.rt, &self.precursor, parameters)
     }
 
     fn correct_with(
         &self,
-        rt: &[f64],
+        rt: &[f32],
         precursor: &[usize],
         parameters: &DriftParameters,
-    ) -> Vec<f64> {
+    ) -> Vec<f32> {
         let mut corrected = self.intensity.clone();
-        correct_drift(&mut corrected, &self.correlation, rt, precursor, parameters);
+        correct_drift(
+            &mut corrected,
+            &self.correlation,
+            rt,
+            precursor,
+            N_RUNS,
+            parameters,
+        );
         corrected
     }
 
     /// Log2 ratio of the corrected to the original intensity of one cell.
-    fn change(&self, corrected: &[f64], run: usize, ion: usize) -> f64 {
-        (corrected[run * N_IONS + ion] / self.intensity[run * N_IONS + ion]).log2()
+    fn change(&self, corrected: &[f32], run: usize, ion: usize) -> f64 {
+        (f64::from(corrected[run * N_IONS + ion]) / f64::from(self.intensity[run * N_IONS + ion]))
+            .log2()
     }
 }
 
@@ -101,25 +115,25 @@ fn slope(x: &[f64], y: &[f64]) -> f64 {
 }
 
 /// Slope of the log2 deviation of `run` from the mean of the other runs, per 1000 seconds.
-fn deviation_slope(intensity: &[f64], rt: &[f64], run: usize) -> f64 {
+fn deviation_slope(intensity: &[f32], rt: &[f32], run: usize) -> f64 {
     let deviation: Vec<f64> = (0..N_IONS)
         .map(|ion| {
             let others: f64 = (0..N_RUNS)
                 .filter(|&other| other != run)
-                .map(|other| intensity[other * N_IONS + ion].log2())
+                .map(|other| f64::from(intensity[other * N_IONS + ion]).log2())
                 .sum::<f64>()
                 / (N_RUNS - 1) as f64;
-            intensity[run * N_IONS + ion].log2() - others
+            f64::from(intensity[run * N_IONS + ion]).log2() - others
         })
         .collect();
-    let rt_per_1000s: Vec<f64> = (0..N_IONS).map(|ion| rt[ion] / 1000.0).collect();
+    let rt_per_1000s: Vec<f64> = (0..N_IONS).map(|ion| f64::from(rt[ion]) / 1000.0).collect();
     slope(&rt_per_1000s, &deviation)
 }
 
-fn mean_log2(intensity: &[f64], run: usize) -> f64 {
+fn mean_log2(intensity: &[f32], run: usize) -> f64 {
     intensity[run * N_IONS..(run + 1) * N_IONS]
         .iter()
-        .map(|intensity| intensity.log2())
+        .map(|&intensity| f64::from(intensity).log2())
         .sum::<f64>()
         / N_IONS as f64
 }
@@ -147,7 +161,7 @@ fn test_keeps_the_level_of_every_run() {
         assert_abs_diff_eq!(
             mean_log2(&corrected, run),
             mean_log2(&tables.intensity, run),
-            epsilon = 1e-9
+            epsilon = F32_LOG2_EPSILON
         );
     }
 }
@@ -188,7 +202,7 @@ fn test_ignores_poorly_correlating_ions() {
     // the well correlating ions do not drift, the poorly correlating ones do
     let mut tables = Tables::new(0.0);
     for ion in (0..N_IONS).step_by(2) {
-        tables.intensity[ion] *= (tables.rt[ion] / GRADIENT_SECONDS).exp2();
+        tables.intensity[ion] *= (f64::from(tables.rt[ion]) / GRADIENT_SECONDS).exp2() as f32;
         for run in 0..N_RUNS {
             tables.correlation[run * N_IONS + ion] = 0.3;
         }
@@ -199,7 +213,7 @@ fn test_ignores_poorly_correlating_ions() {
     let good_ions: Vec<usize> = (1..N_IONS).step_by(2).collect();
     let rt_per_1000s: Vec<f64> = good_ions
         .iter()
-        .map(|&ion| tables.rt[ion] / 1000.0)
+        .map(|&ion| f64::from(tables.rt[ion]) / 1000.0)
         .collect();
     let change: Vec<f64> = good_ions
         .iter()
@@ -222,6 +236,7 @@ fn test_skips_a_run_with_too_few_usable_ions() {
         &tables.correlation,
         &tables.rt,
         &tables.precursor,
+        N_RUNS,
         &parameters,
     );
 
@@ -233,14 +248,14 @@ fn test_skips_a_run_with_too_few_usable_ions() {
 fn test_merges_sparse_bins_and_appends_trailing_ions() {
     // 250 ions one second apart, 10 second bins hold 10 ions each
     let n_ions = 250;
-    let rt: Vec<f64> = (0..n_ions).map(|ion| ion as f64).collect();
-    let deviating_run: Vec<f64> = rt
+    let rt: Vec<f32> = (0..n_ions).map(|ion| ion as f32).collect();
+    let deviating_run: Vec<f32> = rt
         .iter()
         .map(|&rt| {
             if rt < 100.0 {
-                0.1_f64.exp2()
+                0.1_f32.exp2()
             } else {
-                0.5_f64.exp2()
+                0.5_f32.exp2()
             }
         })
         .collect();
@@ -258,6 +273,7 @@ fn test_merges_sparse_bins_and_appends_trailing_ions() {
         &vec![CORRELATION; 2 * n_ions],
         &rt.repeat(2),
         &(0..n_ions).collect::<Vec<_>>(),
+        2,
         &parameters,
     );
 
@@ -274,7 +290,7 @@ fn test_places_an_ion_without_rt_at_its_mean_rt() {
     // run 0 has no identification for this ion, late in the gradient where the drift is largest
     let ion = N_IONS - 100;
     let mut rt = tables.rt.clone();
-    rt[ion] = f64::NAN;
+    rt[ion] = f32::NAN;
 
     let corrected = tables.correct_with(&rt, &tables.precursor, &parameters(Statistic::Mode));
 
@@ -291,7 +307,7 @@ fn test_looks_up_the_rt_of_every_ion_through_its_precursor() {
     let tables = Tables::new(0.3);
     let n_precursors = N_IONS / 2;
     let precursor: Vec<usize> = (0..N_IONS).map(|ion| ion / 2).collect();
-    let rt: Vec<f64> = tables.rt.iter().step_by(2).copied().collect();
+    let rt: Vec<f32> = tables.rt.iter().step_by(2).copied().collect();
     assert_eq!(rt.len(), N_RUNS * n_precursors);
 
     let corrected = tables.correct_with(&rt, &precursor, &parameters(Statistic::Mode));
@@ -301,7 +317,7 @@ fn test_looks_up_the_rt_of_every_ion_through_its_precursor() {
             assert_abs_diff_eq!(
                 tables.change(&corrected, run, ion),
                 tables.change(&corrected, run, ion + 1),
-                epsilon = 1e-9
+                epsilon = F32_LOG2_EPSILON
             );
         }
     }

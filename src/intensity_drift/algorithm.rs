@@ -1,20 +1,8 @@
-//! Correction of the retention time (RT) dependent intensity drift of every run.
+//! Correction of the retention time (RT) dependent intensity drift of every run. `DOCS.md`
+//! defines the terms used here and gives the algorithm.
 //!
-//! Terms:
-//! - *ion*: a fragment ion, one column of the run-major intensity matrix.
-//! - *usable ion*: an ion observed in at least `min_observations` runs with a mean cross-run
-//!   correlation of at least `min_correlation`.
-//! - *reference level*: median log2 intensity of a usable ion over the runs it is observed in.
-//! - *deviation*: log2 intensity of a cell minus the reference level of its ion.
-//! - *bin*: an RT interval of `bin_seconds`, merged with its successors until it holds
-//!   `min_ions_per_bin` usable ions observed in the run.
-//! - *curve*: per run, the location of the deviations in every bin, smoothed over
-//!   `CURVE_SMOOTHING_BINS` bins and centred to zero mean over the run's observed cells.
-//! - *correction*: the curve linearly interpolated at the RT of a cell, in log2.
-//!
-//! Every observed cell is divided by `2^correction`. Centring the curve keeps the mean log2
-//! level of every run; that level is left to the LFQ normalization, which would otherwise
-//! be forced towards a ratio of 1 for the majority of ions.
+//! The matrices hold `f32` like the fragment tables of the caller, so the correction needs no
+//! `f64` copy of them. The statistics are computed in `f64`.
 
 use std::ops::Range;
 
@@ -42,7 +30,13 @@ pub enum Statistic {
     Median,
 }
 
-/// Parameters of the correction, see the module documentation for the terms.
+pub const DEFAULT_BIN_SECONDS: f64 = 30.0;
+pub const DEFAULT_MIN_CORRELATION: f64 = 0.8;
+pub const DEFAULT_MIN_OBSERVATIONS: usize = 3;
+pub const DEFAULT_MIN_IONS_PER_BIN: usize = 100;
+pub const DEFAULT_MIN_IONS_PER_RUN: usize = 500;
+
+/// Parameters of the correction, see `DOCS.md` for the terms.
 pub struct DriftParameters {
     /// Width of an RT bin before merging, in seconds.
     pub bin_seconds: f64,
@@ -59,13 +53,35 @@ pub struct DriftParameters {
 
 impl DriftParameters {
     pub const DEFAULT: Self = Self {
-        bin_seconds: 30.0,
-        min_correlation: 0.8,
-        min_observations: 3,
-        min_ions_per_bin: 100,
-        min_ions_per_run: 500,
+        bin_seconds: DEFAULT_BIN_SECONDS,
+        min_correlation: DEFAULT_MIN_CORRELATION,
+        min_observations: DEFAULT_MIN_OBSERVATIONS,
+        min_ions_per_bin: DEFAULT_MIN_IONS_PER_BIN,
+        min_ions_per_run: DEFAULT_MIN_IONS_PER_RUN,
         statistic: Statistic::Mode,
     };
+
+    pub fn validate(&self) -> Result<(), String> {
+        if !(self.bin_seconds.is_finite() && self.bin_seconds > 0.0) {
+            return Err(format!(
+                "bin_seconds must be a positive number, got {}",
+                self.bin_seconds
+            ));
+        }
+        if !self.min_correlation.is_finite() {
+            return Err(format!(
+                "min_correlation must be a number, got {}",
+                self.min_correlation
+            ));
+        }
+        if self.min_observations == 0 {
+            return Err("min_observations must be at least 1".to_string());
+        }
+        if self.min_ions_per_bin == 0 {
+            return Err("min_ions_per_bin must be at least 1".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Curve of one run.
@@ -87,24 +103,59 @@ impl DriftCurve {
     }
 }
 
+/// Checks that the `(rows, columns)` shapes of the matrices agree and that every precursor
+/// index is a column of `rt`.
+pub fn validate_shapes(
+    intensity: (usize, usize),
+    correlation: (usize, usize),
+    rt: (usize, usize),
+    precursor: &[usize],
+) -> Result<(), String> {
+    if correlation != intensity {
+        return Err(format!(
+            "intensity and correlation must have the same shape, got {intensity:?} and {correlation:?}"
+        ));
+    }
+    let (n_runs, n_ions) = intensity;
+    if rt.0 != n_runs || precursor.len() != n_ions {
+        return Err(format!(
+            "rt must have {n_runs} runs and precursor {n_ions} ions, got {rt:?} and {}",
+            precursor.len()
+        ));
+    }
+    if precursor.iter().any(|&index| index >= rt.1) {
+        return Err(format!(
+            "precursor indices must be smaller than the {} precursors of rt",
+            rt.1
+        ));
+    }
+    Ok(())
+}
+
 /// Divides every observed cell of `intensity` by `2^correction`, in place.
 ///
 /// * `intensity` — run-major `n_runs x n_ions`, linear; 0 marks a missing cell.
 /// * `correlation` — run-major `n_runs x n_ions`, cross-run fragment correlation.
 /// * `rt` — run-major `n_runs x n_precursors`, observed precursor RT; NaN where the run has
 ///   no identification.
-/// * `precursor` — precursor column of `rt` for every ion; must not be empty.
+/// * `precursor` — precursor column of `rt` for every ion.
 ///
-/// Returns the curve of every run, `None` for a run that is not corrected.
+/// The shapes must pass `validate_shapes`. Returns the curve of every run, `None` for a run
+/// that is not corrected.
 pub fn correct_drift(
-    intensity: &mut [f64],
-    correlation: &[f64],
-    rt: &[f64],
+    intensity: &mut [f32],
+    correlation: &[f32],
+    rt: &[f32],
     precursor: &[usize],
+    n_runs: usize,
     parameters: &DriftParameters,
 ) -> Vec<Option<DriftCurve>> {
     let n_ions = precursor.len();
-    let n_precursors = rt.len() / (intensity.len() / n_ions);
+    // the matrices are chunked by run, which needs at least one ion and one precursor
+    if n_ions == 0 || rt.is_empty() {
+        return (0..n_runs).map(|_| None).collect();
+    }
+    let n_precursors = rt.len() / n_runs;
     let reference = reference_levels(intensity, correlation, n_ions, parameters);
     let mean_rt = mean_retention_times(rt, n_precursors);
 
@@ -134,13 +185,13 @@ pub fn correct_drift(
 /// RT of every ion in one run: the RT of its precursor in the run, or the mean RT of the
 /// precursor over all runs where the run has no identification.
 struct IonRt<'a> {
-    run_rt: &'a [f64],
+    run_rt: &'a [f32],
     mean_rt: &'a [f64],
     precursor: &'a [usize],
 }
 
 impl<'a> IonRt<'a> {
-    fn new(run_rt: &'a [f64], mean_rt: &'a [f64], precursor: &'a [usize]) -> Self {
+    fn new(run_rt: &'a [f32], mean_rt: &'a [f64], precursor: &'a [usize]) -> Self {
         Self {
             run_rt,
             mean_rt,
@@ -150,7 +201,7 @@ impl<'a> IonRt<'a> {
 
     fn get(&self, ion: usize) -> f64 {
         let precursor = self.precursor[ion];
-        let rt = self.run_rt[precursor];
+        let rt = f64::from(self.run_rt[precursor]);
         if rt.is_finite() {
             rt
         } else {
@@ -164,8 +215,8 @@ impl<'a> IonRt<'a> {
 /// The correlation threshold excludes fragments dominated by interference, whose deviation
 /// does not reflect the drift of the run.
 fn reference_levels(
-    intensity: &[f64],
-    correlation: &[f64],
+    intensity: &[f32],
+    correlation: &[f32],
     n_ions: usize,
     parameters: &DriftParameters,
 ) -> Vec<f64> {
@@ -180,10 +231,10 @@ fn reference_levels(
                 for run in 0..n_runs {
                     let cell = run * n_ions + ion;
                     if intensity[cell] > 0.0 {
-                        levels.push(intensity[cell].log2());
+                        levels.push(f64::from(intensity[cell]).log2());
                         // a missing correlation counts as no correlation
                         if correlation[cell].is_finite() {
-                            correlation_sum += correlation[cell];
+                            correlation_sum += f64::from(correlation[cell]);
                         }
                     }
                 }
@@ -200,7 +251,7 @@ fn reference_levels(
 }
 
 /// Mean RT of every precursor over the runs with an identification, NaN if there is none.
-fn mean_retention_times(rt: &[f64], n_precursors: usize) -> Vec<f64> {
+fn mean_retention_times(rt: &[f32], n_precursors: usize) -> Vec<f64> {
     let n_runs = rt.len() / n_precursors;
     (0..n_precursors)
         .into_par_iter()
@@ -208,7 +259,7 @@ fn mean_retention_times(rt: &[f64], n_precursors: usize) -> Vec<f64> {
             let mut sum = 0.0;
             let mut n_runs_with_rt = 0;
             for run in 0..n_runs {
-                let value = rt[run * n_precursors + precursor];
+                let value = f64::from(rt[run * n_precursors + precursor]);
                 if value.is_finite() {
                     sum += value;
                     n_runs_with_rt += 1;
@@ -226,7 +277,7 @@ fn mean_retention_times(rt: &[f64], n_precursors: usize) -> Vec<f64> {
 /// Curve of one run, `None` for fewer than `min_ions_per_run` usable ions observed in the run
 /// or a single bin.
 fn estimate_curve(
-    intensity: &[f64],
+    intensity: &[f32],
     ion_rt: &IonRt,
     reference: &[f64],
     parameters: &DriftParameters,
@@ -235,7 +286,7 @@ fn estimate_curve(
     for ion in 0..intensity.len() {
         let rt = ion_rt.get(ion);
         if intensity[ion] > 0.0 && reference[ion].is_finite() && rt.is_finite() {
-            points.push((rt, intensity[ion].log2() - reference[ion]));
+            points.push((rt, f64::from(intensity[ion]).log2() - reference[ion]));
         }
     }
     if points.len() < parameters.min_ions_per_run {
@@ -258,7 +309,7 @@ fn estimate_curve(
 ///
 /// The mean correction over the observed cells is multiplied back in and subtracted from
 /// `curve`, so the run keeps its mean log2 level and `curve` holds the applied correction.
-fn apply_curve(intensity: &mut [f64], ion_rt: &IonRt, curve: &mut DriftCurve) {
+fn apply_curve(intensity: &mut [f32], ion_rt: &IonRt, curve: &mut DriftCurve) {
     let mut correction_sum = 0.0;
     let mut n_corrected = 0;
     for ion in 0..intensity.len() {
@@ -266,7 +317,7 @@ fn apply_curve(intensity: &mut [f64], ion_rt: &IonRt, curve: &mut DriftCurve) {
             continue;
         }
         let correction = curve.at(ion_rt.get(ion));
-        intensity[ion] /= correction.exp2();
+        intensity[ion] = (f64::from(intensity[ion]) / correction.exp2()) as f32;
         correction_sum += correction;
         n_corrected += 1;
     }
@@ -277,7 +328,7 @@ fn apply_curve(intensity: &mut [f64], ion_rt: &IonRt, curve: &mut DriftCurve) {
     intensity
         .iter_mut()
         .filter(|value| **value > 0.0)
-        .for_each(|value| *value *= level);
+        .for_each(|value| *value = (f64::from(*value) * level) as f32);
     curve
         .correction
         .iter_mut()

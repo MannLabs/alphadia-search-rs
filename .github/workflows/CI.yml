@@ -118,9 +118,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # Install the toolchain first: otherwise the pip build lets rustup install it on
+      # the fly, which intermittently fails on a clippy conflict with the runner's toolchain
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy, rustfmt
       - name: Install Python dependencies
         run: pip install -e .[dev]
-      - uses: dtolnay/rust-toolchain@1.88.0
       - name: Run tests
         run: cargo test --all-features
 

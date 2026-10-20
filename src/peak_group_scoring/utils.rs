@@ -515,3 +515,65 @@ pub fn calculate_fwhm_rt(
 
     right_rt - left_rt
 }
+
+/// Fragments with at least this ion number count as long ions
+pub const LONG_ION_MIN_NUMBER: u8 = 5;
+/// Fragments with at most this ion number count as short ions
+pub const SHORT_ION_MAX_NUMBER: u8 = 3;
+/// Correlation above which a fragment counts as carrying the peak
+pub const ION_IDENTITY_MIN_CORRELATION: f32 = 0.5;
+
+/// Which ions carry the signal: short ions (b2/b3, y2/y3) match by chance in crowded spectra, while a real
+/// peptide also lights up its long ions.
+/// Returns (ion_position_mean, num_over_50_long_ions, num_over_50_short_ions, long_ion_intensity_share):
+/// the mean ion number relative to the peptide length over fragments correlating above
+/// ION_IDENTITY_MIN_CORRELATION, the counts of such long and short ions, and the share of the observed fragment
+/// intensity in long ions.
+pub fn calculate_ion_identity_features(
+    fragment_numbers: &[u8],
+    correlations: &[f32],
+    observation_intensities: &[f32],
+    naa: u8,
+) -> (f32, f32, f32, f32) {
+    let n = fragment_numbers.len();
+    if correlations.len() != n || observation_intensities.len() != n || n == 0 || naa == 0 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+
+    let mut position_sum = 0.0f32;
+    let mut n_carrying = 0u32;
+    let mut n_long = 0u32;
+    let mut n_short = 0u32;
+    let mut long_intensity = 0.0f32;
+    let mut total_intensity = 0.0f32;
+
+    for i in 0..n {
+        let number = fragment_numbers[i];
+        total_intensity += observation_intensities[i];
+        if number >= LONG_ION_MIN_NUMBER {
+            long_intensity += observation_intensities[i];
+        }
+        if correlations[i] > ION_IDENTITY_MIN_CORRELATION {
+            position_sum += number as f32 / naa as f32;
+            n_carrying += 1;
+            if number >= LONG_ION_MIN_NUMBER {
+                n_long += 1;
+            }
+            if number <= SHORT_ION_MAX_NUMBER {
+                n_short += 1;
+            }
+        }
+    }
+
+    let position_mean = if n_carrying > 0 {
+        position_sum / n_carrying as f32
+    } else {
+        0.0
+    };
+    let long_share = if total_intensity > 0.0 {
+        long_intensity / total_intensity
+    } else {
+        0.0
+    };
+    (position_mean, n_long as f32, n_short as f32, long_share)
+}

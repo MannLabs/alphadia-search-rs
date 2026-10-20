@@ -45,6 +45,10 @@ pub const FEATURE_NAMES: &[&str] = &[
     "num_profiles_filtered",
     "num_over_0_top6_idf",
     "num_over_50_top6_idf",
+    "ion_position_mean",
+    "num_over_50_long_ions",
+    "num_over_50_short_ions",
+    "long_ion_intensity_share",
 ];
 
 #[derive(Debug, Clone)]
@@ -92,6 +96,10 @@ pub struct CandidateFeature {
     pub num_profiles_filtered: f32,
     pub num_over_0_top6_idf: f32,
     pub num_over_50_top6_idf: f32,
+    pub ion_position_mean: f32,
+    pub num_over_50_long_ions: f32,
+    pub num_over_50_short_ions: f32,
+    pub long_ion_intensity_share: f32,
 }
 
 impl CandidateFeature {
@@ -140,6 +148,10 @@ impl CandidateFeature {
         num_profiles_filtered: f32,
         num_over_0_top6_idf: f32,
         num_over_50_top6_idf: f32,
+        ion_position_mean: f32,
+        num_over_50_long_ions: f32,
+        num_over_50_short_ions: f32,
+        long_ion_intensity_share: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -185,6 +197,10 @@ impl CandidateFeature {
             num_profiles_filtered,
             num_over_0_top6_idf,
             num_over_50_top6_idf,
+            ion_position_mean,
+            num_over_50_long_ions,
+            num_over_50_short_ions,
+            long_ion_intensity_share,
         }
     }
 }
@@ -263,6 +279,10 @@ impl CandidateFeatureCollection {
         let mut num_profiles_filtered = Array1::<f32>::zeros(n);
         let mut num_over_0_top6_idf = Array1::<f32>::zeros(n);
         let mut num_over_50_top6_idf = Array1::<f32>::zeros(n);
+        let mut ion_position_mean = Array1::<f32>::zeros(n);
+        let mut num_over_50_long_ions = Array1::<f32>::zeros(n);
+        let mut num_over_50_short_ions = Array1::<f32>::zeros(n);
+        let mut long_ion_intensity_share = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -308,6 +328,10 @@ impl CandidateFeatureCollection {
             num_profiles_filtered[i] = feature.num_profiles_filtered;
             num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
             num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
+            ion_position_mean[i] = feature.ion_position_mean;
+            num_over_50_long_ions[i] = feature.num_over_50_long_ions;
+            num_over_50_short_ions[i] = feature.num_over_50_short_ions;
+            long_ion_intensity_share[i] = feature.long_ion_intensity_share;
         }
 
         let dict = PyDict::new(py);
@@ -404,6 +428,19 @@ impl CandidateFeatureCollection {
         dict.set_item(
             "num_over_50_top6_idf",
             num_over_50_top6_idf.into_pyarray(py),
+        )?;
+        dict.set_item("ion_position_mean", ion_position_mean.into_pyarray(py))?;
+        dict.set_item(
+            "num_over_50_long_ions",
+            num_over_50_long_ions.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "num_over_50_short_ions",
+            num_over_50_short_ions.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "long_ion_intensity_share",
+            long_ion_intensity_share.into_pyarray(py),
         )?;
 
         Ok(dict.into())

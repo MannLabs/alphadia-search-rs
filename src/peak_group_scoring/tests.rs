@@ -1063,3 +1063,36 @@ fn test_calculate_ion_identity_features_without_signal() {
         (0.0, 0.0, 0.0, 0.0)
     );
 }
+
+#[test]
+fn test_calculate_fragment_agreement_features() {
+    use super::utils::calculate_fragment_agreement_features;
+    use crate::constants::FragmentType;
+    let types = [
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+    ];
+    let numbers = [3u8, 7, 5, 2, 4, 6];
+    let library = [1.0f32, 4.0, 2.0, 1.0, 1.0, 1.0];
+    let correlations = [0.9f32, 0.95, 0.8, 0.1, 0.0, -0.2];
+    let observed = [1.0f32, 4.0, 2.0, 1.0, 1.0, 1.0];
+
+    let (lib_explained, gap, log_std, y_corr, pairs) = calculate_fragment_agreement_features(
+        &types,
+        &numbers,
+        &library,
+        &correlations,
+        &observed,
+        10,
+    );
+
+    assert!((lib_explained - 0.7).abs() < 1e-6);
+    assert!((gap - (0.8833333 - (-0.0333333))).abs() < 1e-5);
+    assert!(log_std.abs() < 1e-6);
+    assert!((y_corr - 1.0).abs() < 1e-6);
+    assert_eq!(pairs, 1.0);
+}

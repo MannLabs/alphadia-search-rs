@@ -49,6 +49,11 @@ pub const FEATURE_NAMES: &[&str] = &[
     "num_over_50_long_ions",
     "num_over_50_short_ions",
     "long_ion_intensity_share",
+    "lib_explained",
+    "correlation_gap",
+    "log_ratio_std",
+    "y_intensity_correlation",
+    "complementary_pairs",
 ];
 
 #[derive(Debug, Clone)]
@@ -100,6 +105,11 @@ pub struct CandidateFeature {
     pub num_over_50_long_ions: f32,
     pub num_over_50_short_ions: f32,
     pub long_ion_intensity_share: f32,
+    pub lib_explained: f32,
+    pub correlation_gap: f32,
+    pub log_ratio_std: f32,
+    pub y_intensity_correlation: f32,
+    pub complementary_pairs: f32,
 }
 
 impl CandidateFeature {
@@ -152,6 +162,11 @@ impl CandidateFeature {
         num_over_50_long_ions: f32,
         num_over_50_short_ions: f32,
         long_ion_intensity_share: f32,
+        lib_explained: f32,
+        correlation_gap: f32,
+        log_ratio_std: f32,
+        y_intensity_correlation: f32,
+        complementary_pairs: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -201,6 +216,11 @@ impl CandidateFeature {
             num_over_50_long_ions,
             num_over_50_short_ions,
             long_ion_intensity_share,
+            lib_explained,
+            correlation_gap,
+            log_ratio_std,
+            y_intensity_correlation,
+            complementary_pairs,
         }
     }
 }
@@ -283,6 +303,11 @@ impl CandidateFeatureCollection {
         let mut num_over_50_long_ions = Array1::<f32>::zeros(n);
         let mut num_over_50_short_ions = Array1::<f32>::zeros(n);
         let mut long_ion_intensity_share = Array1::<f32>::zeros(n);
+        let mut lib_explained = Array1::<f32>::zeros(n);
+        let mut correlation_gap = Array1::<f32>::zeros(n);
+        let mut log_ratio_std = Array1::<f32>::zeros(n);
+        let mut y_intensity_correlation = Array1::<f32>::zeros(n);
+        let mut complementary_pairs = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -332,6 +357,11 @@ impl CandidateFeatureCollection {
             num_over_50_long_ions[i] = feature.num_over_50_long_ions;
             num_over_50_short_ions[i] = feature.num_over_50_short_ions;
             long_ion_intensity_share[i] = feature.long_ion_intensity_share;
+            lib_explained[i] = feature.lib_explained;
+            correlation_gap[i] = feature.correlation_gap;
+            log_ratio_std[i] = feature.log_ratio_std;
+            y_intensity_correlation[i] = feature.y_intensity_correlation;
+            complementary_pairs[i] = feature.complementary_pairs;
         }
 
         let dict = PyDict::new(py);
@@ -442,6 +472,14 @@ impl CandidateFeatureCollection {
             "long_ion_intensity_share",
             long_ion_intensity_share.into_pyarray(py),
         )?;
+        dict.set_item("lib_explained", lib_explained.into_pyarray(py))?;
+        dict.set_item("correlation_gap", correlation_gap.into_pyarray(py))?;
+        dict.set_item("log_ratio_std", log_ratio_std.into_pyarray(py))?;
+        dict.set_item(
+            "y_intensity_correlation",
+            y_intensity_correlation.into_pyarray(py),
+        )?;
+        dict.set_item("complementary_pairs", complementary_pairs.into_pyarray(py))?;
 
         Ok(dict.into())
     }

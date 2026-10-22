@@ -22,6 +22,7 @@ pub mod peak_group_selection;
 mod precursor;
 mod precursor_quantified;
 mod quadrupole_observation;
+pub mod quantification;
 mod rt_index;
 pub mod score;
 mod simd;
@@ -41,6 +42,7 @@ pub use crate::kernel::GaussianKernel;
 use crate::peak_group_quantification::{PeakGroupQuantification, QuantificationParameters};
 use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
+use crate::quantification::LibraryAnchoredFit;
 use crate::speclib_flat::SpecLibFlat;
 use crate::speclib_flat_quantified::SpecLibFlatQuantified;
 
@@ -95,6 +97,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FragmentCompetition>()?;
     m.add_class::<CandidateContext>()?;
     m.add_class::<IntensityDriftCorrection>()?;
+    m.add_class::<LibraryAnchoredFit>()?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;

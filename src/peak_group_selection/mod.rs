@@ -18,25 +18,21 @@ pub mod parameters;
 pub use parameters::SelectionParameters;
 
 /// Finds local maxima in a 1D array.
-/// A local maximum is defined as a point that is higher than the 2 points to its left and right. NOT COMPLETELY
+/// A local maximum is a point strictly higher than its direct neighbours on both sides.
 /// Returns a tuple of two vectors: (indices, values) sorted by value in descending order.
 fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32>) {
     let mut indices = Vec::new();
     let mut values = Vec::new();
     let len = array.len();
 
-    // Need at least 5 points to find a local maximum with 2 points on each side
-    if len < 5 {
+    if len < 3 {
         return (indices, values);
     }
 
-    // Check each point (except the first and last 2) for local maxima
-    for i in 2..len - 2 {
-        if array[i - 2] < array[i - 1]
-            && array[i - 1] < array[i]
-            && array[i] > array[i + 1]
-            && array[i + 1] > array[i + 2]
-        {
+    // Only the direct neighbours are compared: at short gradients a peak spans about one cycle, so the
+    // points two cycles away are background, and requiring them to be monotonic rejects real peaks.
+    for i in 1..len - 1 {
+        if array[i - 1] < array[i] && array[i] > array[i + 1] {
             indices.push(i + offset);
             values.push(array[i]);
         }

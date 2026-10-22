@@ -6,16 +6,23 @@ use pyo3::Python;
 
 #[test]
 fn test_find_local_maxima_multiple_peaks() {
-    // The array has local maxima at indices 4 and 8
+    // Local maxima at indices 2, 4 and 8
     let array = arr1(&[1.0, 2.0, 3.0, 2.0, 5.0, 3.0, 2.0, 4.0, 7.0, 5.0, 3.0, 2.0]);
     let offset = 10;
     let (indices, values) = find_local_maxima(&array, offset);
 
-    // After examining the actual output and the algorithm,
-    // we see that our test array doesn't exactly match the pattern we need for two peaks
-    // It only finds one peak at index 8 (offset + 8 = 18)
-    assert_eq!(indices, vec![18]);
-    assert_eq!(values, vec![7.0]);
+    assert_eq!(indices, vec![18, 14, 12]);
+    assert_eq!(values, vec![7.0, 5.0, 3.0]);
+}
+
+#[test]
+fn test_find_local_maxima_narrow_peak_with_noisy_shoulders() {
+    // A one-cycle peak whose points two cycles away are higher than the direct neighbours.
+    let array = arr1(&[0.0, 1.0, 0.5, 4.0, 0.6, 1.0, 0.0]);
+    let (indices, values) = find_local_maxima(&array, 0);
+
+    assert_eq!(indices, vec![3, 1, 5]);
+    assert_eq!(values, vec![4.0, 1.0, 1.0]);
 }
 
 #[test]
@@ -29,11 +36,20 @@ fn test_find_local_maxima_no_peaks() {
 
 #[test]
 fn test_find_local_maxima_too_few_points() {
-    let array = arr1(&[1.0, 2.0, 3.0, 4.0]);
+    let array = arr1(&[1.0, 2.0]);
     let (indices, values) = find_local_maxima(&array, 0);
 
     assert!(indices.is_empty());
     assert!(values.is_empty());
+}
+
+#[test]
+fn test_find_local_maxima_edges_are_not_maxima() {
+    let array = arr1(&[5.0, 1.0, 2.0, 1.0, 5.0]);
+    let (indices, values) = find_local_maxima(&array, 0);
+
+    assert_eq!(indices, vec![2]);
+    assert_eq!(values, vec![2.0]);
 }
 
 #[test]

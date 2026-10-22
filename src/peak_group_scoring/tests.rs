@@ -1096,3 +1096,24 @@ fn test_calculate_fragment_agreement_features() {
     assert!((y_corr - 1.0).abs() < 1e-6);
     assert_eq!(pairs, 1.0);
 }
+
+#[test]
+fn test_calculate_lib_cosine_coherent_uses_only_coeluting_fragments() {
+    use super::utils::calculate_lib_cosine_coherent;
+    use numpy::ndarray::arr2;
+    let xic = arr2(&[
+        [0.0, 4.0, 8.0, 4.0, 0.0],
+        [0.0, 2.0, 4.0, 2.0, 0.0],
+        [0.0, 1.0, 2.0, 1.0, 0.0],
+        [50.0, 0.0, 0.0, 0.0, 50.0],
+    ]);
+    let profile = [0.0, 0.5, 1.0, 0.5, 0.0];
+    let library = [4.0f32, 2.0, 1.0, 9.0];
+
+    let coherent =
+        calculate_lib_cosine_coherent(&xic, &profile, &[0.99, 0.99, 0.99, -0.5], &library);
+    let too_few = calculate_lib_cosine_coherent(&xic, &profile, &[0.99, 0.99, 0.1, -0.5], &library);
+
+    assert!((coherent - 1.0).abs() < 1e-5);
+    assert_eq!(too_few, 0.0);
+}

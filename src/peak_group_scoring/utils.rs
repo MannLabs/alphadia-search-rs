@@ -699,3 +699,58 @@ pub fn calculate_fragment_agreement_features(
         complementary_pairs as f32,
     )
 }
+
+/// Cycles on each side of the median-profile apex summed for the apex spectrum
+pub const LIB_COSINE_APEX_HALF_WIDTH: usize = 1;
+/// Minimum number of co-eluting fragments for the coherent library cosine
+pub const LIB_COSINE_MIN_FRAGMENTS: usize = 3;
+
+/// Cosine of the apex spectrum with the library intensities over the fragments correlating above
+/// AGREEMENT_MIN_CORRELATION with the median profile; 0 with fewer than LIB_COSINE_MIN_FRAGMENTS such fragments.
+/// Interfered fragments are left out, so the score reads whether the co-eluting fragments have the expected
+/// intensities (in DIA-NN's 200 ng XICs a decoy-trained model gained 6 % real targets at 1 % decoy FDR with it).
+pub fn calculate_lib_cosine_coherent(
+    dense_xic: &Array2<f32>,
+    median_profile: &[f32],
+    correlations: &[f32],
+    library_intensities: &[f32],
+) -> f32 {
+    let (n_fragments, n_cycles) = dense_xic.dim();
+    if n_cycles == 0
+        || median_profile.len() != n_cycles
+        || correlations.len() != n_fragments
+        || library_intensities.len() != n_fragments
+    {
+        return 0.0;
+    }
+    let apex = median_profile
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let start = apex.saturating_sub(LIB_COSINE_APEX_HALF_WIDTH);
+    let stop = (apex + LIB_COSINE_APEX_HALF_WIDTH + 1).min(n_cycles);
+
+    let coherent: Vec<usize> = (0..n_fragments)
+        .filter(|&i| correlations[i] > AGREEMENT_MIN_CORRELATION)
+        .collect();
+    if coherent.len() < LIB_COSINE_MIN_FRAGMENTS {
+        return 0.0;
+    }
+    let mut dot = 0.0f32;
+    let mut observed_norm = 0.0f32;
+    let mut library_norm = 0.0f32;
+    for &i in &coherent {
+        let apex_intensity: f32 = (start..stop).map(|c| dense_xic[[i, c]]).sum();
+        dot += apex_intensity * library_intensities[i];
+        observed_norm += apex_intensity * apex_intensity;
+        library_norm += library_intensities[i] * library_intensities[i];
+    }
+    let norm = (observed_norm * library_norm).sqrt();
+    if norm > 0.0 {
+        dot / norm
+    } else {
+        0.0
+    }
+}

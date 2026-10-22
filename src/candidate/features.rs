@@ -54,6 +54,7 @@ pub const FEATURE_NAMES: &[&str] = &[
     "log_ratio_std",
     "y_intensity_correlation",
     "complementary_pairs",
+    "lib_cosine_coherent",
 ];
 
 #[derive(Debug, Clone)]
@@ -110,6 +111,7 @@ pub struct CandidateFeature {
     pub log_ratio_std: f32,
     pub y_intensity_correlation: f32,
     pub complementary_pairs: f32,
+    pub lib_cosine_coherent: f32,
 }
 
 impl CandidateFeature {
@@ -167,6 +169,7 @@ impl CandidateFeature {
         log_ratio_std: f32,
         y_intensity_correlation: f32,
         complementary_pairs: f32,
+        lib_cosine_coherent: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -221,6 +224,7 @@ impl CandidateFeature {
             log_ratio_std,
             y_intensity_correlation,
             complementary_pairs,
+            lib_cosine_coherent,
         }
     }
 }
@@ -308,6 +312,7 @@ impl CandidateFeatureCollection {
         let mut log_ratio_std = Array1::<f32>::zeros(n);
         let mut y_intensity_correlation = Array1::<f32>::zeros(n);
         let mut complementary_pairs = Array1::<f32>::zeros(n);
+        let mut lib_cosine_coherent = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -362,6 +367,7 @@ impl CandidateFeatureCollection {
             log_ratio_std[i] = feature.log_ratio_std;
             y_intensity_correlation[i] = feature.y_intensity_correlation;
             complementary_pairs[i] = feature.complementary_pairs;
+            lib_cosine_coherent[i] = feature.lib_cosine_coherent;
         }
 
         let dict = PyDict::new(py);
@@ -480,6 +486,7 @@ impl CandidateFeatureCollection {
             y_intensity_correlation.into_pyarray(py),
         )?;
         dict.set_item("complementary_pairs", complementary_pairs.into_pyarray(py))?;
+        dict.set_item("lib_cosine_coherent", lib_cosine_coherent.into_pyarray(py))?;
 
         Ok(dict.into())
     }

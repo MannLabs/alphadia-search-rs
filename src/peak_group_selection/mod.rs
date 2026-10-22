@@ -88,7 +88,7 @@ impl PeakGroupSelection {
         lib: &SpecLibFlat,
     ) -> CandidateCollection {
         let start_time = Instant::now();
-        // fwhm_rt is in retention time units, the convolution runs on the cycle grid.
+        // fwhm_rt is in seconds, the convolution runs on the cycle grid.
         let kernel = GaussianKernel::new(
             self.params.fwhm_rt,
             1.0, // sigma_scale_rt

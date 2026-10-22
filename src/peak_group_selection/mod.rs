@@ -1,7 +1,7 @@
 use numpy::ndarray::Array1;
 use pyo3::prelude::*;
 use rayon::prelude::*;
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
@@ -16,6 +16,21 @@ use crate::SpecLibFlat;
 
 pub mod parameters;
 pub use parameters::SelectionParameters;
+
+/// The cycle range [start, stop) of a candidate: peak_length cycles on each side of its apex, clipped to the run.
+///
+/// An apex can lie within peak_length cycles of the first cycle since the convolution smooths up to the run ends,
+/// so the start must not underflow.
+fn candidate_cycle_limits(
+    cycle_center_idx: usize,
+    peak_length: usize,
+    n_cycles: usize,
+) -> (usize, usize) {
+    (
+        cycle_center_idx.saturating_sub(peak_length),
+        min(cycle_center_idx + peak_length + 1, n_cycles),
+    )
+}
 
 /// Finds local maxima in a 1D array.
 /// A local maximum is a point strictly higher than its direct neighbours on both sides.
@@ -169,9 +184,9 @@ impl PeakGroupSelection {
             let cycle_center_idx = local_maxima_indices[i];
             let score = local_maxima_values[i];
 
-            let cycle_start_idx = max(0, cycle_center_idx - self.params.peak_length);
-            let cycle_stop_idx = min(
-                cycle_center_idx + self.params.peak_length + 1,
+            let (cycle_start_idx, cycle_stop_idx) = candidate_cycle_limits(
+                cycle_center_idx,
+                self.params.peak_length,
                 dia_data.rt_index().len(),
             );
 

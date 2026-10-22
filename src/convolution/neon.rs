@@ -20,6 +20,7 @@ pub fn convolution_neon(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f3
     // Early return for empty inputs or when kernel is too large - we'll keep this branch
     // as it's executed only once at the beginning of the function
     if n_fragments == 0 || n_points == 0 || n_points < kernel_size {
+        super::scalar::fill_edges(kernel, xic, &mut convolved);
         return convolved;
     }
 
@@ -109,9 +110,8 @@ pub fn convolution_neon(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f3
                 conv_row[i] = sum;
             }
         }
-
-        // Zeros remain at the edges (no padding)
     }
 
+    super::scalar::fill_edges(kernel, xic, &mut convolved);
     convolved
 }

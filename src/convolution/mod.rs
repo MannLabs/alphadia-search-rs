@@ -6,7 +6,8 @@ pub mod neon;
 pub mod scalar;
 
 /// Main convolution function that uses the SIMD backend for optimization
-/// Returns a convolved array with same dimensions as input, with zeros at edges (no padding)
+/// Returns a convolved array with same dimensions as input. Within half a kernel of either end the kernel is
+/// truncated to the points that exist and rescaled to the full kernel's weight.
 pub fn convolution(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
     crate::simd::get_backend().convolution(kernel, xic)
 }

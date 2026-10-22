@@ -162,3 +162,60 @@ fn test_edge_case_kernel_larger_than_input() {
     // Verify
     assert_eq!(result.dim(), xic.dim());
 }
+
+#[test]
+fn test_edges_keep_a_constant_signal_constant() {
+    let kernel = GaussianKernel::new(3.0, 1.0, 20, 1.0);
+    let xic = Array2::<f32>::from_elem((2, 40), 2.5);
+
+    let result = convolution(&kernel, &xic);
+
+    let interior = result[[0, 20]];
+    for i in 0..40 {
+        assert_relative_eq!(result[[0, i]], interior, epsilon = 1e-5);
+        assert_relative_eq!(result[[1, i]], interior, epsilon = 1e-5);
+    }
+}
+
+#[test]
+fn test_peak_next_to_the_end_is_not_zeroed() {
+    let kernel = GaussianKernel::new(1.5, 1.0, 20, 1.0);
+    let mut xic = Array2::<f32>::zeros((1, 40));
+    xic[[0, 37]] = 10.0;
+
+    let result = convolution(&kernel, &xic);
+
+    let apex = (0..40)
+        .max_by(|&a, &b| result[[0, a]].partial_cmp(&result[[0, b]]).unwrap())
+        .unwrap();
+    assert_eq!(apex, 37);
+    assert!(result[[0, 37]] > result[[0, 36]]);
+    assert!(result[[0, 37]] > result[[0, 38]]);
+}
+
+#[test]
+fn test_interior_matches_the_backend() {
+    let kernel = GaussianKernel::new(2.0, 1.0, 20, 1.0);
+    let xic_data: Vec<f32> = (0..50).map(|i| ((i * 7) % 11) as f32).collect();
+    let xic = Array2::from_shape_vec((1, 50), xic_data).unwrap();
+
+    let result = convolution(&kernel, &xic);
+    let backend = scalar::convolution_scalar(&kernel, &xic);
+
+    for i in 10..40 {
+        assert_relative_eq!(result[[0, i]], backend[[0, i]], epsilon = 1e-5);
+    }
+}
+
+#[test]
+fn test_input_shorter_than_kernel_is_smoothed() {
+    let kernel = GaussianKernel::new(2.0, 1.0, 20, 1.0);
+    let xic = Array2::<f32>::from_elem((1, 6), 1.0);
+
+    let result = convolution(&kernel, &xic);
+
+    for i in 0..6 {
+        assert_relative_eq!(result[[0, i]], result[[0, 3]], epsilon = 1e-5);
+        assert!(result[[0, i]] > 0.0);
+    }
+}

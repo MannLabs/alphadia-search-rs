@@ -24,3 +24,14 @@ fn test_kernel_creation() {
         assert!(rt_kernel[i] <= center_val);
     }
 }
+
+#[test]
+fn test_kernel_fwhm_is_scaled_by_cycle_time() {
+    // A 3 s FWHM on a 1.5 s cycle is a 2-cycle FWHM.
+    let seconds = GaussianKernel::new(3.0, 1.0, 20, 1.5);
+    let cycles = GaussianKernel::new(2.0, 1.0, 20, 1.0);
+
+    for (a, b) in seconds.kernel_array.iter().zip(cycles.kernel_array.iter()) {
+        assert_relative_eq!(a, b, epsilon = 1e-6);
+    }
+}

@@ -65,7 +65,6 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
 
 #[pyclass]
 pub struct PeakGroupSelection {
-    kernel: GaussianKernel,
     params: SelectionParameters,
 }
 
@@ -73,15 +72,7 @@ pub struct PeakGroupSelection {
 impl PeakGroupSelection {
     #[new]
     pub fn new(params: SelectionParameters) -> Self {
-        Self {
-            kernel: GaussianKernel::new(
-                params.fwhm_rt,
-                1.0, // sigma_scale_rt
-                params.kernel_size,
-                1.0, // rt_resolution
-            ),
-            params,
-        }
+        Self { params }
     }
 
     pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
@@ -97,6 +88,13 @@ impl PeakGroupSelection {
         lib: &SpecLibFlat,
     ) -> CandidateCollection {
         let start_time = Instant::now();
+        // fwhm_rt is in retention time units, the convolution runs on the cycle grid.
+        let kernel = GaussianKernel::new(
+            self.params.fwhm_rt,
+            1.0, // sigma_scale_rt
+            self.params.kernel_size,
+            dia_data.rt_index().delta_t(),
+        );
         // Parallel iteration over precursor indices with filter_map to collect candidates
         let candidates: Vec<Candidate> = (0..lib.num_precursors())
             .into_par_iter()
@@ -109,6 +107,7 @@ impl PeakGroupSelection {
                 );
                 self.search_precursor_generic(
                     dia_data,
+                    &kernel,
                     &precursor,
                     self.params.mass_tolerance,
                     self.params.rt_tolerance,
@@ -131,6 +130,7 @@ impl PeakGroupSelection {
     fn search_precursor_generic<T: DIADataTrait>(
         &self,
         dia_data: &T,
+        kernel: &GaussianKernel,
         precursor: &Precursor,
         mass_tolerance: f32,
         rt_tolerance: f32,
@@ -157,7 +157,7 @@ impl PeakGroupSelection {
             &precursor.fragment_mz,
         );
 
-        let convolved_xic = convolution(&self.kernel, &dense_xic_obs.dense_xic);
+        let convolved_xic = convolution(kernel, &dense_xic_obs.dense_xic);
 
         let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
 

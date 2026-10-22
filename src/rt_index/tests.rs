@@ -1,4 +1,5 @@
 use super::*;
+use approx::assert_relative_eq;
 use numpy::ndarray::{Array1, Array4};
 
 // Test fixtures for RT index tests
@@ -276,4 +277,10 @@ fn test_from_alpha_raw_delta_t_calculation() {
     // Delta_t should be (0.6 - 0.0) / (3 - 1) = 0.3
     let expected_delta_t = 0.3;
     assert!((rt_index.delta_t - expected_delta_t).abs() < 1e-6);
+}
+
+#[test]
+fn test_delta_t_is_mean_cycle_time() {
+    let rt_index = create_realistic_index();
+    assert_relative_eq!(rt_index.delta_t(), 0.5, epsilon = 1e-6);
 }

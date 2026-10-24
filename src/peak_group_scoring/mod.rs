@@ -22,6 +22,7 @@ use crate::utils::{
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
+pub mod deconvolution;
 pub mod parameters;
 pub mod tests;
 pub mod utils;

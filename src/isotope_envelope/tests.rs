@@ -246,3 +246,34 @@ fn test_dense_mz_reports_monoisotopic_mz_for_isotope_channels() {
     let mz_error_ppm = (dense.dense_mz[[0, 0]] - FRAGMENT_MZ) / FRAGMENT_MZ * 1e6;
     assert!(mz_error_ppm.abs() < 5.0, "{mz_error_ppm} ppm");
 }
+
+#[test]
+fn test_missing_isotope_values_fall_back_to_monoisotopic_plan() {
+    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
+    for isotopes in [vec![f32::NAN, 0.3], vec![0.0, 0.0]] {
+        let precursor = Precursor {
+            precursor_idx: 0,
+            mz: 499.8,
+            mz_library: 499.8,
+            rt: 10.0,
+            rt_library: 10.0,
+            naa: 9,
+            charge: 2,
+            isotope_intensity: isotopes,
+            fragment_mz: vec![FRAGMENT_MZ],
+            fragment_mz_library: vec![FRAGMENT_MZ],
+            fragment_intensity: vec![1.0],
+            fragment_cardinality: vec![1],
+            fragment_charge: vec![1],
+            fragment_loss_type: vec![0],
+            fragment_number: vec![3],
+            fragment_position: vec![3],
+            fragment_type: vec![121],
+        };
+
+        let plan = ExtractionPlan::new(&dia_data, &precursor);
+
+        assert_eq!(plan.channels.len(), 1);
+        assert_eq!(plan.channels[0].weight, 1.0);
+    }
+}

@@ -52,9 +52,11 @@ pub struct ExtractionPlan {
 }
 
 impl ExtractionPlan {
-    /// The isotope-envelope plan if the precursor carries library isotopes, otherwise the monoisotopic one.
+    /// The isotope-envelope plan if the precursor carries usable library isotopes, otherwise the monoisotopic one.
     pub fn new<T: DIADataTrait>(dia_data: &T, precursor: &Precursor) -> Self {
-        if precursor.charge == 0 || precursor.isotope_intensity.is_empty() {
+        let isotopes_usable = precursor.isotope_intensity.iter().all(|x| x.is_finite())
+            && precursor.isotope_intensity.iter().sum::<f32>() > 0.0;
+        if precursor.charge == 0 || !isotopes_usable {
             return Self::monoisotopic(dia_data, precursor.mz, &precursor.fragment_mz);
         }
         Self::isotope_envelope(

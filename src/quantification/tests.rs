@@ -1,6 +1,6 @@
 use approx::assert_abs_diff_eq;
 
-use super::algorithm::{fit, validate_shapes, FitParameters, Weighting};
+use super::algorithm::{fit, validate_shapes, FitParameters};
 
 fn noise(seed: usize) -> f64 {
     let hashed = (seed as u64)
@@ -336,9 +336,6 @@ fn test_validate_rejects_invalid_parameters() {
     .validate()
     .is_err());
     assert!(FitParameters::DEFAULT.validate().is_ok());
-    assert!("share".parse::<Weighting>().is_ok());
-    assert!("variance".parse::<Weighting>().is_ok());
-    assert!("uniform".parse::<Weighting>().is_err());
 }
 
 fn simulate_offsets_and_noise(
@@ -454,28 +451,20 @@ fn test_offsets_are_removed_with_unequal_library_shares() {
         })
         .collect();
 
-    for weighting in [Weighting::Share, Weighting::Variance] {
-        // When
-        let result = fit(
-            &run_major(&scaled),
-            &library,
-            &precursor,
-            6,
-            true_q.len(),
-            &FitParameters {
-                weighting,
-                ..FitParameters::DEFAULT
-            },
-        );
+    // When
+    let result = fit(
+        &run_major(&scaled),
+        &library,
+        &precursor,
+        6,
+        true_q.len(),
+        &FitParameters::DEFAULT,
+    );
 
-        // Then the profiles are close to the truth: a missing cell of a fragment with a large
-        // offset must not move its precursor's quantity in that run
-        let error = profile_error(&result.quantity, &true_q);
-        assert!(
-            error < 0.07,
-            "profile error {error} with {weighting:?} weights"
-        );
-    }
+    // Then the profiles are close to the truth: a missing cell of a fragment with a large
+    // offset must not move its precursor's quantity in that run
+    let error = profile_error(&result.quantity, &true_q);
+    assert!(error < 0.07, "profile error {error}");
 }
 
 #[test]
@@ -514,27 +503,18 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
                 .collect()
         })
         .collect();
-    let error = |weighting| {
-        let result = fit(
-            &run_major(&log2_values),
-            &library,
-            &precursor,
-            n_runs,
-            n_precursors,
-            &FitParameters {
-                weighting,
-                ..FitParameters::DEFAULT
-            },
-        );
-        profile_error(&result.quantity, &true_q)
-    };
 
     // When
-    let (share, variance) = (error(Weighting::Share), error(Weighting::Variance));
-
-    // Then weighting by the noise of the cell beats weighting by the share of the fragment
-    assert!(
-        variance < 0.7 * share,
-        "profile error {variance} with variance weights, {share} with share weights"
+    let result = fit(
+        &run_major(&log2_values),
+        &library,
+        &precursor,
+        n_runs,
+        n_precursors,
+        &FitParameters::DEFAULT,
     );
+
+    // Then the noisy cells are downweighted: weighting by the library share alone gives 0.196
+    let error = profile_error(&result.quantity, &true_q);
+    assert!(error < 0.13, "profile error {error}");
 }

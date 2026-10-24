@@ -16,28 +16,7 @@ pub const DEFAULT_MAX_SWEEPS: usize = 20;
 pub const DEFAULT_MIN_IONS: usize = 2;
 pub const DEFAULT_TOLERANCE: f64 = 1e-3;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Weighting {
-    Share,
-    Variance,
-}
-
-impl std::str::FromStr for Weighting {
-    type Err = String;
-
-    fn from_str(name: &str) -> Result<Self, String> {
-        match name {
-            "share" => Ok(Self::Share),
-            "variance" => Ok(Self::Variance),
-            _ => Err(format!(
-                "weighting must be 'share' or 'variance', got '{name}'"
-            )),
-        }
-    }
-}
-
 pub struct FitParameters {
-    pub weighting: Weighting,
     pub tau: Option<f64>,
     pub lambda: Option<f64>,
     pub max_sweeps: usize,
@@ -49,7 +28,6 @@ impl FitParameters {
     // the Python constructor spells out every field, the tests vary single ones
     #[cfg(test)]
     pub const DEFAULT: Self = Self {
-        weighting: Weighting::Variance,
         tau: None,
         lambda: None,
         max_sweeps: DEFAULT_MAX_SWEEPS,
@@ -288,44 +266,21 @@ impl VarianceCurve {
     }
 }
 
-struct CellWeights {
-    precision: Vec<f64>,
-    loss_scale: Vec<f64>,
-    prior: Vec<f64>,
-}
-
-impl CellWeights {
-    fn share(group: &Group, scales: Scales, n_runs: usize) -> Self {
-        Self {
-            precision: share_weights(group, n_runs),
-            loss_scale: vec![scales.tau; group.n_ions * n_runs],
-            prior: group.share.iter().map(|&s| scales.lambda * s).collect(),
-        }
-    }
-
-    fn variance(group: &Group, quantity: &[f64], curve: &VarianceCurve, scales: Scales) -> Self {
-        let Scales { sigma, tau, lambda } = scales;
-        let (precision, loss_scale) = group
-            .share
-            .iter()
-            .flat_map(|&s| quantity.iter().map(move |&q| curve.variance(s.log2() + q)))
-            .map(|variance| (1.0 / variance, tau * variance.sqrt() / sigma))
-            .unzip();
-        Self {
-            precision,
-            loss_scale,
-            prior: vec![lambda / (sigma * sigma); group.n_ions],
-        }
-    }
-}
-
 fn fit_group(
     group: &Group,
     mut quantity: Vec<f64>,
-    cells: &CellWeights,
+    curve: &VarianceCurve,
+    scales: Scales,
     params: &FitParameters,
     n_runs: usize,
 ) -> Vec<f64> {
+    let Scales { sigma, tau, lambda } = scales;
+    // fixed at the unweighted quantities, so that the weights cannot chase the fit
+    let variance: Vec<f64> = group
+        .share
+        .iter()
+        .flat_map(|&s| quantity.iter().map(move |&q| curve.variance(s.log2() + q)))
+        .collect();
     let mut offsets = vec![0.0; group.n_ions];
     let mut weights = vec![0.0; group.n_ions * n_runs];
     for _ in 0..params.max_sweeps {
@@ -336,8 +291,9 @@ fn fit_group(
                 let cell = ion * n_runs + run;
                 match centered(group, &quantity, ion, run, n_runs) {
                     Some(deviation) => {
-                        let residual = (deviation - offsets[ion]) / cells.loss_scale[cell];
-                        let w = cells.precision[cell] / (1.0 + residual * residual);
+                        let v = variance[cell];
+                        let residual = (deviation - offsets[ion]) * sigma / (tau * v.sqrt());
+                        let w = 1.0 / (v * (1.0 + residual * residual));
                         weights[cell] = w;
                         numerator += w * deviation;
                         denominator += w;
@@ -345,7 +301,8 @@ fn fit_group(
                     None => weights[cell] = 0.0,
                 }
             }
-            offsets[ion] = numerator / (denominator + cells.prior[ion]);
+            // lambda counts observations of variance sigma ** 2
+            offsets[ion] = numerator / (denominator + lambda / (sigma * sigma));
         }
         let previous = quantity;
         quantity = run_quantities(group, &weights, &offsets, n_runs);
@@ -429,18 +386,13 @@ pub fn fit(
             .lambda
             .unwrap_or_else(|| offset_shrinkage(&raw_offsets, sigma)),
     };
-    let curve =
-        (params.weighting == Weighting::Variance).then(|| VarianceCurve::from_residuals(cells));
+    let curve = VarianceCurve::from_residuals(cells);
 
     let fitted: Vec<Vec<f64>> = groups
         .par_iter()
         .zip(initial)
         .map(|(group, quantity)| {
-            let cells = match &curve {
-                Some(curve) => CellWeights::variance(group, &quantity, curve, scales),
-                None => CellWeights::share(group, scales, n_runs),
-            };
-            let quantity = fit_group(group, quantity, &cells, params, n_runs);
+            let quantity = fit_group(group, quantity, &curve, scales, params, n_runs);
             let mut n_observed = vec![0usize; n_runs];
             for ion in 0..group.n_ions {
                 for (run, count) in n_observed.iter_mut().enumerate() {

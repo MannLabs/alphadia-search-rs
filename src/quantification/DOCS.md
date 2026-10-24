@@ -54,45 +54,29 @@ A dict with
 Iteratively reweighted least squares with a Cauchy loss. The weight of cell `(f, r)` is
 
 ```text
-w[f, r] = p[f, r] / (1 + (e[f, r] / t[f, r]) ** 2)
+w[f, r] = 1 / (v * (1 + (e[f, r] * sigma / (tau * sqrt(v))) ** 2)),   v = v(mu[f, r])
 ```
 
-with base weight `p` and loss scale `t` of the cell. In every sweep, per precursor,
+In every sweep, per precursor,
 
 ```text
-c[f]    = sum_r w (y - q) / (sum_r w + prior[f])
+c[f]    = sum_r w (y - q) / (sum_r w + lambda / sigma ** 2)
 q[g, r] = sum_f w (y - c) / sum_f w
 ```
 
 with `y = log2(I / s)`. The sweeps of a precursor stop when none of its quantities moves by
 more than `tolerance` log2, at most `max_sweeps`.
 
-## Weighting
-
-The base weight is the inverse variance of the cell, under one of two noise models:
-
-| `weighting` | `p[f, r]` | `t[f, r]` | `prior[f]` |
-|-------------|-----------|-----------|------------|
-| `variance` (default) | `1 / v(mu[f, r])` | `tau * sqrt(v) / sigma` | `lambda / sigma ** 2` |
-| `share`     | `s[f]` | `tau` | `lambda * s[f]` |
-
-`variance` measures the noise: `v(mu)` is the residual variance at the expected log2 intensity
-`mu[f, r] = log2(s[f]) + q[g, r]` of the cell, under the unweighted quantities. It is estimated
-from the residuals that give `sigma` (below): their robust variance (squared scaled MAD) in up
-to 30 bins of equal count along `mu`, made non-increasing in `mu`, since a cell is at least as
-noisy as any brighter one, and interpolated linearly in log variance between the bin medians.
-The variance falls with intensity where counting noise dominates and levels off at both ends:
-at the detection floor, where faint cells are as noisy as the background, and at the top, where
-the fragment-to-fragment noise of the measurement dominates. The loss scale keeps the
+`v(mu)` is the residual variance at the expected log2 intensity `mu[f, r] = log2(s[f]) + q[g, r]`
+of the cell, under the unweighted quantities. The variance falls with intensity where counting
+noise dominates and levels off at both ends: at the detection floor, where faint cells are as
+noisy as the background, and at the top, where the fragment-to-fragment noise of the
+measurement dominates. A weight by library share alone would see neither end. `v` is
+estimated from the residuals that give `sigma` (below): their squared scaled MAD in up to 30
+bins of equal count along `mu`, at least 50 residuals each, made non-increasing in `mu` and
+interpolated linearly in log variance between the bin medians. The loss scale keeps the
 tuning constant of every cell relative to its own standard deviation, and `lambda` counts
 observations of variance `sigma ** 2`.
-
-`share` assumes counting noise: `s[f]` is the expected share of the precursor signal, the
-inverse variance of a log intensity under counting statistics. It ignores the absolute
-intensity: a fragment weighs the same in a faint precursor as in a bright one. It therefore
-sees neither the floor, which dominates short gradients, nor the top, where it overweights
-the strongest fragment. `lambda` counts observations of unit weight, and every
-cell of fragment `f` weighs `s[f]` before the loss, hence `lambda * s[f]`.
 
 The loss scale and the shrinkage are derived from the data, not tuned:
 

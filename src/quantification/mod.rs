@@ -24,11 +24,9 @@ impl LibraryAnchoredFit {
     /// * `max_sweeps` - maximum number of reweighting sweeps per precursor.
     /// * `min_ions` - minimum observed fragments per precursor and run.
     /// * `tolerance` - largest change of a quantity (log2) at which the sweeps stop.
-    /// * `weighting` - base weight of a cell, `"variance"` (inverse residual variance at its
-    ///   expected intensity) or `"share"` (library share of the fragment).
     ///
-    /// Raises `ValueError` if `tau` is not positive, `lam` or `tolerance` is negative,
-    /// `min_ions` is zero or `weighting` is unknown.
+    /// Raises `ValueError` if `tau` is not positive, `lam` or `tolerance` is negative, or
+    /// `min_ions` is zero.
     #[new]
     #[pyo3(signature = (
         tau = None,
@@ -36,7 +34,6 @@ impl LibraryAnchoredFit {
         max_sweeps = DEFAULT_MAX_SWEEPS,
         min_ions = DEFAULT_MIN_IONS,
         tolerance = DEFAULT_TOLERANCE,
-        weighting = "variance",
     ))]
     fn new(
         tau: Option<f64>,
@@ -44,10 +41,8 @@ impl LibraryAnchoredFit {
         max_sweeps: usize,
         min_ions: usize,
         tolerance: f64,
-        weighting: &str,
     ) -> PyResult<Self> {
         let params = FitParameters {
-            weighting: weighting.parse().map_err(PyValueError::new_err)?,
             tau,
             lambda: lam,
             max_sweeps,

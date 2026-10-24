@@ -38,8 +38,17 @@ fn two_window_data(lower: [f32; 2], upper: [f32; 2]) -> DIAData {
     DIADataBuilder::from_alpha_raw(&view)
 }
 
+/// Plan with monoisotopic and first-isotope fragment channels.
 fn plan_at(dia_data: &DIAData, precursor_mz: f32) -> ExtractionPlan {
-    ExtractionPlan::isotope_envelope(dia_data, precursor_mz, 2, &ISOTOPES, &[FRAGMENT_MZ], &[1])
+    ExtractionPlan::isotope_envelope(
+        dia_data,
+        precursor_mz,
+        2,
+        &ISOTOPES,
+        &[FRAGMENT_MZ],
+        &[1],
+        1,
+    )
 }
 
 fn sum_weight_times_gain(plan: &ExtractionPlan, fragment_idx: usize) -> f32 {
@@ -170,6 +179,7 @@ fn test_gain_follows_isotope_and_fragment_share() {
         &ISOTOPES,
         &[FRAGMENT_MZ],
         &[1],
+        1,
     );
 
     // Then: the lower window holds M0 only, so its monoisotopic gain is I_0 / reference
@@ -276,4 +286,16 @@ fn test_missing_isotope_values_fall_back_to_monoisotopic_plan() {
         assert_eq!(plan.channels.len(), 1);
         assert_eq!(plan.channels[0].weight, 1.0);
     }
+}
+
+#[test]
+fn test_monoisotopic_fragments_only_without_fragment_isotopes() {
+    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
+
+    let plan =
+        ExtractionPlan::isotope_envelope(&dia_data, 499.8, 2, &ISOTOPES, &[FRAGMENT_MZ], &[1], 0);
+
+    assert_eq!(plan.observation_indices, vec![0, 1]);
+    assert!(plan.channels.iter().all(|channel| channel.mz_shift == 0.0));
+    assert!((sum_weight_times_gain(&plan, 0) - 1.0).abs() < 1e-5);
 }

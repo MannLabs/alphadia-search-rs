@@ -2,7 +2,6 @@ use approx::assert_abs_diff_eq;
 
 use super::algorithm::{fit, validate_shapes, FitParameters, Weighting};
 
-/// Deterministic pseudo-random value in `[-0.5, 0.5)`.
 fn noise(seed: usize) -> f64 {
     let hashed = (seed as u64)
         .wrapping_mul(6364136223846793005)
@@ -10,7 +9,6 @@ fn noise(seed: usize) -> f64 {
     (hashed >> 33) as f64 / (1u64 << 31) as f64 - 0.5
 }
 
-/// Run-major `f32` intensities from ion-major log2 values, NaN becomes the missing marker 0.
 fn run_major(log2_values: &[Vec<f64>]) -> Vec<f32> {
     let n_runs = log2_values[0].len();
     let mut intensity = vec![0.0f32; n_runs * log2_values.len()];
@@ -32,7 +30,6 @@ fn params(tau: Option<f64>, lambda: Option<f64>) -> FitParameters {
     }
 }
 
-/// Quantity of precursor `index` in every run.
 fn quantities(quantity: &[f64], index: usize, n_runs: usize, n_precursors: usize) -> Vec<f64> {
     (0..n_runs)
         .map(|run| quantity[run * n_precursors + index])
@@ -252,13 +249,13 @@ fn test_derives_loss_scale_and_shrinkage_from_the_data() {
     );
 
     // Then the first-sweep residuals carry noise and offsets, the loss scale follows them
-    assert!(result.residual_scale > noise_sd);
+    assert!(result.scales.sigma > noise_sd);
     assert_abs_diff_eq!(
-        result.loss_scale,
-        2.385 * result.residual_scale,
+        result.scales.tau,
+        2.385 * result.scales.sigma,
         epsilon = 1e-9
     );
-    assert!(result.offset_shrinkage > 0.0);
+    assert!(result.scales.lambda > 0.0);
     let mut error = 0.0;
     for (p, q) in true_q.iter().enumerate() {
         let est = quantities(&result.quantity, p, n_runs, n_precursors);
@@ -344,9 +341,6 @@ fn test_validate_rejects_invalid_parameters() {
     assert!("uniform".parse::<Weighting>().is_err());
 }
 
-/// Precursors with library offsets and residual noise of the given sd (log2), 5 % of the cells
-/// interfered by 1 to 5 log2 and 15 % missing. Returns the log2 values, the precursor of every
-/// fragment and the true quantities.
 fn simulate_offsets_and_noise(
     offset_sd: f64,
     noise_sd: f64,
@@ -392,7 +386,6 @@ fn simulate_offsets_and_noise(
     (log2_values, precursor, true_q)
 }
 
-/// Mean absolute error of the within-precursor log2 profiles (centred over the defined runs).
 fn profile_error(quantity: &[f64], true_q: &[Vec<f64>]) -> f64 {
     let (n_precursors, n_runs) = (true_q.len(), true_q[0].len());
     let (mut error, mut count) = (0.0, 0usize);
@@ -423,7 +416,8 @@ fn test_residual_scale_excludes_the_library_offsets() {
             true_q.len(),
             &FitParameters::DEFAULT,
         )
-        .residual_scale
+        .scales
+        .sigma
     };
 
     // When

@@ -1,9 +1,3 @@
-//! Library-anchored precursor quantification. Estimates the run quantities of every precursor
-//! from its fragment intensities anchored to the library fragment pattern.
-//!
-//! Python does only the dataframe work: it turns the fragment tables into run-major matrices.
-//! All calculations occur here.
-
 mod algorithm;
 #[cfg(test)]
 mod tests;
@@ -17,10 +11,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
-/// Fragment matrices in, precursor quantities out.
-///
-/// The description below comes from `src/quantification/DOCS.md`. It gives the problem, the
-/// input and output arrays, the model and the algorithm.
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
 pub struct LibraryAnchoredFit {
@@ -29,32 +19,32 @@ pub struct LibraryAnchoredFit {
 
 #[pymethods]
 impl LibraryAnchoredFit {
-    /// * `weighting` - base weight of a cell, `"variance"` (inverse residual variance at its
-    ///   expected intensity) or `"share"` (library share of the fragment).
     /// * `tau` - scale of the Cauchy loss in log2, None to derive it from the data.
     /// * `lam` - shrinkage of the fragment offsets towards the library pattern, None to derive it.
     /// * `max_sweeps` - maximum number of reweighting sweeps per precursor.
     /// * `min_ions` - minimum observed fragments per precursor and run.
     /// * `tolerance` - largest change of a quantity (log2) at which the sweeps stop.
+    /// * `weighting` - base weight of a cell, `"variance"` (inverse residual variance at its
+    ///   expected intensity) or `"share"` (library share of the fragment).
     ///
-    /// Raises `ValueError` if `weighting` is unknown, `tau` is not positive, `lam` or `tolerance` is negative, or
-    /// `min_ions` is zero.
+    /// Raises `ValueError` if `tau` is not positive, `lam` or `tolerance` is negative,
+    /// `min_ions` is zero or `weighting` is unknown.
     #[new]
     #[pyo3(signature = (
-        weighting = "variance",
         tau = None,
         lam = None,
         max_sweeps = DEFAULT_MAX_SWEEPS,
         min_ions = DEFAULT_MIN_IONS,
         tolerance = DEFAULT_TOLERANCE,
+        weighting = "variance",
     ))]
     fn new(
-        weighting: &str,
         tau: Option<f64>,
         lam: Option<f64>,
         max_sweeps: usize,
         min_ions: usize,
         tolerance: f64,
+        weighting: &str,
     ) -> PyResult<Self> {
         let params = FitParameters {
             weighting: weighting.parse().map_err(PyValueError::new_err)?,
@@ -106,9 +96,9 @@ impl LibraryAnchoredFit {
             .into_pyarray(py);
         let dict = PyDict::new(py);
         dict.set_item("quantity", quantity)?;
-        dict.set_item("residual_scale", result.residual_scale)?;
-        dict.set_item("loss_scale", result.loss_scale)?;
-        dict.set_item("offset_shrinkage", result.offset_shrinkage)?;
+        dict.set_item("residual_scale", result.scales.sigma)?;
+        dict.set_item("loss_scale", result.scales.tau)?;
+        dict.set_item("offset_shrinkage", result.scales.lambda)?;
         Ok(dict.into())
     }
 }

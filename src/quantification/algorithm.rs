@@ -275,12 +275,13 @@ fn fit_group(
     n_runs: usize,
 ) -> Vec<f64> {
     let Scales { sigma, tau, lambda } = scales;
-    // fixed at the unweighted quantities, so that the weights cannot chase the fit
-    let variance: Vec<f64> = group
-        .share
-        .iter()
-        .flat_map(|&s| quantity.iter().map(move |&q| curve.variance(s.log2() + q)))
-        .collect();
+    let loss = (sigma / tau).powi(2);
+    // fixed at the share-weighted first pass, so that the weights cannot chase the fit
+    let mut variance = Vec::with_capacity(group.n_ions * n_runs);
+    for &share in &group.share {
+        let log_share = share.log2();
+        variance.extend(quantity.iter().map(|&q| curve.variance(log_share + q)));
+    }
     let mut offsets = vec![0.0; group.n_ions];
     let mut weights = vec![0.0; group.n_ions * n_runs];
     for _ in 0..params.max_sweeps {
@@ -291,9 +292,8 @@ fn fit_group(
                 let cell = ion * n_runs + run;
                 match centered(group, &quantity, ion, run, n_runs) {
                     Some(deviation) => {
-                        let v = variance[cell];
-                        let residual = (deviation - offsets[ion]) * sigma / (tau * v.sqrt());
-                        let w = 1.0 / (v * (1.0 + residual * residual));
+                        let e = deviation - offsets[ion];
+                        let w = 1.0 / (variance[cell] + loss * e * e);
                         weights[cell] = w;
                         numerator += w * deviation;
                         denominator += w;

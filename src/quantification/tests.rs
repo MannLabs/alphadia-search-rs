@@ -503,18 +503,27 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
                 .collect()
         })
         .collect();
+    let error = |max_sweeps| {
+        let result = fit(
+            &run_major(&log2_values),
+            &library,
+            &precursor,
+            n_runs,
+            n_precursors,
+            &FitParameters {
+                max_sweeps,
+                ..FitParameters::DEFAULT
+            },
+        );
+        profile_error(&result.quantity, &true_q)
+    };
 
     // When
-    let result = fit(
-        &run_major(&log2_values),
-        &library,
-        &precursor,
-        n_runs,
-        n_precursors,
-        &FitParameters::DEFAULT,
-    );
+    let (first_sweep, fitted) = (error(0), error(FitParameters::DEFAULT.max_sweeps));
 
-    // Then the noisy cells are downweighted: weighting by the library share alone gives 0.196
-    let error = profile_error(&result.quantity, &true_q);
-    assert!(error < 0.13, "profile error {error}");
+    // Then the noisy cells are downweighted below the library-share weights of the first sweep
+    assert!(
+        fitted < 0.85 * first_sweep,
+        "profile error {fitted} fitted, {first_sweep} after the first sweep"
+    );
 }

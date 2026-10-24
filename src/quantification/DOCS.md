@@ -54,8 +54,11 @@ A dict with
 Iteratively reweighted least squares with a Cauchy loss. The weight of cell `(f, r)` is
 
 ```text
-w[f, r] = 1 / (v * (1 + (e[f, r] * sigma / (tau * sqrt(v))) ** 2)),   v = v(mu[f, r])
+w[f, r] = 1 / (v(mu[f, r]) + (sigma / tau) ** 2 * e[f, r] ** 2)
 ```
+
+the inverse variance `1 / v` of the cell, downweighted by a Cauchy loss of scale
+`tau * sqrt(v) / sigma`.
 
 In every sweep, per precursor,
 
@@ -68,12 +71,12 @@ with `y = log2(I / s)`. The sweeps of a precursor stop when none of its quantiti
 more than `tolerance` log2, at most `max_sweeps`.
 
 `v(mu)` is the residual variance at the expected log2 intensity `mu[f, r] = log2(s[f]) + q[g, r]`
-of the cell, under the unweighted quantities. The variance falls with intensity where counting
+of the cell, under the quantities of the first sweep. The variance falls with intensity where counting
 noise dominates and levels off at both ends: at the detection floor, where faint cells are as
 noisy as the background, and at the top, where the fragment-to-fragment noise of the
 measurement dominates. A weight by library share alone would see neither end. `v` is
 estimated from the residuals that give `sigma` (below): their squared scaled MAD in up to 30
-bins of equal count along `mu`, at least 50 residuals each, made non-increasing in `mu` and
+bins of equal count along `mu`, at most one bin per 50 residuals, made non-increasing in `mu` and
 interpolated linearly in log variance between the bin medians. The loss scale keeps the
 tuning constant of every cell relative to its own standard deviation, and `lambda` counts
 observations of variance `sigma ** 2`.
@@ -82,7 +85,7 @@ The loss scale and the shrinkage are derived from the data, not tuned:
 
 | quantity       | value | derivation |
 |----------------|-------|------------|
-| `tau`          | `2.385 * sigma`, `sigma = 1.4826 * MAD` of the residuals of the first, unweighted sweep over all precursors, taken around the unshrunk fragment offsets and scaled by `sqrt(n_f / (n_f - 1))` | Cauchy tuning constant for 95 % efficiency at the normal distribution (Holland & Welsch 1977); the library offsets are not noise |
+| `tau`          | `2.385 * sigma`, `sigma = 1.4826 * MAD` of the residuals of the first sweep (library-share weights, no loss) over all precursors, taken around the unshrunk fragment offsets and scaled by `sqrt(n_f / (n_f - 1))` | Cauchy tuning constant for 95 % efficiency at the normal distribution (Holland & Welsch 1977); the library offsets are not noise |
 | `lambda`       | `sigma ** 2 / sigma_c ** 2`, `sigma_c ** 2 = var(unshrunk per-fragment mean deviations) - mean(sigma ** 2 / n_f)`, floored | random-effects (ridge) shrinkage of a fragment offset towards the library pattern |
 
 `sigma` is floored at a small value so that data whose majority of residuals is exactly zero

@@ -14,13 +14,41 @@ const MIN_OFFSET_VARIANCE: f64 = 1e-4;
 /// Floor of the robust residual scale (log2): data whose majority of residuals is exactly zero
 /// would otherwise get a zero loss scale.
 const MIN_RESIDUAL_SCALE: f64 = 1e-3;
+/// Bins of the variance curve, of equal residual count.
+const VARIANCE_BINS: usize = 30;
+/// Fewest residuals per bin of the variance curve: smaller data gets fewer bins.
+const MIN_VARIANCE_BIN_SIZE: usize = 50;
 
 pub const DEFAULT_MAX_SWEEPS: usize = 20;
 pub const DEFAULT_MIN_IONS: usize = 2;
 pub const DEFAULT_TOLERANCE: f64 = 1e-3;
 
+/// Base weight of a cell before the loss, see `DOCS.md`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Weighting {
+    /// Library share of the fragment.
+    Share,
+    /// Inverse residual variance at the expected log2 intensity of the cell.
+    Variance,
+}
+
+impl std::str::FromStr for Weighting {
+    type Err = String;
+
+    fn from_str(name: &str) -> Result<Self, String> {
+        match name {
+            "share" => Ok(Self::Share),
+            "variance" => Ok(Self::Variance),
+            _ => Err(format!(
+                "weighting must be 'share' or 'variance', got '{name}'"
+            )),
+        }
+    }
+}
+
 /// Parameters of the fit, see `DOCS.md` for the terms.
 pub struct FitParameters {
+    pub weighting: Weighting,
     /// Scale of the Cauchy loss in log2, `None` to derive it from the data.
     pub tau: Option<f64>,
     /// Shrinkage of the fragment offsets towards the library pattern, `None` to derive it.
@@ -37,6 +65,7 @@ impl FitParameters {
     // the Python constructor spells out every field, the tests vary single ones
     #[cfg(test)]
     pub const DEFAULT: Self = Self {
+        weighting: Weighting::Variance,
         tau: None,
         lambda: None,
         max_sweeps: DEFAULT_MAX_SWEEPS,
@@ -245,12 +274,100 @@ fn offset_shrinkage(raw_offsets: &[(f64, usize)], sigma: f64) -> f64 {
     sigma * sigma / (variance - noise).max(MIN_OFFSET_VARIANCE)
 }
 
+/// Residual variance as a non-increasing function of the expected log2 intensity
+/// `mu = log2(s) + q` of a cell, linear in log variance between the bins.
+struct VarianceCurve {
+    mu: Vec<f64>,
+    log_variance: Vec<f64>,
+}
+
+impl VarianceCurve {
+    /// Robust variance per bin of `(mu, residual)` pairs.
+    fn from_residuals(mut cells: Vec<(f64, f64)>) -> Self {
+        cells.sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let n_bins = (cells.len() / MIN_VARIANCE_BIN_SIZE).clamp(1, VARIANCE_BINS);
+        let mut mu = Vec::with_capacity(n_bins);
+        let mut log_variance = Vec::with_capacity(n_bins);
+        for bin in 0..n_bins {
+            let cells = &cells[bin * cells.len() / n_bins..(bin + 1) * cells.len() / n_bins];
+            mu.push(cells.get(cells.len() / 2).map_or(0.0, |cell| cell.0));
+            let mut residuals: Vec<f64> = cells.iter().map(|cell| cell.1).collect();
+            log_variance.push(2.0 * residual_scale(&mut residuals).ln());
+        }
+        // a cell is at least as noisy as any brighter one
+        for bin in (1..n_bins).rev() {
+            log_variance[bin - 1] = log_variance[bin - 1].max(log_variance[bin]);
+        }
+        Self { mu, log_variance }
+    }
+
+    /// Constant beyond the outer bins, and at the faintest bin for an undefined `mu`.
+    fn variance(&self, mu: f64) -> f64 {
+        let (x, y) = (&self.mu, &self.log_variance);
+        let upper = x.partition_point(|&m| m < mu);
+        let log_variance = if upper == 0 {
+            y[0]
+        } else if upper == x.len() {
+            y[upper - 1]
+        } else {
+            let t = (mu - x[upper - 1]) / (x[upper] - x[upper - 1]);
+            y[upper - 1] + t * (y[upper] - y[upper - 1])
+        };
+        log_variance.exp()
+    }
+}
+
+/// Base weights of the cells of one precursor: precision and loss scale per cell, offset prior
+/// per fragment.
+struct CellWeights {
+    precision: Vec<f64>,
+    loss_scale: Vec<f64>,
+    prior: Vec<f64>,
+}
+
+impl CellWeights {
+    /// Weights `s[f]`, loss scale `tau` and prior `lambda * s[f]`.
+    fn share(group: &Group, tau: f64, lambda: f64, n_runs: usize) -> Self {
+        Self {
+            precision: base_weights(group, n_runs),
+            loss_scale: vec![tau; group.n_ions * n_runs],
+            prior: group.base.iter().map(|&base| lambda * base).collect(),
+        }
+    }
+
+    /// Weights `1 / v`, loss scale `tau * sqrt(v) / sigma` and prior `lambda / sigma ** 2` with
+    /// `v` the curve at the expected intensity of the cell under the unweighted quantities.
+    fn variance(
+        group: &Group,
+        quantity: &[f64],
+        curve: &VarianceCurve,
+        sigma: f64,
+        tau: f64,
+        lambda: f64,
+        n_runs: usize,
+    ) -> Self {
+        let mut precision = Vec::with_capacity(group.n_ions * n_runs);
+        let mut loss_scale = Vec::with_capacity(group.n_ions * n_runs);
+        for &base in &group.base {
+            for &q in quantity {
+                let variance = curve.variance(base.log2() + q);
+                precision.push(1.0 / variance);
+                loss_scale.push(tau * variance.sqrt() / sigma);
+            }
+        }
+        Self {
+            precision,
+            loss_scale,
+            prior: vec![lambda / (sigma * sigma); group.n_ions],
+        }
+    }
+}
+
 /// Reweighting sweeps of one precursor from its unweighted quantities.
 fn fit_group(
     group: &Group,
     mut quantity: Vec<f64>,
-    tau: f64,
-    lambda: f64,
+    cells: &CellWeights,
     params: &FitParameters,
     n_runs: usize,
 ) -> Vec<f64> {
@@ -264,8 +381,8 @@ fn fit_group(
                 let cell = ion * n_runs + run;
                 match centered(group, &quantity, ion, run, n_runs) {
                     Some(deviation) => {
-                        let residual = (deviation - offsets[ion]) / tau;
-                        let w = group.base[ion] / (1.0 + residual * residual);
+                        let residual = (deviation - offsets[ion]) / cells.loss_scale[cell];
+                        let w = cells.precision[cell] / (1.0 + residual * residual);
                         weights[cell] = w;
                         numerator += w * deviation;
                         denominator += w;
@@ -273,8 +390,7 @@ fn fit_group(
                     None => weights[cell] = 0.0,
                 }
             }
-            // lambda counts observations of unit weight, a cell of this fragment weighs base[ion]
-            offsets[ion] = numerator / (denominator + lambda * group.base[ion]);
+            offsets[ion] = numerator / (denominator + cells.prior[ion]);
         }
         let previous = quantity;
         quantity = run_quantities(group, &weights, &offsets, n_runs);
@@ -317,8 +433,9 @@ pub fn fit(
     // residuals and unshrunk offsets of the first, unweighted sweep over all precursors. The
     // residuals are taken around the unshrunk offsets, so that the library offsets do not count
     // as noise, and scaled by sqrt(n / (n - 1)) for the offset fitted to the same n cells.
-    // Fragments observed once have no residual around their offset.
-    let (mut residuals, raw_offsets): (Vec<f64>, Vec<(f64, usize)>) = groups
+    // Fragments observed once have no residual around their offset. Every residual is paired
+    // with the expected log2 intensity of its cell for the variance curve.
+    let (cells, raw_offsets): (Vec<(f64, f64)>, Vec<(f64, usize)>) = groups
         .par_iter()
         .zip(&initial)
         .map(|(group, quantity)| {
@@ -327,14 +444,19 @@ pub fn fit(
             let mut deviations = Vec::with_capacity(n_runs);
             for ion in 0..group.n_ions {
                 deviations.clear();
-                deviations.extend(
-                    (0..n_runs).filter_map(|run| centered(group, quantity, ion, run, n_runs)),
-                );
+                deviations.extend((0..n_runs).filter_map(|run| {
+                    centered(group, quantity, ion, run, n_runs).map(|d| (quantity[run], d))
+                }));
                 let n = deviations.len();
-                let raw_offset = deviations.iter().sum::<f64>() / n.max(1) as f64;
+                let raw_offset = deviations.iter().map(|(_, d)| d).sum::<f64>() / n.max(1) as f64;
                 if n >= 2 {
                     let scale = (n as f64 / (n - 1) as f64).sqrt();
-                    residuals.extend(deviations.iter().map(|d| (d - raw_offset) * scale));
+                    let log_share = group.base[ion].log2();
+                    residuals.extend(
+                        deviations
+                            .iter()
+                            .map(|(q, d)| (log_share + q, (d - raw_offset) * scale)),
+                    );
                 }
                 raw_offsets.push((raw_offset, n));
             }
@@ -348,17 +470,27 @@ pub fn fit(
                 (residuals, offsets)
             },
         );
+    let mut residuals: Vec<f64> = cells.iter().map(|cell| cell.1).collect();
     let sigma = residual_scale(&mut residuals);
+    drop(residuals);
     let tau = params.tau.unwrap_or(CAUCHY_TUNING_CONSTANT * sigma);
     let lambda = params
         .lambda
         .unwrap_or_else(|| offset_shrinkage(&raw_offsets, sigma));
+    let curve =
+        (params.weighting == Weighting::Variance).then(|| VarianceCurve::from_residuals(cells));
 
     let fitted: Vec<Vec<f64>> = groups
         .par_iter()
         .zip(initial)
         .map(|(group, quantity)| {
-            let quantity = fit_group(group, quantity, tau, lambda, params, n_runs);
+            let cells = match &curve {
+                Some(curve) => {
+                    CellWeights::variance(group, &quantity, curve, sigma, tau, lambda, n_runs)
+                }
+                None => CellWeights::share(group, tau, lambda, n_runs),
+            };
+            let quantity = fit_group(group, quantity, &cells, params, n_runs);
             let mut n_observed = vec![0usize; n_runs];
             for ion in 0..group.n_ions {
                 for (run, count) in n_observed.iter_mut().enumerate() {

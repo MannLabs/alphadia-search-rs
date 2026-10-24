@@ -1,6 +1,6 @@
 use approx::assert_abs_diff_eq;
 
-use super::algorithm::{fit, validate_shapes, FitParameters};
+use super::algorithm::{fit, validate_shapes, FitParameters, Weighting};
 
 /// Deterministic pseudo-random value in `[-0.5, 0.5)`.
 fn noise(seed: usize) -> f64 {
@@ -339,6 +339,9 @@ fn test_validate_rejects_invalid_parameters() {
     .validate()
     .is_err());
     assert!(FitParameters::DEFAULT.validate().is_ok());
+    assert!("share".parse::<Weighting>().is_ok());
+    assert!("variance".parse::<Weighting>().is_ok());
+    assert!("uniform".parse::<Weighting>().is_err());
 }
 
 /// Precursors with library offsets and residual noise of the given sd (log2), 5 % of the cells
@@ -434,9 +437,8 @@ fn test_residual_scale_excludes_the_library_offsets() {
 }
 
 #[test]
-fn test_offsets_are_removed_with_library_share_weights() {
-    // Given large library offsets, interference and missing cells, fragments weighted by
-    // unequal library shares
+fn test_offsets_are_removed_with_unequal_library_shares() {
+    // Given large library offsets, interference and missing cells, and unequal library shares
     let (log2_values, precursor, true_q) = simulate_offsets_and_noise(1.0, 0.1);
     let library: Vec<f32> = (0..precursor.len())
         .map(|ion| 0.05 + 0.95 * (noise(10_000_000 + ion) as f32 + 0.5))
@@ -458,18 +460,87 @@ fn test_offsets_are_removed_with_library_share_weights() {
         })
         .collect();
 
-    // When
-    let result = fit(
-        &run_major(&scaled),
-        &library,
-        &precursor,
-        6,
-        true_q.len(),
-        &FitParameters::DEFAULT,
-    );
+    for weighting in [Weighting::Share, Weighting::Variance] {
+        // When
+        let result = fit(
+            &run_major(&scaled),
+            &library,
+            &precursor,
+            6,
+            true_q.len(),
+            &FitParameters {
+                weighting,
+                ..FitParameters::DEFAULT
+            },
+        );
 
-    // Then the profiles are close to the truth: a missing cell of a fragment with a large
-    // offset must not move its precursor's quantity in that run
-    let error = profile_error(&result.quantity, &true_q);
-    assert!(error < 0.07, "profile error {error}");
+        // Then the profiles are close to the truth: a missing cell of a fragment with a large
+        // offset must not move its precursor's quantity in that run
+        let error = profile_error(&result.quantity, &true_q);
+        assert!(
+            error < 0.07,
+            "profile error {error} with {weighting:?} weights"
+        );
+    }
+}
+
+#[test]
+fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
+    // Given precursors over a wide abundance range with unequal library shares, whose cells
+    // are noisy below an expected log2 intensity of 12 and precise above, whatever their share
+    let (n_precursors, n_fragments, n_runs) = (1000, 10, 6);
+    let true_q: Vec<Vec<f64>> = (0..n_precursors)
+        .map(|p| {
+            let level = 16.0 + 8.0 * noise(11_000_000 + p);
+            (0..n_runs)
+                .map(|run| level + 2.0 * noise(12_000_000 + p * n_runs + run))
+                .collect()
+        })
+        .collect();
+    let library: Vec<f32> = (0..n_precursors * n_fragments)
+        .map(|ion| 2f32.powf(-6.0 * (noise(13_000_000 + ion) as f32 + 0.5)))
+        .collect();
+    let precursor: Vec<usize> = (0..n_precursors * n_fragments)
+        .map(|ion| ion / n_fragments)
+        .collect();
+    let log2_values: Vec<Vec<f64>> = (0..n_precursors * n_fragments)
+        .map(|ion| {
+            let p = precursor[ion];
+            let library_sum: f64 = library[p * n_fragments..(p + 1) * n_fragments]
+                .iter()
+                .map(|&l| l as f64)
+                .sum();
+            let log_share = (library[ion] as f64 / library_sum).log2();
+            (0..n_runs)
+                .map(|run| {
+                    let expected = log_share + true_q[p][run];
+                    let sd = if expected < 12.0 { 1.0 } else { 0.05 };
+                    expected + sd * 12f64.sqrt() * noise(14_000_000 + ion * n_runs + run)
+                })
+                .collect()
+        })
+        .collect();
+    let error = |weighting| {
+        let result = fit(
+            &run_major(&log2_values),
+            &library,
+            &precursor,
+            n_runs,
+            n_precursors,
+            &FitParameters {
+                weighting,
+                ..FitParameters::DEFAULT
+            },
+        );
+        profile_error(&result.quantity, &true_q)
+    };
+
+    // When
+    let (share, variance) = (error(Weighting::Share), error(Weighting::Variance));
+
+    // Then weighting by the noise of the cell beats weighting by the share of the fragment
+    assert!(
+        variance < 0.7 * share,
+        "profile error {variance} with variance weights, {share} with share weights"
+    );
 }

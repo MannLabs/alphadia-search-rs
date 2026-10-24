@@ -40,7 +40,7 @@ fn test_basic_creation() {
     // When: Creating a DenseXICObservation for cycles 10-12
     let obs = DenseXICObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         12,
         20.0,
@@ -61,7 +61,7 @@ fn test_optimized_data_creation() {
     // When: Creating a DenseXICObservation for a single cycle (10-11)
     let obs = DenseXICObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         11,
         20.0,
@@ -82,7 +82,7 @@ fn test_empty_fragments() {
     // When: Creating a DenseXICObservation with no fragments
     let obs = DenseXICObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         12,
         20.0,
@@ -103,7 +103,7 @@ fn test_metadata_storage() {
     // When: Creating a DenseXICObservation with specific parameters
     let obs = DenseXICObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         15,
         50.0,
@@ -126,7 +126,7 @@ fn test_multiple_fragments() {
     // When: Creating a DenseXICObservation with 3 fragments
     let obs = DenseXICObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         12,
         20.0,
@@ -147,7 +147,7 @@ fn test_dense_xic_mz_basic_creation() {
     // When: Creating a DenseXICMZObservation for cycles 10-12
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         12,
         20.0,
@@ -171,7 +171,7 @@ fn test_dense_xic_mz_intensity_values() {
     // When: Creating a DenseXICMZObservation with high tolerance (1000 ppm)
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         11,
         1000.0,
@@ -218,7 +218,7 @@ fn test_dense_xic_mz_weighted_average() {
     // When: Creating a DenseXICMZObservation that matches all three peaks
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 250.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 250.0, &fragment_mz).primary,
         5,
         6,
         2000.0,
@@ -265,7 +265,7 @@ fn test_dense_xic_mz_zero_intensity_handling() {
     // When: Creating a DenseXICMZObservation for both cycles
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 300.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 300.0, &fragment_mz).primary,
         0,
         2,
         2000.0,
@@ -291,7 +291,7 @@ fn test_dense_xic_mz_no_matching_fragments() {
     // When: Creating a DenseXICMZObservation with non-matching fragment
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         12,
         20.0,
@@ -315,7 +315,7 @@ fn test_dense_xic_mz_multiple_fragments() {
     // When: Creating a DenseXICMZObservation with low tolerance (20 ppm)
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz).primary,
         10,
         11,
         20.0,
@@ -344,7 +344,7 @@ fn test_dense_xic_mz_single_cycle_single_fragment() {
     // When: Extracting a single cycle with a single fragment
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.0]),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.0]).primary,
         10,
         11,
         20.0,
@@ -365,7 +365,7 @@ fn test_dense_xic_mz_overlapping_tolerance_windows() {
     // When: Using high tolerance that causes both fragments to see both peaks
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.0, 200.05]),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.0, 200.05]).primary,
         10,
         11,
         1000.0,
@@ -385,7 +385,7 @@ fn test_dense_xic_mz_out_of_mz_index_range() {
     // When: Requesting a fragment below m/z 150
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[100.0]),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[100.0]).primary,
         10,
         11,
         20.0,
@@ -406,7 +406,7 @@ fn test_dense_xic_mz_exact_tolerance_boundary() {
     // 200.05 ± 400ppm = 200.05 ± 0.08 = [199.97, 200.13]
     let obs = DenseXICMZObservation::new(
         &dia_data,
-        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.05]),
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.05]).primary,
         10,
         11,
         400.0,

@@ -754,3 +754,84 @@ pub fn calculate_lib_cosine_coherent(
         0.0
     }
 }
+
+/// Pseudo-count added to the apex intensities of both windows before their log ratio, so that a window without
+/// signal gives a finite error.
+pub const SECONDARY_RATIO_PSEUDO_COUNT: f32 = 1.0;
+
+/// Agreement of the secondary isolation window with the primary one, for a precursor whose isotope envelope is
+/// split across both. A real precursor records the same elution profile in both windows, at the intensity
+/// ratio its m/z position predicts; a chance match in one window does not.
+///
+/// Returns, in this order:
+/// - `secondary_mean_correlation`: mean correlation of the secondary profiles with the primary median profile
+/// - `secondary_num_over_50`: secondary profiles correlating > 0.5 with the primary median profile
+/// - `secondary_lib_cosine`: cosine of the secondary apex (+-1 cycle) intensities with the expected intensities
+/// - `secondary_ratio_error`: absolute log difference of the observed and the expected secondary / primary apex
+///   intensity ratio
+///
+/// All four are 0 if the lengths disagree or nothing is expected in either window.
+pub fn calculate_secondary_window_features(
+    primary_xic: &Array2<f32>,
+    secondary_xic: &Array2<f32>,
+    median_profile: &[f32],
+    primary_expected: &[f32],
+    secondary_expected: &[f32],
+) -> (f32, f32, f32, f32) {
+    let (n_fragments, n_cycles) = secondary_xic.dim();
+    let expected_primary: f32 = primary_expected.iter().sum();
+    let expected_secondary: f32 = secondary_expected.iter().sum();
+    if n_fragments == 0
+        || n_cycles == 0
+        || primary_xic.dim() != (n_fragments, n_cycles)
+        || median_profile.len() != n_cycles
+        || primary_expected.len() != n_fragments
+        || secondary_expected.len() != n_fragments
+        || expected_primary <= 0.0
+        || expected_secondary <= 0.0
+    {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+
+    let correlations = correlation_axis_0(median_profile, &normalize_profiles(secondary_xic, 1));
+    let mean_correlation = correlations.iter().sum::<f32>() / n_fragments as f32;
+    let num_over_50 = correlations
+        .iter()
+        .filter(|&&c| c > AGREEMENT_MIN_CORRELATION)
+        .count() as f32;
+
+    let apex = median_profile
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let start = apex.saturating_sub(LIB_COSINE_APEX_HALF_WIDTH);
+    let stop = (apex + LIB_COSINE_APEX_HALF_WIDTH + 1).min(n_cycles);
+    let apex_intensity =
+        |xic: &Array2<f32>, i: usize| -> f32 { (start..stop).map(|c| xic[[i, c]]).sum() };
+
+    let mut dot = 0.0f32;
+    let mut observed_norm = 0.0f32;
+    let mut expected_norm = 0.0f32;
+    let mut observed_primary = 0.0f32;
+    let mut observed_secondary = 0.0f32;
+    for i in 0..n_fragments {
+        let secondary = apex_intensity(secondary_xic, i);
+        dot += secondary * secondary_expected[i];
+        observed_norm += secondary * secondary;
+        expected_norm += secondary_expected[i] * secondary_expected[i];
+        observed_secondary += secondary;
+        observed_primary += apex_intensity(primary_xic, i);
+    }
+    let norm = (observed_norm * expected_norm).sqrt();
+    let lib_cosine = if norm > 0.0 { dot / norm } else { 0.0 };
+
+    let observed_ratio = ((observed_secondary + SECONDARY_RATIO_PSEUDO_COUNT)
+        / (observed_primary + SECONDARY_RATIO_PSEUDO_COUNT))
+        .ln();
+    let expected_ratio = (expected_secondary / expected_primary).ln();
+    let ratio_error = (observed_ratio - expected_ratio).abs();
+
+    (mean_correlation, num_over_50, lib_cosine, ratio_error)
+}

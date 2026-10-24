@@ -159,10 +159,12 @@ impl PeakGroupSelection {
             return None;
         }
 
+        let plan = ExtractionPlan::new(dia_data, precursor);
+
         // Create dense XIC observation using the filtered precursor fragments
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
-            &ExtractionPlan::new(dia_data, precursor),
+            &plan.primary,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
@@ -170,7 +172,12 @@ impl PeakGroupSelection {
 
         let convolved_xic = convolution(kernel, &dense_xic_obs.dense_xic);
 
-        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
+        let score = axis_log_dot_product(
+            &convolved_xic,
+            &plan
+                .primary
+                .expected_intensity(&precursor.fragment_intensity),
+        );
 
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);

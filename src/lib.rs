@@ -1,6 +1,8 @@
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray4};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::PyErr;
+use rayon::prelude::*;
 
 pub mod benchmark;
 pub mod calibration;
@@ -77,6 +79,40 @@ fn get_num_threads() -> PyResult<usize> {
     Ok(threadpool::get_num_threads())
 }
 
+/// An m/z inside the isolation window each precursor's fragments are extracted from: the window that
+/// transmits the largest share of its isotope envelope. `isotope_intensity` has one row per precursor;
+/// a precursor without usable isotopes, or with charge 0, keeps its m/z.
+#[pyfunction]
+fn primary_window_mz<'py>(
+    py: Python<'py>,
+    precursor_mz: PyReadonlyArray1<'_, f32>,
+    charge: PyReadonlyArray1<'_, u8>,
+    isotope_intensity: PyReadonlyArray2<'_, f32>,
+    cycle: PyReadonlyArray4<'_, f32>,
+) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    let precursor_mz = precursor_mz.as_array();
+    let charge = charge.as_array();
+    let isotope_intensity = isotope_intensity.as_array();
+    if charge.len() != precursor_mz.len() || isotope_intensity.nrows() != precursor_mz.len() {
+        return Err(PyValueError::new_err(
+            "precursor_mz, charge and isotope_intensity must have one entry per precursor",
+        ));
+    }
+    let windows = isotope_envelope::cycle_windows(cycle.as_array());
+    let mz: Vec<f32> = (0..precursor_mz.len())
+        .into_par_iter()
+        .map(|i| {
+            isotope_envelope::primary_window_mz(
+                precursor_mz[i],
+                charge[i],
+                &isotope_intensity.row(i).to_vec(),
+                &windows,
+            )
+        })
+        .collect();
+    Ok(mz.into_pyarray(py))
+}
+
 #[pymodule]
 fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
@@ -99,5 +135,6 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_num_threads, m)?)?;
     m.add_function(wrap_pyfunction!(get_num_threads, m)?)?;
+    m.add_function(wrap_pyfunction!(primary_window_mz, m)?)?;
     Ok(())
 }

@@ -55,6 +55,11 @@ pub const FEATURE_NAMES: &[&str] = &[
     "y_intensity_correlation",
     "complementary_pairs",
     "lib_cosine_coherent",
+    "secondary_signal_ratio",
+    "secondary_mean_correlation",
+    "secondary_num_over_50",
+    "secondary_lib_cosine",
+    "secondary_ratio_error",
 ];
 
 #[derive(Debug, Clone)]
@@ -112,6 +117,11 @@ pub struct CandidateFeature {
     pub y_intensity_correlation: f32,
     pub complementary_pairs: f32,
     pub lib_cosine_coherent: f32,
+    pub secondary_signal_ratio: f32,
+    pub secondary_mean_correlation: f32,
+    pub secondary_num_over_50: f32,
+    pub secondary_lib_cosine: f32,
+    pub secondary_ratio_error: f32,
 }
 
 impl CandidateFeature {
@@ -170,6 +180,11 @@ impl CandidateFeature {
         y_intensity_correlation: f32,
         complementary_pairs: f32,
         lib_cosine_coherent: f32,
+        secondary_signal_ratio: f32,
+        secondary_mean_correlation: f32,
+        secondary_num_over_50: f32,
+        secondary_lib_cosine: f32,
+        secondary_ratio_error: f32,
     ) -> Self {
         Self {
             precursor_idx,
@@ -225,6 +240,11 @@ impl CandidateFeature {
             y_intensity_correlation,
             complementary_pairs,
             lib_cosine_coherent,
+            secondary_signal_ratio,
+            secondary_mean_correlation,
+            secondary_num_over_50,
+            secondary_lib_cosine,
+            secondary_ratio_error,
         }
     }
 }
@@ -313,6 +333,11 @@ impl CandidateFeatureCollection {
         let mut y_intensity_correlation = Array1::<f32>::zeros(n);
         let mut complementary_pairs = Array1::<f32>::zeros(n);
         let mut lib_cosine_coherent = Array1::<f32>::zeros(n);
+        let mut secondary_signal_ratio = Array1::<f32>::zeros(n);
+        let mut secondary_mean_correlation = Array1::<f32>::zeros(n);
+        let mut secondary_num_over_50 = Array1::<f32>::zeros(n);
+        let mut secondary_lib_cosine = Array1::<f32>::zeros(n);
+        let mut secondary_ratio_error = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -368,6 +393,11 @@ impl CandidateFeatureCollection {
             y_intensity_correlation[i] = feature.y_intensity_correlation;
             complementary_pairs[i] = feature.complementary_pairs;
             lib_cosine_coherent[i] = feature.lib_cosine_coherent;
+            secondary_signal_ratio[i] = feature.secondary_signal_ratio;
+            secondary_mean_correlation[i] = feature.secondary_mean_correlation;
+            secondary_num_over_50[i] = feature.secondary_num_over_50;
+            secondary_lib_cosine[i] = feature.secondary_lib_cosine;
+            secondary_ratio_error[i] = feature.secondary_ratio_error;
         }
 
         let dict = PyDict::new(py);
@@ -487,6 +517,26 @@ impl CandidateFeatureCollection {
         )?;
         dict.set_item("complementary_pairs", complementary_pairs.into_pyarray(py))?;
         dict.set_item("lib_cosine_coherent", lib_cosine_coherent.into_pyarray(py))?;
+        dict.set_item(
+            "secondary_signal_ratio",
+            secondary_signal_ratio.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "secondary_mean_correlation",
+            secondary_mean_correlation.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "secondary_num_over_50",
+            secondary_num_over_50.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "secondary_lib_cosine",
+            secondary_lib_cosine.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "secondary_ratio_error",
+            secondary_ratio_error.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }

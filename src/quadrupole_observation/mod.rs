@@ -66,8 +66,7 @@ impl QuadrupoleObservation {
         self.slice_starts.push(self.cycle_indices.len() as u32);
     }
 
-    /// Adds the intensities around `mz`, multiplied by `weight`, to `dense_xic`.
-    #[allow(clippy::too_many_arguments)]
+    /// Optimized fill_xic_slice method using direct array access
     pub fn fill_xic_slice(
         &self,
         mz_index: &MZIndex,
@@ -76,7 +75,6 @@ impl QuadrupoleObservation {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
-        weight: f32,
     ) {
         let delta_mz = mz * mass_tolerance * 1e-6;
         let lower_mz = mz - delta_mz;
@@ -103,7 +101,7 @@ impl QuadrupoleObservation {
                     break;
                 }
 
-                dense_xic[cycle_idx - cycle_start_idx] += intensities[i] * weight;
+                dense_xic[cycle_idx - cycle_start_idx] += intensities[i];
             }
         }
     }
@@ -144,7 +142,6 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
-        weight: f32,
     ) {
         self.fill_xic_slice(
             mz_index,
@@ -153,7 +150,6 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
             cycle_stop_idx,
             mass_tolerance,
             mz,
-            weight,
         )
     }
 
@@ -166,7 +162,6 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
-        weight: f32,
         mz_shift: f32,
     ) {
         let delta_mz = mz * mass_tolerance * 1e-6;
@@ -198,7 +193,7 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
                 }
 
                 let relative_idx = cycle_idx - cycle_start_idx;
-                let intensity = intensities[i] * weight;
+                let intensity = intensities[i];
 
                 // Always accumulate intensity (even if zero)
                 dense_xic[relative_idx] += intensity;

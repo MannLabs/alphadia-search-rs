@@ -1,27 +1,27 @@
 use super::*;
-use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
+use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::{AlphaRawView, DIAData};
 use crate::dia_data_builder::DIADataBuilder;
-use numpy::ndarray::{ArrayView1, ArrayView4};
+use numpy::ndarray::{Array4, ArrayView1, ArrayView4};
 
 const ISOTOPES: [f32; 4] = [0.5, 0.3, 0.15, 0.05];
+/// A heavy peptide: M1 is the most abundant isotope
+const HEAVY_ISOTOPES: [f32; 4] = [0.2, 0.35, 0.3, 0.15];
 const FRAGMENT_MZ: f32 = 400.0;
 const LOWER_WINDOW: [f32; 2] = [498.0, 500.0];
 const UPPER_WINDOW: [f32; 2] = [500.0, 502.0];
 
-/// Two adjacent 2 Th windows, [498, 500] and [500, 502], in one cycle.
-/// Each records the monoisotopic fragment and its first isotope with the given intensities.
-fn two_window_data(lower: [f32; 2], upper: [f32; 2]) -> DIAData {
+/// Two adjacent 2 Th windows, [498, 500] and [500, 502], in one cycle, recording the given (m/z, intensity) peaks.
+fn two_window_data(lower: &[(f32, f32)], upper: &[(f32, f32)]) -> DIAData {
     let delta_scan_idx = [0_i64, 1];
     let isolation_lower = [LOWER_WINDOW[0], UPPER_WINDOW[0]];
     let isolation_upper = [LOWER_WINDOW[1], UPPER_WINDOW[1]];
-    let peak_start = [0_i64, 2];
-    let peak_stop = [2_i64, 4];
+    let peak_start = [0_i64, lower.len() as i64];
+    let peak_stop = [lower.len() as i64, (lower.len() + upper.len()) as i64];
     let cycle_idx = [0_i64, 0];
     let rt = [10.0_f32, 10.1];
-    let isotope_mz = FRAGMENT_MZ + ISOTOPE_SPACING;
-    let peak_mz = [FRAGMENT_MZ, isotope_mz, FRAGMENT_MZ, isotope_mz];
-    let peak_intensity = [lower[0], lower[1], upper[0], upper[1]];
+    let peak_mz: Vec<f32> = lower.iter().chain(upper).map(|p| p.0).collect();
+    let peak_intensity: Vec<f32> = lower.iter().chain(upper).map(|p| p.1).collect();
     let cycle = [1.0_f32];
     let view = AlphaRawView {
         spectrum_delta_scan_idx: ArrayView1::from(&delta_scan_idx),
@@ -38,25 +38,46 @@ fn two_window_data(lower: [f32; 2], upper: [f32; 2]) -> DIAData {
     DIADataBuilder::from_alpha_raw(&view)
 }
 
-/// Plan with monoisotopic and first-isotope fragment channels.
-fn plan_at(dia_data: &DIAData, precursor_mz: f32) -> ExtractionPlan {
-    ExtractionPlan::isotope_envelope(
-        dia_data,
-        precursor_mz,
-        2,
-        &ISOTOPES,
-        &[FRAGMENT_MZ],
-        &[1],
-        1,
-    )
+fn empty_data() -> DIAData {
+    two_window_data(&[], &[])
 }
 
-fn sum_weight_times_gain(plan: &ExtractionPlan, fragment_idx: usize) -> f32 {
-    plan.channels
+fn precursor(mz: f32, charge: u8, isotope_intensity: Vec<f32>) -> Precursor {
+    Precursor {
+        precursor_idx: 0,
+        mz,
+        mz_library: mz,
+        rt: 10.0,
+        rt_library: 10.0,
+        naa: 9,
+        charge,
+        isotope_intensity,
+        fragment_mz: vec![FRAGMENT_MZ],
+        fragment_mz_library: vec![FRAGMENT_MZ],
+        fragment_intensity: vec![1.0],
+        fragment_cardinality: vec![1],
+        fragment_charge: vec![1],
+        fragment_loss_type: vec![0],
+        fragment_number: vec![3],
+        fragment_position: vec![3],
+        fragment_type: vec![121],
+    }
+}
+
+/// Expected gain of fragment isotope j in a window holding precursor isotopes `from..` only (rectangle model).
+fn rectangle_gain(isotopes: &[f32], from: usize, j: usize, share: f32) -> f32 {
+    let reference: f32 = isotopes
         .iter()
-        .filter(|channel| channel.fragment_idx == fragment_idx)
-        .map(|channel| channel.weight * channel.gain)
-        .sum()
+        .enumerate()
+        .map(|(k, &abundance)| abundance * binomial(k, 0, share))
+        .sum();
+    isotopes
+        .iter()
+        .enumerate()
+        .skip(from)
+        .map(|(k, &abundance)| abundance * binomial(k, j, share))
+        .sum::<f32>()
+        / reference
 }
 
 #[test]
@@ -80,222 +101,163 @@ fn test_binomial_sums_to_one_over_fragment_isotopes() {
 
 #[test]
 fn test_monoisotopic_plan_uses_windows_containing_precursor() {
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
+    let dia_data = empty_data();
 
     let plan = ExtractionPlan::monoisotopic(&dia_data, 499.0, &[300.0, 400.0]);
 
-    assert_eq!(plan.observation_indices, vec![0]);
-    assert_eq!(plan.channels.len(), 2);
-    assert!(plan
-        .channels
-        .iter()
-        .all(|channel| channel.weight == 1.0 && channel.mz_shift == 0.0));
+    assert_eq!(plan.primary.observation_indices(), vec![0]);
+    assert_eq!(plan.primary.channels.len(), 2);
+    assert!(plan.primary.channels.iter().all(|c| c.mz_shift == 0.0));
+    assert_eq!(plan.primary.fragment_gain, vec![1.0, 1.0]);
+    assert!(plan.secondary.is_none());
 }
 
 #[test]
-fn test_precursor_without_isotopes_gets_monoisotopic_plan() {
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
-    let precursor = Precursor {
-        precursor_idx: 0,
-        mz: 499.8,
-        mz_library: 499.8,
-        rt: 10.0,
-        rt_library: 10.0,
-        naa: 9,
-        charge: 0,
-        isotope_intensity: Vec::new(),
-        fragment_mz: vec![FRAGMENT_MZ],
-        fragment_mz_library: vec![FRAGMENT_MZ],
-        fragment_intensity: vec![1.0],
-        fragment_cardinality: vec![1],
-        fragment_charge: vec![1],
-        fragment_loss_type: vec![0],
-        fragment_number: vec![3],
-        fragment_position: vec![3],
-        fragment_type: vec![121],
-    };
+fn test_unusable_isotopes_fall_back_to_monoisotopic_plan() {
+    let dia_data = empty_data();
+    for (charge, isotopes) in [
+        (0, Vec::new()),
+        (2, vec![f32::NAN, 0.3]),
+        (2, vec![0.0, 0.0]),
+    ] {
+        let plan = ExtractionPlan::new(&dia_data, &precursor(499.8, charge, isotopes));
 
-    let plan = ExtractionPlan::new(&dia_data, &precursor);
-
-    assert_eq!(plan.observation_indices, vec![0]);
-    assert_eq!(plan.channels.len(), 1);
+        // M0 at 499.8 is in the lower window only
+        assert_eq!(plan.primary.observation_indices(), vec![0]);
+        assert_eq!(plan.primary.fragment_gain, vec![1.0]);
+        assert!(plan.secondary.is_none());
+    }
 }
 
 #[test]
-fn test_envelope_inside_one_window_keeps_monoisotopic_gain_one() {
+fn test_envelope_inside_one_window_is_extracted_there_at_gain_one() {
     // Given: M0..M3 of a 2+ precursor at 498.6..500.1 lie almost fully in [498, 500]
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
+    let plan = ExtractionPlan::new(&empty_data(), &precursor(498.6, 2, ISOTOPES.to_vec()));
 
-    let plan = plan_at(&dia_data, 498.6);
-
-    // Then: the lower window's monoisotopic channel carries the reference signal
-    let mono = plan
-        .channels
-        .iter()
-        .find(|channel| channel.observation_idx == 0 && channel.mz_shift == 0.0)
-        .unwrap();
-    assert!(mono.gain > 0.95, "gain {}", mono.gain);
-    assert!((sum_weight_times_gain(&plan, 0) - 1.0).abs() < 1e-5);
+    assert_eq!(plan.primary.observation_indices(), vec![0]);
+    assert_eq!(plan.primary.channels[0].mz_shift, 0.0);
+    assert!(
+        plan.primary.fragment_gain[0] > 0.9,
+        "{:?}",
+        plan.primary.fragment_gain
+    );
+    // the upper window holds less than SECONDARY_MIN_SIGNAL_RATIO of the envelope
+    assert!(plan.secondary.is_none());
 }
 
 #[test]
-fn test_envelope_across_windows_uses_both() {
-    // Given: M0 at 499.8 in the lower window; M1 (500.30), M2 (500.80) in the upper window
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
+fn test_primary_window_is_the_one_with_most_of_the_envelope() {
+    // Given: M0 (499.7) of a heavy 2+ precursor in the lower window, M1..M3 (500.2..501.2) in the upper one
+    let plan = ExtractionPlan::new(&empty_data(), &precursor(499.7, 2, HEAVY_ISOTOPES.to_vec()));
 
-    let plan = plan_at(&dia_data, 499.8);
-
-    // Then: both windows are extracted, the upper one also at the fragment's first isotope
-    assert_eq!(plan.observation_indices, vec![0, 1]);
-    assert!(plan
-        .channels
-        .iter()
-        .any(|channel| channel.observation_idx == 1 && channel.mz_shift == 0.0));
-    let upper_isotope = plan
-        .channels
-        .iter()
-        .find(|channel| channel.observation_idx == 1 && channel.mz_shift > 0.0)
-        .unwrap();
-    assert!((upper_isotope.mz - (FRAGMENT_MZ + ISOTOPE_SPACING)).abs() < 1e-4);
-    assert!((sum_weight_times_gain(&plan, 0) - 1.0).abs() < 1e-5);
+    // Then: the upper window is primary, the lower one secondary
+    assert_eq!(plan.primary.observation_indices(), vec![1]);
+    let secondary = plan.secondary.as_ref().expect("secondary window");
+    assert_eq!(secondary.observation_indices(), vec![0]);
+    assert!(
+        plan.primary.precursor_share > 0.7,
+        "{}",
+        plan.primary.precursor_share
+    );
+    assert!(
+        secondary.precursor_share > 0.15,
+        "{}",
+        secondary.precursor_share
+    );
 }
 
 #[test]
-fn test_gain_follows_isotope_and_fragment_share() {
-    // Given: a 1+ precursor with M0 (499.5) in the lower window and M1+ (500.5, ...) in the upper one
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
-    let precursor_mz = 499.5;
-    let share = (FRAGMENT_MZ - PROTON_MASS) / (precursor_mz - PROTON_MASS);
-    let reference: f32 = ISOTOPES
+fn test_each_fragment_is_extracted_at_its_strongest_isotope() {
+    // Given: the heavy precursor of the previous test, a short fragment (share ~0.2) and a long one (~0.6)
+    let precursor_mz = 499.7;
+    let precursor_mass = (precursor_mz - PROTON_MASS) * 2.0;
+    let fragments = [200.0, 600.0];
+    let shares: Vec<f32> = fragments
         .iter()
-        .enumerate()
-        .map(|(k, &abundance)| abundance * (1.0 - share).powi(k as i32))
-        .sum();
+        .map(|&mz| (mz - PROTON_MASS) / precursor_mass)
+        .collect();
 
     let plan = ExtractionPlan::isotope_envelope(
-        &dia_data,
+        &empty_data(),
         precursor_mz,
-        1,
-        &ISOTOPES,
-        &[FRAGMENT_MZ],
-        &[1],
-        1,
+        2,
+        &HEAVY_ISOTOPES,
+        &fragments,
+        &[1, 1],
     );
 
-    // Then: the lower window holds M0 only, so its monoisotopic gain is I_0 / reference
-    let lower_mono = plan
-        .channels
-        .iter()
-        .find(|channel| channel.observation_idx == 0 && channel.mz_shift == 0.0)
-        .unwrap();
-    assert!((lower_mono.gain - ISOTOPES[0] / reference).abs() < 1e-2);
-    // and no fragment isotope channel: M0 fragments carry no extra neutron
-    assert!(!plan
-        .channels
-        .iter()
-        .any(|channel| channel.observation_idx == 0 && channel.mz_shift > 0.0));
-    // The upper window's monoisotopic gain is sum_k>=1 I_k (1-f)^k / reference
-    let upper_mono_expected: f32 = ISOTOPES
-        .iter()
-        .enumerate()
-        .skip(1)
-        .map(|(k, &abundance)| abundance * (1.0 - share).powi(k as i32))
-        .sum::<f32>()
-        / reference;
-    let upper_mono = plan
-        .channels
-        .iter()
-        .find(|channel| channel.observation_idx == 1 && channel.mz_shift == 0.0)
-        .unwrap();
-    assert!((upper_mono.gain - upper_mono_expected).abs() < 1e-2);
+    // Then: the short fragment keeps its monoisotopic m/z, the long one moves to its first isotope
+    let shifts: Vec<f32> = plan.primary.channels.iter().map(|c| c.mz_shift).collect();
+    assert_eq!(shifts, vec![0.0, ISOTOPE_SPACING]);
+    assert!((plan.primary.channels[1].mz - (600.0 + ISOTOPE_SPACING)).abs() < 1e-4);
+    // and the gains follow the isotope binomial of the transmitted precursor isotopes M1..M3
+    let short_gain = rectangle_gain(&HEAVY_ISOTOPES, 1, 0, shares[0]);
+    let long_gain = rectangle_gain(&HEAVY_ISOTOPES, 1, 1, shares[1]);
+    assert!((plan.primary.fragment_gain[0] - short_gain).abs() < 0.05);
+    assert!((plan.primary.fragment_gain[1] - long_gain).abs() < 0.05);
 }
 
 #[test]
-fn test_dense_xic_estimates_reference_signal_from_split_envelope() {
-    // Given: a fragment signal s split across windows and fragment isotopes as the plan expects
-    let precursor_mz = 499.8;
-    let signal = 1000.0;
-    let layout = two_window_data([0.0, 0.0], [0.0, 0.0]);
-    let plan = plan_at(&layout, precursor_mz);
-    let expected = |observation_idx: usize, isotope: bool| -> f32 {
-        plan.channels
-            .iter()
-            .filter(|channel| {
-                channel.observation_idx == observation_idx && (channel.mz_shift > 0.0) == isotope
-            })
-            .map(|channel| channel.gain * signal)
-            .sum()
+fn test_expected_intensity_scales_library_by_gain() {
+    let window = WindowChannels {
+        channels: Vec::new(),
+        fragment_gain: vec![1.0, 0.5, 0.0],
+        precursor_share: 1.0,
     };
-    let dia_data = two_window_data(
-        [expected(0, false), expected(0, true)],
-        [expected(1, false), expected(1, true)],
-    );
 
-    // When
-    let dense = DenseXICObservation::new(&dia_data, &plan, 0, 1, 20.0);
-
-    // Then: the XIC holds the reference (fully isolated, monoisotopic) signal
-    assert!(
-        (dense.dense_xic[[0, 0]] - signal).abs() < 1.0,
-        "{}",
-        dense.dense_xic[[0, 0]]
+    assert_eq!(
+        window.expected_intensity(&[2.0, 2.0, 2.0]),
+        vec![2.0, 1.0, 0.0]
     );
 }
 
 #[test]
 fn test_dense_mz_reports_monoisotopic_mz_for_isotope_channels() {
-    // Given: only the upper window's fragment isotope has signal
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 500.0]);
-    let plan = plan_at(&dia_data, 499.8);
+    // Given: the long fragment's first isotope recorded in the upper (primary) window
+    let dia_data = two_window_data(&[], &[(600.0 + ISOTOPE_SPACING, 500.0)]);
+    let plan =
+        ExtractionPlan::isotope_envelope(&dia_data, 499.7, 2, &HEAVY_ISOTOPES, &[600.0], &[1]);
 
     // When
-    let dense = DenseXICMZObservation::new(&dia_data, &plan, 0, 1, 20.0);
+    let dense = DenseXICMZObservation::new(&dia_data, &plan.primary, 0, 1, 20.0);
 
-    // Then: its m/z is reported at the monoisotopic fragment
-    assert!(dense.dense_xic[[0, 0]] > 0.0);
-    let mz_error_ppm = (dense.dense_mz[[0, 0]] - FRAGMENT_MZ) / FRAGMENT_MZ * 1e6;
+    // Then: its signal is found and its m/z is reported at the monoisotopic fragment
+    assert_eq!(dense.dense_xic[[0, 0]], 500.0);
+    let mz_error_ppm = (dense.dense_mz[[0, 0]] - 600.0) / 600.0 * 1e6;
     assert!(mz_error_ppm.abs() < 5.0, "{mz_error_ppm} ppm");
 }
 
 #[test]
-fn test_missing_isotope_values_fall_back_to_monoisotopic_plan() {
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
-    for isotopes in [vec![f32::NAN, 0.3], vec![0.0, 0.0]] {
-        let precursor = Precursor {
-            precursor_idx: 0,
-            mz: 499.8,
-            mz_library: 499.8,
-            rt: 10.0,
-            rt_library: 10.0,
-            naa: 9,
-            charge: 2,
-            isotope_intensity: isotopes,
-            fragment_mz: vec![FRAGMENT_MZ],
-            fragment_mz_library: vec![FRAGMENT_MZ],
-            fragment_intensity: vec![1.0],
-            fragment_cardinality: vec![1],
-            fragment_charge: vec![1],
-            fragment_loss_type: vec![0],
-            fragment_number: vec![3],
-            fragment_position: vec![3],
-            fragment_type: vec![121],
-        };
+fn test_primary_window_mz_is_inside_the_primary_window() {
+    let windows = vec![[-1.0, -1.0], LOWER_WINDOW, UPPER_WINDOW];
 
-        let plan = ExtractionPlan::new(&dia_data, &precursor);
-
-        assert_eq!(plan.channels.len(), 1);
-        assert_eq!(plan.channels[0].weight, 1.0);
-    }
+    assert_eq!(
+        primary_window_mz(499.7, 2, &HEAVY_ISOTOPES, &windows),
+        501.0
+    );
+    assert_eq!(primary_window_mz(498.6, 2, &ISOTOPES, &windows), 499.0);
+    assert_eq!(
+        primary_window_mz(499.7, 0, &HEAVY_ISOTOPES, &windows),
+        499.7
+    );
+    assert_eq!(primary_window_mz(499.7, 2, &[0.0, 0.0], &windows), 499.7);
+    assert_eq!(primary_window_mz(300.0, 2, &ISOTOPES, &windows), 300.0);
 }
 
 #[test]
-fn test_monoisotopic_fragments_only_without_fragment_isotopes() {
-    let dia_data = two_window_data([0.0, 0.0], [0.0, 0.0]);
+fn test_cycle_windows_span_all_scans() {
+    let mut cycle = Array4::<f32>::zeros((1, 2, 2, 2));
+    cycle[[0, 0, 0, 0]] = -1.0;
+    cycle[[0, 0, 0, 1]] = -1.0;
+    cycle[[0, 0, 1, 0]] = -1.0;
+    cycle[[0, 0, 1, 1]] = -1.0;
+    cycle[[0, 1, 0, 0]] = 500.0;
+    cycle[[0, 1, 0, 1]] = 501.0;
+    cycle[[0, 1, 1, 0]] = 500.5;
+    cycle[[0, 1, 1, 1]] = 502.0;
 
-    let plan =
-        ExtractionPlan::isotope_envelope(&dia_data, 499.8, 2, &ISOTOPES, &[FRAGMENT_MZ], &[1], 0);
-
-    assert_eq!(plan.observation_indices, vec![0, 1]);
-    assert!(plan.channels.iter().all(|channel| channel.mz_shift == 0.0));
-    assert!((sum_weight_times_gain(&plan, 0) - 1.0).abs() < 1e-5);
+    assert_eq!(
+        cycle_windows(cycle.view()),
+        vec![[-1.0, -1.0], [500.0, 502.0]]
+    );
 }

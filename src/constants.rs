@@ -26,15 +26,19 @@ pub const PROTON_MASS: f32 = 1.007_276_5;
 /// Mass difference between 13C and 12C in Da, the spacing of peptide isotope peaks.
 pub const ISOTOPE_SPACING: f32 = 1.003_354_8;
 
-/// Width in Th of the logistic edges of the quadrupole transmission.
-/// Not calibrated: at 0.1 Th the transmission falls from 90 % to 10 % over 0.44 Th around each window edge.
-pub const QUADRUPOLE_EDGE_WIDTH: f32 = 0.1;
+/// Width in Th of the logistic edges of the quadrupole transmission. Fitted on the fragment signal of
+/// precursors split across two windows (200 ng HeLa, Astral, 2 Th windows): 0.08 Th.
+pub const QUADRUPOLE_EDGE_WIDTH: f32 = 0.08;
 
-/// Highest fragment isotope extracted. Fragments of a heavy precursor isotope carry its extra neutrons in part,
-/// but extracting the first fragment isotope too gave decoys more chance matches than targets gained signal
-/// (local A/B, 200 ng Astral: -11 % targets at 1 % q).
-pub const MAX_FRAGMENT_ISOTOPE: usize = 0;
+/// Highest fragment isotope considered. Each fragment is extracted at its most intense isotope in the
+/// window: in a window that holds M1 and M2 of a precursor, long fragments carry most of their signal at
+/// their first or second isotope.
+pub const MAX_FRAGMENT_ISOTOPE: usize = 2;
 
-/// Extraction channels expected to carry less than this share of a fragment's signal are skipped:
-/// they add little signal but cost an extraction.
-pub const MIN_CHANNEL_GAIN: f32 = 0.1;
+/// Windows whose share of the isotope envelope is within this fraction of the largest share are all
+/// primary windows (overlapping windows).
+pub const PRIMARY_WINDOW_TOLERANCE: f32 = 0.05;
+
+/// A secondary window must hold at least this share of the primary window's signal. Below it, its fragments
+/// are mostly below the detection limit and their zeros carry no information.
+pub const SECONDARY_MIN_SIGNAL_RATIO: f32 = 0.25;

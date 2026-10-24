@@ -1117,3 +1117,62 @@ fn test_calculate_lib_cosine_coherent_uses_only_coeluting_fragments() {
     assert!((coherent - 1.0).abs() < 1e-5);
     assert_eq!(too_few, 0.0);
 }
+
+#[test]
+fn test_secondary_window_features_reward_consistent_split_signal() {
+    use super::utils::calculate_secondary_window_features;
+    use numpy::ndarray::arr2;
+    let primary = arr2(&[
+        [0.0, 4.0, 8.0, 4.0, 0.0],
+        [0.0, 2.0, 4.0, 2.0, 0.0],
+        [0.0, 1.0, 2.0, 1.0, 0.0],
+    ]);
+    let profile = [0.0, 0.5, 1.0, 0.5, 0.0];
+    let primary_expected = [4.0f32, 2.0, 1.0];
+    // half the primary signal, same profile, as a window expecting half the signal records it
+    let consistent = &primary * 0.5;
+    let secondary_expected = [2.0f32, 1.0, 0.5];
+    // a chance match: one fragment, off-apex
+    let chance = arr2(&[
+        [9.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+    ]);
+
+    let (corr, n50, cosine, ratio_error) = calculate_secondary_window_features(
+        &primary,
+        &consistent,
+        &profile,
+        &primary_expected,
+        &secondary_expected,
+    );
+    let (chance_corr, chance_n50, chance_cosine, chance_ratio_error) =
+        calculate_secondary_window_features(
+            &primary,
+            &chance,
+            &profile,
+            &primary_expected,
+            &secondary_expected,
+        );
+
+    assert!((corr - 1.0).abs() < 1e-5);
+    assert_eq!(n50, 3.0);
+    assert!((cosine - 1.0).abs() < 1e-5);
+    assert!(ratio_error < 0.05, "{ratio_error}");
+    assert!(chance_corr <= 0.0);
+    assert_eq!(chance_n50, 0.0);
+    assert_eq!(chance_cosine, 0.0);
+    assert!(chance_ratio_error > 2.0, "{chance_ratio_error}");
+}
+
+#[test]
+fn test_secondary_window_features_are_zero_without_expected_signal() {
+    use super::utils::calculate_secondary_window_features;
+    use numpy::ndarray::arr2;
+    let xic = arr2(&[[0.0, 1.0, 0.0]]);
+
+    let features =
+        calculate_secondary_window_features(&xic, &xic, &[0.0, 1.0, 0.0], &[1.0], &[0.0]);
+
+    assert_eq!(features, (0.0, 0.0, 0.0, 0.0));
+}

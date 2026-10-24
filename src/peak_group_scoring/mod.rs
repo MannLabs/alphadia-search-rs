@@ -6,14 +6,15 @@ use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
 use crate::constants::FragmentType;
-use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::dia_data::DIAData;
 use crate::isotope_envelope::ExtractionPlan;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
     calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
     calculate_ion_identity_features, calculate_lib_cosine_coherent, calculate_longest_ion_series,
-    correlation_axis_0, filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
+    calculate_secondary_window_features, correlation_axis_0, filter_non_zero, intensity_ion_series,
+    median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -118,10 +119,16 @@ impl PeakGroupScoring {
         let cycle_stop_idx = candidate.cycle_stop;
         let mass_tolerance = self.params.mass_tolerance;
 
+        let plan = ExtractionPlan::new(dia_data, precursor);
+        // The library pattern as the primary window records it
+        let library_intensity = plan
+            .primary
+            .expected_intensity(&precursor.fragment_intensity);
+
         // Create dense XIC and m/z observation using the filtered precursor fragments
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
-            &ExtractionPlan::new(dia_data, precursor),
+            &plan.primary,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
@@ -156,7 +163,7 @@ impl PeakGroupScoring {
 
         let intensity_correlations = calculate_correlation_safe(
             observation_intensities.as_slice().unwrap(),
-            &precursor.fragment_intensity,
+            &library_intensity,
         );
 
         // all of this part is highly experimental and needs to be refined
@@ -180,10 +187,10 @@ impl PeakGroupScoring {
 
         // Calculate ranked features using masks based on library intensities
         // Create masks selecting specific rank ranges
-        let mask_0_5 = create_ranked_mask(&precursor.fragment_intensity, 0, 6); // ranks 0-5 (top 6)
-        let mask_6_11 = create_ranked_mask(&precursor.fragment_intensity, 6, 12); // ranks 6-11 (next 6)
-        let mask_12_17 = create_ranked_mask(&precursor.fragment_intensity, 12, 18); // ranks 12-17 (next 6)
-        let mask_18_23 = create_ranked_mask(&precursor.fragment_intensity, 18, 24); // ranks 18-23 (next 6)
+        let mask_0_5 = create_ranked_mask(&library_intensity, 0, 6); // ranks 0-5 (top 6)
+        let mask_6_11 = create_ranked_mask(&library_intensity, 6, 12); // ranks 6-11 (next 6)
+        let mask_12_17 = create_ranked_mask(&library_intensity, 12, 18); // ranks 12-17 (next 6)
+        let mask_18_23 = create_ranked_mask(&library_intensity, 18, 24); // ranks 18-23 (next 6)
 
         // Calculate num_over_0 for each rank range
         let num_over_0_rank_0_5 = count_values_above(&correlations, 0.0, Some(&mask_0_5));
@@ -213,7 +220,7 @@ impl PeakGroupScoring {
 
         let hyperscore_intensity_library = calculate_hyperscore(
             &precursor.fragment_type,
-            &precursor.fragment_intensity,
+            &library_intensity,
             &matched_mask_intensity,
         );
 
@@ -245,7 +252,7 @@ impl PeakGroupScoring {
         ) = calculate_fragment_agreement_features(
             &precursor.fragment_type,
             &precursor.fragment_number,
-            &precursor.fragment_intensity,
+            &library_intensity,
             &correlations,
             observation_intensities.as_slice().unwrap(),
             precursor.naa,
@@ -255,8 +262,42 @@ impl PeakGroupScoring {
             &dense_xic_mz_obs.dense_xic,
             &median_profile_filtered,
             &correlations,
-            &precursor.fragment_intensity,
+            &library_intensity,
         );
+
+        let (
+            secondary_signal_ratio,
+            secondary_mean_correlation,
+            secondary_num_over_50,
+            secondary_lib_cosine,
+            secondary_ratio_error,
+        ) = match &plan.secondary {
+            Some(secondary) => {
+                let secondary_xic = DenseXICObservation::new(
+                    dia_data,
+                    secondary,
+                    cycle_start_idx,
+                    cycle_stop_idx,
+                    mass_tolerance,
+                );
+                let (mean_correlation, num_over_50, lib_cosine, ratio_error) =
+                    calculate_secondary_window_features(
+                        &dense_xic_mz_obs.dense_xic,
+                        &secondary_xic.dense_xic,
+                        &median_profile_filtered,
+                        &library_intensity,
+                        &secondary.expected_intensity(&precursor.fragment_intensity),
+                    );
+                (
+                    secondary.precursor_share / plan.primary.precursor_share,
+                    mean_correlation,
+                    num_over_50,
+                    lib_cosine,
+                    ratio_error,
+                )
+            }
+            None => (0.0, 0.0, 0.0, 0.0, 0.0),
+        };
 
         // Calculate fragment m/z and mass errors
         let (_fragment_mz_observed, fragment_mass_errors) = calculate_fragment_mz_and_errors(
@@ -266,10 +307,8 @@ impl PeakGroupScoring {
         );
 
         // Calculate weighted mean absolute mass error using library intensities
-        let weighted_mass_error = calculate_weighted_mean_absolute_error(
-            &fragment_mass_errors,
-            &precursor.fragment_intensity,
-        );
+        let weighted_mass_error =
+            calculate_weighted_mean_absolute_error(&fragment_mass_errors, &library_intensity);
 
         // Calculate hyperscore with inverse mass error weighting
         // Use observed intensities (sum across cycles) and exclude zero intensity fragments
@@ -382,6 +421,11 @@ impl PeakGroupScoring {
             y_intensity_correlation,
             complementary_pairs,
             lib_cosine_coherent,
+            secondary_signal_ratio,
+            secondary_mean_correlation,
+            secondary_num_over_50,
+            secondary_lib_cosine,
+            secondary_ratio_error,
         ))
     }
 }

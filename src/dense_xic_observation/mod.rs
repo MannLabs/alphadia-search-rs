@@ -1,10 +1,10 @@
-use crate::isotope_envelope::ExtractionPlan;
+use crate::isotope_envelope::WindowChannels;
 use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use numpy::ndarray::Array2;
 
 /// Encapsulates a dense XIC matrix with metadata about its construction
 ///
-/// Each fragment row is the weighted sum of the fragment's extraction channels.
+/// Each fragment row is the sum of the fragment's extraction channels.
 pub struct DenseXICObservation {
     /// Dense XIC matrix: [fragment_index, cycle_index] -> intensity
     pub dense_xic: Array2<f32>,
@@ -32,14 +32,15 @@ impl DenseXICObservation {
     #[inline]
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
-        plan: &ExtractionPlan,
+        window: &WindowChannels,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
     ) -> Self {
-        let mut dense_xic = Array2::zeros((plan.num_fragments, cycle_stop_idx - cycle_start_idx));
+        let num_fragments = window.fragment_gain.len();
+        let mut dense_xic = Array2::zeros((num_fragments, cycle_stop_idx - cycle_start_idx));
 
-        for channel in &plan.channels {
+        for channel in &window.channels {
             dia_data.quadrupole_observations()[channel.observation_idx].fill_xic_slice(
                 dia_data.mz_index(),
                 &mut dense_xic.row_mut(channel.fragment_idx),
@@ -47,13 +48,12 @@ impl DenseXICObservation {
                 cycle_stop_idx,
                 mass_tolerance,
                 channel.mz,
-                channel.weight,
             );
         }
 
         Self {
             dense_xic,
-            contributing_obs_indices: plan.observation_indices.clone(),
+            contributing_obs_indices: window.observation_indices(),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
@@ -94,16 +94,17 @@ impl DenseXICMZObservation {
     #[allow(dead_code)]
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
-        plan: &ExtractionPlan,
+        window: &WindowChannels,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
     ) -> Self {
         let n_cycles = cycle_stop_idx - cycle_start_idx;
-        let mut dense_xic = Array2::zeros((plan.num_fragments, n_cycles));
-        let mut dense_mz = Array2::zeros((plan.num_fragments, n_cycles));
+        let num_fragments = window.fragment_gain.len();
+        let mut dense_xic = Array2::zeros((num_fragments, n_cycles));
+        let mut dense_mz = Array2::zeros((num_fragments, n_cycles));
 
-        for channel in &plan.channels {
+        for channel in &window.channels {
             dia_data.quadrupole_observations()[channel.observation_idx].fill_xic_and_mz_slice(
                 dia_data.mz_index(),
                 &mut dense_xic.row_mut(channel.fragment_idx),
@@ -112,7 +113,6 @@ impl DenseXICMZObservation {
                 cycle_stop_idx,
                 mass_tolerance,
                 channel.mz,
-                channel.weight,
                 channel.mz_shift,
             );
         }
@@ -120,7 +120,7 @@ impl DenseXICMZObservation {
         Self {
             dense_xic,
             dense_mz,
-            contributing_obs_indices: plan.observation_indices.clone(),
+            contributing_obs_indices: window.observation_indices(),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

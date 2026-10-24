@@ -97,9 +97,10 @@ impl PeakGroupQuantification {
             return None;
         }
 
+        let plan = ExtractionPlan::new(dia_data, precursor);
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
-            &ExtractionPlan::new(dia_data, precursor),
+            &plan.primary,
             cycle_start,
             cycle_stop,
             self.params.tolerance_ppm,
@@ -133,7 +134,15 @@ impl PeakGroupQuantification {
         }
 
         // Calculate observed intensities from the dense XIC observation (sum across cycles)
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
+        // Scaled by the expected gain of each fragment's channel, so that a precursor reports the same
+        // intensities whichever window and fragment isotope it is extracted from.
+        let observation_intensities: Vec<f32> = dense_xic_mz_obs
+            .dense_xic
+            .sum_axis(Axis(1))
+            .iter()
+            .zip(&plan.primary.fragment_gain)
+            .map(|(&intensity, &gain)| if gain > 0.0 { intensity / gain } else { 0.0 })
+            .collect();
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
@@ -151,7 +160,7 @@ impl PeakGroupQuantification {
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
             fragment_mz_library: precursor.fragment_mz_library.clone(),
             fragment_mz: precursor.fragment_mz.clone(),
-            fragment_intensity: observation_intensities.to_vec(),
+            fragment_intensity: observation_intensities,
             fragment_cardinality: precursor.fragment_cardinality.clone(),
             fragment_charge: precursor.fragment_charge.clone(),
             fragment_loss_type: precursor.fragment_loss_type.clone(),

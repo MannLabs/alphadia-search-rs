@@ -66,6 +66,7 @@ impl ExtractionPlan {
             &precursor.isotope_intensity,
             &precursor.fragment_mz,
             &precursor.fragment_charge,
+            MAX_FRAGMENT_ISOTOPE,
         )
     }
 
@@ -99,7 +100,7 @@ impl ExtractionPlan {
         }
     }
 
-    /// Fragment isotopes up to `MAX_FRAGMENT_ISOTOPE` in every window the isotope envelope reaches,
+    /// Fragment isotopes up to `max_fragment_isotope` in every window the isotope envelope reaches,
     /// weighted by their expected share of the fragment signal (see the module documentation).
     pub fn isotope_envelope<T: DIADataTrait>(
         dia_data: &T,
@@ -108,6 +109,7 @@ impl ExtractionPlan {
         isotope_intensity: &[f32],
         fragment_mz: &[f32],
         fragment_charge: &[u8],
+        max_fragment_isotope: usize,
     ) -> Self {
         let isotope_mz: Vec<f32> = (0..isotope_intensity.len())
             .map(|k| precursor_mz + k as f32 * ISOTOPE_SPACING / charge as f32)
@@ -157,7 +159,7 @@ impl ExtractionPlan {
             let first_channel = channels.len();
             let mut sum_squared_gain = 0.0;
             for (observation_idx, transmitted) in &windows {
-                for fragment_isotope in 0..=MAX_FRAGMENT_ISOTOPE {
+                for fragment_isotope in 0..=max_fragment_isotope {
                     let expected: f32 = transmitted
                         .iter()
                         .enumerate()

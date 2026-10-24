@@ -30,8 +30,10 @@ pub const ISOTOPE_SPACING: f32 = 1.003_354_8;
 /// Not calibrated: at 0.1 Th the transmission falls from 90 % to 10 % over 0.44 Th around each window edge.
 pub const QUADRUPOLE_EDGE_WIDTH: f32 = 0.1;
 
-/// Highest fragment isotope extracted. Fragments of a heavy precursor isotope carry its extra neutrons in part.
-pub const MAX_FRAGMENT_ISOTOPE: usize = 1;
+/// Highest fragment isotope extracted. Fragments of a heavy precursor isotope carry its extra neutrons in part,
+/// but extracting the first fragment isotope too gave decoys more chance matches than targets gained signal
+/// (local A/B, 200 ng Astral: -11 % targets at 1 % q).
+pub const MAX_FRAGMENT_ISOTOPE: usize = 0;
 
 /// Extraction channels expected to carry less than this share of a fragment's signal are skipped:
 /// they add little signal but cost an extraction.

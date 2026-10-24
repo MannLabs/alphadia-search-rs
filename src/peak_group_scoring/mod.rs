@@ -8,6 +8,7 @@ use crate::candidate::{
 use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
+use crate::isotope_envelope::ExtractionPlan;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
     calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
@@ -120,11 +121,10 @@ impl PeakGroupScoring {
         // Create dense XIC and m/z observation using the filtered precursor fragments
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
-            precursor.mz,
+            &ExtractionPlan::new(dia_data, precursor),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
-            &precursor.fragment_mz,
         );
 
         // Normalize the profiles before calculating median

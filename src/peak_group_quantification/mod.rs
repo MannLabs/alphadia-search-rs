@@ -11,6 +11,7 @@ use std::time::Instant;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
+use crate::isotope_envelope::ExtractionPlan;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
@@ -98,11 +99,10 @@ impl PeakGroupQuantification {
 
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
-            precursor.mz,
+            &ExtractionPlan::new(dia_data, precursor),
             cycle_start,
             cycle_stop,
             self.params.tolerance_ppm,
-            &precursor.fragment_mz,
         );
 
         let num_fragments = precursor.fragment_mz.len();

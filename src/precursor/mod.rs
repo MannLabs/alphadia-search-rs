@@ -5,6 +5,10 @@ pub struct Precursor {
     pub rt: f32,
     pub rt_library: f32,
     pub naa: u8,
+    /// Precursor charge, 0 if the library provides no isotopes
+    pub charge: u8,
+    /// Library isotope abundances M0, M1, ..., empty if the library provides none
+    pub isotope_intensity: Vec<f32>,
     pub fragment_mz: Vec<f32>,
     pub fragment_mz_library: Vec<f32>,
     pub fragment_intensity: Vec<f32>,

@@ -66,7 +66,8 @@ impl QuadrupoleObservation {
         self.slice_starts.push(self.cycle_indices.len() as u32);
     }
 
-    /// Optimized fill_xic_slice method using direct array access
+    /// Adds the intensities around `mz`, multiplied by `weight`, to `dense_xic`.
+    #[allow(clippy::too_many_arguments)]
     pub fn fill_xic_slice(
         &self,
         mz_index: &MZIndex,
@@ -75,6 +76,7 @@ impl QuadrupoleObservation {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
+        weight: f32,
     ) {
         let delta_mz = mz * mass_tolerance * 1e-6;
         let lower_mz = mz - delta_mz;
@@ -101,7 +103,7 @@ impl QuadrupoleObservation {
                     break;
                 }
 
-                dense_xic[cycle_idx - cycle_start_idx] += intensities[i];
+                dense_xic[cycle_idx - cycle_start_idx] += intensities[i] * weight;
             }
         }
     }
@@ -130,6 +132,10 @@ impl QuadrupoleObservation {
 
 // Implement the QuadrupoleObservationTrait for QuadrupoleObservation
 impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
+    fn isolation_window(&self) -> [f32; 2] {
+        self.isolation_window
+    }
+
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,
@@ -138,6 +144,7 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
+        weight: f32,
     ) {
         self.fill_xic_slice(
             mz_index,
@@ -146,6 +153,7 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
             cycle_stop_idx,
             mass_tolerance,
             mz,
+            weight,
         )
     }
 
@@ -158,13 +166,16 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
+        weight: f32,
+        mz_shift: f32,
     ) {
         let delta_mz = mz * mass_tolerance * 1e-6;
         let lower_mz = mz - delta_mz;
         let upper_mz = mz + delta_mz;
 
         for mz_idx in mz_index.mz_range_indices(lower_mz, upper_mz) {
-            let actual_mz = mz_index.mz[mz_idx];
+            // An isotope channel reports the m/z of its monoisotopic fragment, so mass errors stay comparable.
+            let actual_mz = mz_index.mz[mz_idx] - mz_shift;
 
             // Direct slice access using optimized indexing
             let start = self.slice_starts[mz_idx] as usize;
@@ -187,7 +198,7 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
                 }
 
                 let relative_idx = cycle_idx - cycle_start_idx;
-                let intensity = intensities[i];
+                let intensity = intensities[i] * weight;
 
                 // Always accumulate intensity (even if zero)
                 dense_xic[relative_idx] += intensity;

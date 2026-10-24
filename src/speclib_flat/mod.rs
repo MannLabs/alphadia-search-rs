@@ -1,6 +1,6 @@
 use crate::idf::InverseDocumentFrequency;
 use crate::precursor::Precursor;
-use numpy::PyReadonlyArray1;
+use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 
 #[pyclass]
@@ -67,6 +67,15 @@ pub struct SpecLibFlat {
 
     /// Fragment IDF calculator
     pub idf: InverseDocumentFrequency,
+
+    /// Precursor charge, sorted according to precursor_idx order; 0 until `set_isotopes` provides it
+    precursor_charge: Vec<u8>,
+
+    /// Library isotope abundances, `num_isotopes` per precursor, sorted according to precursor_idx order
+    precursor_isotope_intensity: Vec<f32>,
+
+    /// Number of isotopes per precursor in `precursor_isotope_intensity`, 0 until `set_isotopes` is called
+    num_isotopes: usize,
 }
 
 #[pymethods]
@@ -92,6 +101,9 @@ impl SpecLibFlat {
             fragment_position: Vec::new(),
             fragment_type: Vec::new(),
             idf: InverseDocumentFrequency::new(&[]),
+            precursor_charge: Vec::new(),
+            precursor_isotope_intensity: Vec::new(),
+            num_isotopes: 0,
         }
     }
 
@@ -135,6 +147,25 @@ impl SpecLibFlat {
             fragment_position.as_array().to_vec(),
             fragment_type.as_array().to_vec(),
         )
+    }
+
+    /// Sets precursor charges and library isotope abundances ([precursor, isotope], M0 first).
+    ///
+    /// With isotopes, fragments are extracted from every isolation window the isotope envelope reaches.
+    /// Precursors not listed keep the monoisotopic extraction.
+    fn set_isotopes(
+        &mut self,
+        precursor_idx: PyReadonlyArray1<'_, usize>,
+        charge: PyReadonlyArray1<'_, u8>,
+        isotope_intensity: PyReadonlyArray2<'_, f32>,
+    ) {
+        let isotope_intensity = isotope_intensity.as_array();
+        self.set_isotopes_from_vecs(
+            &precursor_idx.as_array().to_vec(),
+            &charge.as_array().to_vec(),
+            isotope_intensity.ncols(),
+            &isotope_intensity.iter().copied().collect::<Vec<f32>>(),
+        );
     }
 
     #[getter]
@@ -357,7 +388,46 @@ impl SpecLibFlat {
             fragment_position,
             fragment_type,
             idf,
+            precursor_charge: Vec::new(),
+            precursor_isotope_intensity: Vec::new(),
+            num_isotopes: 0,
         }
+    }
+
+    /// `isotope_intensity` is row-major [precursor, isotope] with `num_isotopes` columns.
+    pub fn set_isotopes_from_vecs(
+        &mut self,
+        precursor_idx: &[usize],
+        charge: &[u8],
+        num_isotopes: usize,
+        isotope_intensity: &[f32],
+    ) {
+        let n = self.precursor_idx.len();
+        self.num_isotopes = num_isotopes;
+        self.precursor_charge = vec![0; n];
+        self.precursor_isotope_intensity = vec![0.0; n * num_isotopes];
+        for (row, &idx) in precursor_idx.iter().enumerate() {
+            if let Ok(array_index) = self.precursor_idx.binary_search(&idx) {
+                self.precursor_charge[array_index] = charge[row];
+                self.precursor_isotope_intensity
+                    [array_index * num_isotopes..(array_index + 1) * num_isotopes]
+                    .copy_from_slice(
+                        &isotope_intensity[row * num_isotopes..(row + 1) * num_isotopes],
+                    );
+            }
+        }
+    }
+
+    /// Charge and library isotope abundances of the precursor at `index`; (0, empty) without isotopes.
+    fn isotopes(&self, index: usize) -> (u8, Vec<f32>) {
+        if self.num_isotopes == 0 || self.precursor_charge[index] == 0 {
+            return (0, Vec::new());
+        }
+        let start = index * self.num_isotopes;
+        (
+            self.precursor_charge[index],
+            self.precursor_isotope_intensity[start..start + self.num_isotopes].to_vec(),
+        )
     }
 
     pub fn get_precursor(&self, index: usize) -> Precursor {
@@ -367,6 +437,7 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
+        let (charge, isotope_intensity) = self.isotopes(index);
         let start_idx = self.flat_frag_start_idx[index];
         let stop_idx = self.flat_frag_stop_idx[index];
 
@@ -387,6 +458,8 @@ impl SpecLibFlat {
             rt: precursor_rt,
             rt_library: precursor_rt_library,
             naa: precursor_naa,
+            charge,
+            isotope_intensity,
             fragment_mz,
             fragment_mz_library,
             fragment_intensity,
@@ -412,6 +485,7 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
+        let (charge, isotope_intensity) = self.isotopes(index);
         let start_idx = self.flat_frag_start_idx[index];
         let stop_idx = self.flat_frag_stop_idx[index];
 
@@ -457,6 +531,8 @@ impl SpecLibFlat {
             rt: precursor_rt,
             rt_library: precursor_rt_library,
             naa: precursor_naa,
+            charge,
+            isotope_intensity,
             fragment_mz,
             fragment_mz_library,
             fragment_intensity,

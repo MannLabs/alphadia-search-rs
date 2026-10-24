@@ -13,6 +13,7 @@ pub mod dia_data;
 pub mod dia_data_builder;
 pub mod fragment_competition;
 pub mod idf;
+mod isotope_envelope;
 mod kernel;
 mod mz_index;
 pub mod peak_group_quantification;

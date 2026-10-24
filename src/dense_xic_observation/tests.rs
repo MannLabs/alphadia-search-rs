@@ -1,6 +1,7 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
 use crate::dia_data_builder::DIADataBuilder;
+use crate::isotope_envelope::ExtractionPlan;
 use numpy::ndarray::{ArrayView1, ArrayView4};
 
 fn create_simple_alpha_raw() -> AlphaRawView<'static> {
@@ -37,7 +38,13 @@ fn test_basic_creation() {
     let fragment_mz = vec![200.0];
 
     // When: Creating a DenseXICObservation for cycles 10-12
-    let obs = DenseXICObservation::new(&dia_data, 200.0, 10, 12, 20.0, &fragment_mz);
+    let obs = DenseXICObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        12,
+        20.0,
+    );
 
     // Then: The matrix should have 1 fragment row and 2 cycle columns
     assert_eq!(obs.dense_xic.nrows(), 1);
@@ -52,7 +59,13 @@ fn test_optimized_data_creation() {
     let fragment_mz = vec![200.0];
 
     // When: Creating a DenseXICObservation for a single cycle (10-11)
-    let obs = DenseXICObservation::new(&dia_data, 200.0, 10, 11, 20.0, &fragment_mz);
+    let obs = DenseXICObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        11,
+        20.0,
+    );
 
     // Then: The matrix should have 1 fragment row and 1 cycle column
     assert_eq!(obs.dense_xic.nrows(), 1);
@@ -67,7 +80,13 @@ fn test_empty_fragments() {
     let fragment_mz: Vec<f32> = vec![];
 
     // When: Creating a DenseXICObservation with no fragments
-    let obs = DenseXICObservation::new(&dia_data, 200.0, 10, 12, 20.0, &fragment_mz);
+    let obs = DenseXICObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        12,
+        20.0,
+    );
 
     // Then: The matrix should have 0 fragment rows but still 2 cycle columns
     assert_eq!(obs.dense_xic.nrows(), 0);
@@ -82,7 +101,13 @@ fn test_metadata_storage() {
     let fragment_mz = vec![200.0];
 
     // When: Creating a DenseXICObservation with specific parameters
-    let obs = DenseXICObservation::new(&dia_data, 200.0, 10, 15, 50.0, &fragment_mz);
+    let obs = DenseXICObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        15,
+        50.0,
+    );
 
     // Then: The metadata should be correctly stored
     assert_eq!(obs.cycle_start_idx, 10);
@@ -99,7 +124,13 @@ fn test_multiple_fragments() {
     let fragment_mz = vec![200.0, 200.1, 205.0];
 
     // When: Creating a DenseXICObservation with 3 fragments
-    let obs = DenseXICObservation::new(&dia_data, 200.0, 10, 12, 20.0, &fragment_mz);
+    let obs = DenseXICObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        12,
+        20.0,
+    );
 
     // Then: The matrix should have 3 fragment rows and 2 cycle columns
     assert_eq!(obs.dense_xic.nrows(), 3);
@@ -114,7 +145,13 @@ fn test_dense_xic_mz_basic_creation() {
     let fragment_mz = vec![200.0];
 
     // When: Creating a DenseXICMZObservation for cycles 10-12
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 12, 20.0, &fragment_mz);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        12,
+        20.0,
+    );
 
     // Then: Both XIC and m/z matrices should have 1 fragment row and 2 cycle columns
     assert_eq!(obs.dense_xic.nrows(), 1);
@@ -132,7 +169,13 @@ fn test_dense_xic_mz_intensity_values() {
     let fragment_mz = vec![200.05]; // Target m/z between the two peaks
 
     // When: Creating a DenseXICMZObservation with high tolerance (1000 ppm)
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 11, 1000.0, &fragment_mz);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        11,
+        1000.0,
+    );
 
     // Then: Intensities should be summed and m/z should be the weighted average
     assert_eq!(obs.dense_xic[[0, 0]], 3000.0); // 1000 + 2000
@@ -173,7 +216,13 @@ fn test_dense_xic_mz_weighted_average() {
     let fragment_mz = vec![250.0];
 
     // When: Creating a DenseXICMZObservation that matches all three peaks
-    let obs = DenseXICMZObservation::new(&dia_data, 250.0, 5, 6, 2000.0, &fragment_mz);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 250.0, &fragment_mz),
+        5,
+        6,
+        2000.0,
+    );
 
     // Then: Total intensity should be the sum and m/z should be weighted average
     assert_eq!(obs.dense_xic[[0, 0]], 3000.0);
@@ -214,7 +263,13 @@ fn test_dense_xic_mz_zero_intensity_handling() {
     let fragment_mz = vec![300.05];
 
     // When: Creating a DenseXICMZObservation for both cycles
-    let obs = DenseXICMZObservation::new(&dia_data, 300.0, 0, 2, 2000.0, &fragment_mz);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 300.0, &fragment_mz),
+        0,
+        2,
+        2000.0,
+    );
 
     // Then: Zero-intensity peaks should not contribute to weighted m/z average
     // First cycle: only 300.0 with intensity 1000 (300.1 has 0 intensity)
@@ -234,7 +289,13 @@ fn test_dense_xic_mz_no_matching_fragments() {
     let fragment_mz = vec![300.0]; // Fragment m/z far from any peaks
 
     // When: Creating a DenseXICMZObservation with non-matching fragment
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 12, 20.0, &fragment_mz);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        12,
+        20.0,
+    );
 
     // Then: Both intensity and m/z matrices should contain zeros
     assert_eq!(obs.dense_xic[[0, 0]], 0.0);
@@ -252,7 +313,13 @@ fn test_dense_xic_mz_multiple_fragments() {
     let fragment_mz = vec![200.0, 200.1, 300.0]; // Two matching, one not
 
     // When: Creating a DenseXICMZObservation with low tolerance (20 ppm)
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 11, 20.0, &fragment_mz);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &fragment_mz),
+        10,
+        11,
+        20.0,
+    );
 
     // Then: Each fragment should match its corresponding peak or remain zero
     // Fragment 0: should match only the 200.0 peak
@@ -275,7 +342,13 @@ fn test_dense_xic_mz_single_cycle_single_fragment() {
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
 
     // When: Extracting a single cycle with a single fragment
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 11, 20.0, &[200.0]);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.0]),
+        10,
+        11,
+        20.0,
+    );
 
     // Then: Should produce 1x1 matrices with correct values
     assert_eq!(obs.dense_xic.shape(), &[1, 1]);
@@ -290,7 +363,13 @@ fn test_dense_xic_mz_overlapping_tolerance_windows() {
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
 
     // When: Using high tolerance that causes both fragments to see both peaks
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 11, 1000.0, &[200.0, 200.05]);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.0, 200.05]),
+        10,
+        11,
+        1000.0,
+    );
 
     // Then: Both fragments should see all peaks within tolerance
     assert_eq!(obs.dense_xic[[0, 0]], 3000.0); // Sees both peaks
@@ -304,7 +383,13 @@ fn test_dense_xic_mz_out_of_mz_index_range() {
     let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw);
 
     // When: Requesting a fragment below m/z 150
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 11, 20.0, &[100.0]);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[100.0]),
+        10,
+        11,
+        20.0,
+    );
 
     // Then: Should return zeros (no data in that range)
     assert_eq!(obs.dense_xic[[0, 0]], 0.0);
@@ -319,7 +404,13 @@ fn test_dense_xic_mz_exact_tolerance_boundary() {
 
     // When: Using 400 ppm tolerance to match 200.0 but not 200.1
     // 200.05 ± 400ppm = 200.05 ± 0.08 = [199.97, 200.13]
-    let obs = DenseXICMZObservation::new(&dia_data, 200.0, 10, 11, 400.0, &[200.05]);
+    let obs = DenseXICMZObservation::new(
+        &dia_data,
+        &ExtractionPlan::monoisotopic(&dia_data, 200.0, &[200.05]),
+        10,
+        11,
+        400.0,
+    );
 
     // Then: Should match both peaks within tolerance
     assert_eq!(obs.dense_xic[[0, 0]], 3000.0);

@@ -8,6 +8,7 @@ use crate::candidate::{Candidate, CandidateCollection};
 use crate::convolution::convolution;
 use crate::dense_xic_observation::DenseXICObservation;
 use crate::dia_data::DIAData;
+use crate::isotope_envelope::ExtractionPlan;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
@@ -161,11 +162,10 @@ impl PeakGroupSelection {
         // Create dense XIC observation using the filtered precursor fragments
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
-            precursor.mz,
+            &ExtractionPlan::new(dia_data, precursor),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
-            &precursor.fragment_mz,
         );
 
         let convolved_xic = convolution(kernel, &dense_xic_obs.dense_xic);

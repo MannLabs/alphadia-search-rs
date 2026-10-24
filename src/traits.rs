@@ -25,6 +25,11 @@ pub trait DIADataTrait {
 
 /// Trait for quadrupole observation types that support XIC slice filling
 pub trait QuadrupoleObservationTrait {
+    /// Lower and upper m/z of the isolation window
+    fn isolation_window(&self) -> [f32; 2];
+
+    /// Adds the intensities around `mz`, multiplied by `weight`, to `dense_xic`.
+    #[allow(clippy::too_many_arguments)]
     fn fill_xic_slice(
         &self,
         mz_index: &MZIndex,
@@ -33,8 +38,11 @@ pub trait QuadrupoleObservationTrait {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
+        weight: f32,
     );
 
+    /// As `fill_xic_slice`, and keeps the intensity-weighted mean of the observed m/z minus `mz_shift` in `dense_mz`.
+    #[allow(clippy::too_many_arguments)]
     fn fill_xic_and_mz_slice(
         &self,
         mz_index: &MZIndex,
@@ -44,5 +52,7 @@ pub trait QuadrupoleObservationTrait {
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         mz: f32,
+        weight: f32,
+        mz_shift: f32,
     );
 }

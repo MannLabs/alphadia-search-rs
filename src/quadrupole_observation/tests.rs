@@ -114,6 +114,7 @@ fn test_fill_xic_slice_basic() {
         5,              // cycle_stop_idx
         0.1,            // very narrow tolerance to minimize range
         mz_index.mz[0], // Use first m/z value
+        1.0,
     );
 
     // Should have some intensity in the first cycle (index 0)
@@ -150,6 +151,7 @@ fn test_fill_xic_slice_cycle_range() {
         6,              // cycle_stop_idx
         0.1,            // narrow tolerance to hit only first few mz indices
         mz_index.mz[0], // Use first m/z value
+        1.0,
     );
 
     // Should get cycles 2, 3, 4, 5 with intensities 200, 300, 400, 500
@@ -181,6 +183,7 @@ fn test_fill_xic_slice_mass_tolerance() {
         3,
         0.1,            // very narrow tolerance (0.1 ppm)
         mz_index.mz[2], // Use actual m/z value from index 2
+        1.0,
     );
 
     // Should only get intensity from slice 2 (300.0)

@@ -744,3 +744,41 @@ fn test_speclib_flat_empty_idf() {
     assert_eq!(idf_values, vec![1.0, 1.0, 1.0]);
     assert_eq!(empty_speclib.idf.total_fragments, 0.0);
 }
+
+#[test]
+fn test_set_isotopes_reaches_precursors_by_idx() {
+    // Given: a library of precursors 2 and 1 (stored sorted by precursor_idx)
+    let mut speclib = SpecLibFlat::from_vecs(
+        vec![2, 1],
+        vec![200.0, 100.0],
+        vec![200.0, 100.0],
+        vec![20.0, 10.0],
+        vec![20.0, 10.0],
+        vec![12, 10],
+        vec![1, 0],
+        vec![2, 1],
+        vec![101.0, 201.0],
+        vec![101.0, 201.0],
+        vec![1.0, 1.0],
+        vec![1, 1],
+        vec![1, 1],
+        vec![Loss::NONE, Loss::NONE],
+        vec![1, 1],
+        vec![1, 1],
+        vec![FragmentType::B, FragmentType::B],
+    );
+    assert!(speclib.get_precursor(0).isotope_intensity.is_empty());
+
+    // When: isotopes are set for precursor 2 only
+    speclib.set_isotopes_from_vecs(&[2], &[3], 2, &[0.6, 0.4]);
+
+    // Then: precursor 2 carries them, precursor 1 keeps none
+    let precursor_1 = speclib.get_precursor(0);
+    let precursor_2 = speclib
+        .get_precursor_by_idx_filtered(2, true, false, 12)
+        .unwrap();
+    assert_eq!(precursor_1.charge, 0);
+    assert!(precursor_1.isotope_intensity.is_empty());
+    assert_eq!(precursor_2.charge, 3);
+    assert_eq!(precursor_2.isotope_intensity, vec![0.6, 0.4]);
+}

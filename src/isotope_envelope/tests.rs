@@ -182,6 +182,26 @@ fn test_envelope_inside_one_window_is_extracted_there_at_gain_one() {
 }
 
 #[test]
+fn test_own_window_reads_the_monoisotopic_fragment_only() {
+    // Given: a heavy precursor whose envelope lies inside the lower window (M0..M3 at 498.6..500.1), and a
+    // long fragment (share ~0.9) whose first isotope would be stronger than its monoisotope there
+    let plan = ExtractionPlan::isotope_envelope(
+        &empty_data(),
+        498.6,
+        2,
+        &HEAVY_ISOTOPES,
+        &[900.0],
+        &[1],
+        &[1.0],
+    );
+
+    // Then: it keeps the monoisotopic channel of that window at the library intensity
+    assert_eq!(plan.primary.observation_indices(), vec![0]);
+    assert_eq!(plan.primary.channels[0].mz_shift, 0.0);
+    assert_eq!(plan.primary.fragment_gain, vec![1.0]);
+}
+
+#[test]
 fn test_fragments_stay_in_the_window_of_the_precursor_mz_while_its_channel_is_strongest() {
     // Given: M0 (499.7) of a light 2+ precursor in the lower window, M1..M3 in the upper one, a short
     // fragment (share ~0.2) and a long one (~0.6)

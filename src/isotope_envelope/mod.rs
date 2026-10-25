@@ -17,7 +17,10 @@
 //! Summing the channels of several windows into one XIC gives decoys as many chance matches as it gives
 //! real precursors signal (e2e on 200 ng HeLa: -2 % at matched entrapment FDR), and reading every fragment
 //! from the window with the largest share of the envelope picks a weaker channel for long fragments, whose
-//! signal that window splits over their isotopes (local A/B: -8 % where the window moved). The library
+//! signal that window splits over their isotopes (local A/B: -8 % where the window moved). In the window
+//! of the precursor m/z only the monoisotopic fragment is a channel: moving a long fragment of a heavy
+//! precursor to its first isotope there could not be shown to help (local A/B inconclusive), and the rule
+//! keeps the extraction of every envelope inside one window identical to the monoisotopic one. The library
 //! intensity of a fragment is scaled by the gain of its channel relative to its monoisotopic channel in the
 //! window of the precursor m/z, so a fragment that stays there keeps the library intensity, which that
 //! channel was found to match better than `E_wj` does. The best channel of each fragment in another window
@@ -180,7 +183,7 @@ impl ExtractionPlan {
         ) else {
             return Self::monoisotopic(dia_data, precursor_mz, fragment_mz);
         };
-        let Some(reference) = gains.reference_gain(precursor_mz, &windows) else {
+        let Some(reference) = gains.reference_gain() else {
             return Self::monoisotopic(dia_data, precursor_mz, fragment_mz);
         };
 
@@ -224,7 +227,9 @@ struct BestChannel {
 struct ChannelGains {
     /// Observation index of each window that transmits part of the envelope
     windows: Vec<usize>,
-    /// `gain[fragment][window position][fragment isotope]`
+    /// Whether each window contains the precursor m/z, i.e. is one the monoisotopic plan reads
+    own: Vec<bool>,
+    /// `gain[fragment][window position][fragment isotope]`; 0 above the monoisotope in an own window
     gain: Vec<Vec<[f32; MAX_FRAGMENT_ISOTOPE + 1]>>,
 }
 
@@ -244,6 +249,10 @@ impl ChannelGains {
         if reached.is_empty() {
             return None;
         }
+        let own: Vec<bool> = reached
+            .iter()
+            .map(|&w| windows[w][0] <= precursor_mz && precursor_mz <= windows[w][1])
+            .collect();
         let transmitted: Vec<Vec<f32>> = reached
             .iter()
             .map(|&w| {
@@ -270,10 +279,17 @@ impl ChannelGains {
                     .sum();
                 transmitted
                     .iter()
-                    .map(|abundances| {
+                    .zip(&own)
+                    .map(|(abundances, &own_window)| {
                         let mut gains = [0.0; MAX_FRAGMENT_ISOTOPE + 1];
+                        let isotopes = if own_window {
+                            1
+                        } else {
+                            MAX_FRAGMENT_ISOTOPE + 1
+                        };
                         if reference > 0.0 {
-                            for (fragment_isotope, gain) in gains.iter_mut().enumerate() {
+                            for (fragment_isotope, gain) in gains[..isotopes].iter_mut().enumerate()
+                            {
                                 *gain = abundances
                                     .iter()
                                     .enumerate()
@@ -292,18 +308,16 @@ impl ChannelGains {
             .collect();
         Some(Self {
             windows: reached,
+            own,
             gain,
         })
     }
 
-    /// The gain of each fragment's monoisotopic channel in the windows containing `precursor_mz`, which the
-    /// monoisotopic plan reads. None if there is no such window or a fragment expects nothing there.
-    fn reference_gain(&self, precursor_mz: f32, windows: &[[f32; 2]]) -> Option<Vec<f32>> {
+    /// The gain of each fragment's monoisotopic channel in the own windows, which the monoisotopic plan
+    /// reads. None if there is no own window or a fragment expects nothing there.
+    fn reference_gain(&self) -> Option<Vec<f32>> {
         let own: Vec<usize> = (0..self.windows.len())
-            .filter(|&position| {
-                let [lower, upper] = windows[self.windows[position]];
-                lower <= precursor_mz && precursor_mz <= upper
-            })
+            .filter(|&position| self.own[position])
             .collect();
         let reference: Vec<f32> = self
             .gain
@@ -462,7 +476,7 @@ pub fn primary_window_mz(
     ) else {
         return precursor_mz;
     };
-    if gains.reference_gain(precursor_mz, windows).is_none() {
+    if gains.reference_gain().is_none() {
         return precursor_mz;
     }
     let [lower, upper] = windows[gains.strongest_window(fragment_intensity)];

@@ -30,15 +30,15 @@ pub const ISOTOPE_SPACING: f32 = 1.003_354_8;
 /// precursors split across two windows (200 ng HeLa, Astral, 2 Th windows): 0.08 Th.
 pub const QUADRUPOLE_EDGE_WIDTH: f32 = 0.08;
 
-/// Highest fragment isotope considered. Each fragment is extracted at its most intense isotope in the
-/// window: in a window that holds M1 and M2 of a precursor, long fragments carry most of their signal at
-/// their first or second isotope.
+/// Highest fragment isotope considered. Each fragment is extracted at its most intense channel: in a window
+/// that holds M1 and M2 of a precursor, long fragments carry most of their signal at their first or second
+/// isotope.
 pub const MAX_FRAGMENT_ISOTOPE: usize = 2;
 
-/// Windows whose share of the isotope envelope is within this fraction of the largest share are all
-/// primary windows (overlapping windows).
+/// Windows whose gain for a fragment's best channel is within this fraction of the largest gain are all
+/// read for that fragment (overlapping windows).
 pub const PRIMARY_WINDOW_TOLERANCE: f32 = 0.05;
 
-/// A secondary window must hold at least this share of the primary window's signal. Below it, its fragments
-/// are mostly below the detection limit and their zeros carry no information.
+/// The secondary channels must expect at least this share of the primary channels' library-weighted signal.
+/// Below it they are mostly below the detection limit and their zeros carry no information.
 pub const SECONDARY_MIN_SIGNAL_RATIO: f32 = 0.25;

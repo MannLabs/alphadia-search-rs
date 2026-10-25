@@ -755,13 +755,13 @@ pub fn calculate_lib_cosine_coherent(
     }
 }
 
-/// Pseudo-count added to the apex intensities of both windows before their log ratio, so that a window without
-/// signal gives a finite error.
+/// Pseudo-count added to the apex intensities of both channel sets before their log ratio, so that a set
+/// without signal gives a finite error.
 pub const SECONDARY_RATIO_PSEUDO_COUNT: f32 = 1.0;
 
-/// Agreement of the secondary isolation window with the primary one, for a precursor whose isotope envelope is
-/// split across both. A real precursor records the same elution profile in both windows, at the intensity
-/// ratio its m/z position predicts; a chance match in one window does not.
+/// Agreement of the secondary channels with the primary ones, for a precursor whose isotope envelope is
+/// split across two windows. A real precursor records the same elution profile in both, at the intensity
+/// ratio its m/z position predicts; a chance match in one channel does not.
 ///
 /// Returns, in this order:
 /// - `secondary_mean_correlation`: mean correlation of the secondary profiles with the primary median profile

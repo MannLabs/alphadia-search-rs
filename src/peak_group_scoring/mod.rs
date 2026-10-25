@@ -280,16 +280,24 @@ impl PeakGroupScoring {
                     cycle_stop_idx,
                     mass_tolerance,
                 );
+                let secondary_intensity =
+                    secondary.expected_intensity(&precursor.fragment_intensity);
                 let (mean_correlation, num_over_50, lib_cosine, ratio_error) =
                     calculate_secondary_window_features(
                         &dense_xic_mz_obs.dense_xic,
                         &secondary_xic.dense_xic,
                         &median_profile_filtered,
                         &library_intensity,
-                        &secondary.expected_intensity(&precursor.fragment_intensity),
+                        &secondary_intensity,
                     );
+                let expected_primary: f32 = library_intensity.iter().sum();
+                let signal_ratio = if expected_primary > 0.0 {
+                    secondary_intensity.iter().sum::<f32>() / expected_primary
+                } else {
+                    0.0
+                };
                 (
-                    secondary.precursor_share / plan.primary.precursor_share,
+                    signal_ratio,
                     mean_correlation,
                     num_over_50,
                     lib_cosine,

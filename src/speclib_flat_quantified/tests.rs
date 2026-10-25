@@ -23,6 +23,8 @@ fn test_precursor_quantified() -> PrecursorQuantified {
         fragment_mz_observed: vec![200.1, 299.9, 400.2],
         fragment_correlation_observed: vec![0.95, 0.87, 0.92],
         fragment_mass_error_observed: vec![0.1, -0.1, 0.2],
+        fragment_window_mz: vec![500.0; 3],
+        fragment_mz_shift: vec![0.0; 3],
     }
 }
 
@@ -65,6 +67,8 @@ fn test_from_precursor_quantified_vec_multiple() {
     precursor2.fragment_mz_observed = vec![250.2, 349.8];
     precursor2.fragment_correlation_observed = vec![0.88, 0.93];
     precursor2.fragment_mass_error_observed = vec![0.2, -0.2];
+    precursor2.fragment_window_mz = vec![500.0; 2];
+    precursor2.fragment_mz_shift = vec![0.0; 2];
     // Update other fragment vectors to match length
     precursor2.fragment_cardinality = vec![1, 1];
     precursor2.fragment_charge = vec![1, 1];
@@ -123,6 +127,8 @@ fn test_fragment_precursor_columns() {
     precursor2.fragment_mz_observed = vec![250.2, 349.8];
     precursor2.fragment_correlation_observed = vec![0.88, 0.93];
     precursor2.fragment_mass_error_observed = vec![0.2, -0.2];
+    precursor2.fragment_window_mz = vec![500.0; 2];
+    precursor2.fragment_mz_shift = vec![0.0; 2];
     precursor2.fragment_cardinality = vec![1, 1];
     precursor2.fragment_charge = vec![1, 1];
     precursor2.fragment_loss_type = vec![0, 0];

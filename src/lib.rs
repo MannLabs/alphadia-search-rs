@@ -1,8 +1,6 @@
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray2, PyReadonlyArray4};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::PyErr;
-use rayon::prelude::*;
 
 pub mod benchmark;
 pub mod calibration;
@@ -79,75 +77,6 @@ fn get_num_threads() -> PyResult<usize> {
     Ok(threadpool::get_num_threads())
 }
 
-/// An m/z inside the isolation window most of each precursor's fragments are extracted from: the window
-/// that expects the most library-weighted fragment signal of its isotope envelope. `isotope_intensity` has
-/// one row per precursor, and `fragment_start_idx..fragment_stop_idx` index its fragments in the flat
-/// fragment arrays. A precursor without usable isotopes, or with charge 0, keeps its m/z.
-#[pyfunction]
-#[allow(clippy::too_many_arguments)]
-fn primary_window_mz<'py>(
-    py: Python<'py>,
-    precursor_mz: PyReadonlyArray1<'_, f32>,
-    charge: PyReadonlyArray1<'_, u8>,
-    isotope_intensity: PyReadonlyArray2<'_, f32>,
-    fragment_start_idx: PyReadonlyArray1<'_, u64>,
-    fragment_stop_idx: PyReadonlyArray1<'_, u64>,
-    fragment_mz: PyReadonlyArray1<'_, f32>,
-    fragment_charge: PyReadonlyArray1<'_, u8>,
-    fragment_intensity: PyReadonlyArray1<'_, f32>,
-    cycle: PyReadonlyArray4<'_, f32>,
-) -> PyResult<Bound<'py, PyArray1<f32>>> {
-    let precursor_mz = precursor_mz.as_array();
-    let charge = charge.as_array();
-    let isotope_intensity = isotope_intensity.as_array();
-    let fragment_start_idx = fragment_start_idx.as_array();
-    let fragment_stop_idx = fragment_stop_idx.as_array();
-    let fragment_mz = fragment_mz.as_slice()?;
-    let fragment_charge = fragment_charge.as_slice()?;
-    let fragment_intensity = fragment_intensity.as_slice()?;
-    let n = precursor_mz.len();
-    if charge.len() != n
-        || isotope_intensity.nrows() != n
-        || fragment_start_idx.len() != n
-        || fragment_stop_idx.len() != n
-    {
-        return Err(PyValueError::new_err(
-            "precursor_mz, charge, isotope_intensity, fragment_start_idx and fragment_stop_idx must have one entry per precursor",
-        ));
-    }
-    if fragment_charge.len() != fragment_mz.len() || fragment_intensity.len() != fragment_mz.len() {
-        return Err(PyValueError::new_err(
-            "fragment_mz, fragment_charge and fragment_intensity must have one entry per fragment",
-        ));
-    }
-    if fragment_start_idx
-        .iter()
-        .zip(&fragment_stop_idx)
-        .any(|(&start, &stop)| start > stop || stop as usize > fragment_mz.len())
-    {
-        return Err(PyValueError::new_err(
-            "fragment_start_idx..fragment_stop_idx must index the fragment arrays",
-        ));
-    }
-    let windows = isotope_envelope::cycle_windows(cycle.as_array());
-    let mz: Vec<f32> = (0..n)
-        .into_par_iter()
-        .map(|i| {
-            let fragments = fragment_start_idx[i] as usize..fragment_stop_idx[i] as usize;
-            isotope_envelope::primary_window_mz(
-                precursor_mz[i],
-                charge[i],
-                &isotope_intensity.row(i).to_vec(),
-                &fragment_mz[fragments.clone()],
-                &fragment_charge[fragments.clone()],
-                &fragment_intensity[fragments],
-                &windows,
-            )
-        })
-        .collect();
-    Ok(mz.into_pyarray(py))
-}
-
 #[pymodule]
 fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
@@ -170,6 +99,5 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_num_threads, m)?)?;
     m.add_function(wrap_pyfunction!(get_num_threads, m)?)?;
-    m.add_function(wrap_pyfunction!(primary_window_mz, m)?)?;
     Ok(())
 }

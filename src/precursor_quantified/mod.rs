@@ -24,6 +24,10 @@ pub struct PrecursorQuantified {
     pub fragment_mz_observed: Vec<f32>,
     pub fragment_correlation_observed: Vec<f32>,
     pub fragment_mass_error_observed: Vec<f32>,
+    /// Centre m/z of the isolation window each fragment was extracted from
+    pub fragment_window_mz: Vec<f32>,
+    /// Offset of the extracted m/z from the monoisotopic fragment m/z (isotope channels)
+    pub fragment_mz_shift: Vec<f32>,
 }
 
 impl PrecursorQuantified {
@@ -55,6 +59,8 @@ impl PrecursorQuantified {
         let mut fragment_mz_observed = Vec::with_capacity(valid_count);
         let mut fragment_correlation_observed = Vec::with_capacity(valid_count);
         let mut fragment_mass_error_observed = Vec::with_capacity(valid_count);
+        let mut fragment_window_mz = Vec::with_capacity(valid_count);
+        let mut fragment_mz_shift = Vec::with_capacity(valid_count);
 
         // Single iteration to fill all vectors
         for (i, &intensity) in self.fragment_intensity.iter().enumerate() {
@@ -71,6 +77,8 @@ impl PrecursorQuantified {
                 fragment_mz_observed.push(self.fragment_mz_observed[i]);
                 fragment_correlation_observed.push(self.fragment_correlation_observed[i]);
                 fragment_mass_error_observed.push(self.fragment_mass_error_observed[i]);
+                fragment_window_mz.push(self.fragment_window_mz[i]);
+                fragment_mz_shift.push(self.fragment_mz_shift[i]);
             }
         }
 
@@ -95,6 +103,8 @@ impl PrecursorQuantified {
             fragment_mz_observed,
             fragment_correlation_observed,
             fragment_mass_error_observed,
+            fragment_window_mz,
+            fragment_mz_shift,
         })
     }
 }

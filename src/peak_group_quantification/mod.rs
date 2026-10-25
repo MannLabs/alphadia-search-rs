@@ -170,6 +170,8 @@ impl PeakGroupQuantification {
             fragment_mz_observed,
             fragment_correlation_observed,
             fragment_mass_error_observed,
+            fragment_window_mz: plan.primary.fragment_window_mz(dia_data),
+            fragment_mz_shift: plan.primary.fragment_mz_shift(),
         };
 
         precursor_quantified.filter_fragments_by_intensity(0.0)

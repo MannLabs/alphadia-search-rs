@@ -75,6 +75,10 @@ pub struct SpecLibFlatQuantified {
     fragment_correlation_observed: Vec<f32>,
     /// Observed fragment mass error values
     fragment_mass_error_observed: Vec<f32>,
+    /// Centre m/z of the isolation window each fragment was extracted from
+    fragment_window_mz: Vec<f32>,
+    /// Offset of the extracted m/z from the monoisotopic fragment m/z
+    fragment_mz_shift: Vec<f32>,
     /// Fragment precursor indices (expanded to fragment dimension)
     fragment_precursor_idx: Vec<usize>,
     /// Fragment precursor ranks (expanded to fragment dimension)
@@ -108,6 +112,8 @@ impl SpecLibFlatQuantified {
             fragment_mz_observed: Vec::new(),
             fragment_correlation_observed: Vec::new(),
             fragment_mass_error_observed: Vec::new(),
+            fragment_window_mz: Vec::new(),
+            fragment_mz_shift: Vec::new(),
             fragment_precursor_idx: Vec::new(),
             fragment_precursor_rank: Vec::new(),
         }
@@ -194,6 +200,11 @@ impl SpecLibFlatQuantified {
             self.fragment_mass_error_observed.clone().into_pyarray(py),
         )?;
         fragment_dict.set_item(
+            "window_mz",
+            self.fragment_window_mz.clone().into_pyarray(py),
+        )?;
+        fragment_dict.set_item("mz_shift", self.fragment_mz_shift.clone().into_pyarray(py))?;
+        fragment_dict.set_item(
             "precursor_idx",
             self.fragment_precursor_idx.clone().into_pyarray(py),
         )?;
@@ -237,6 +248,8 @@ impl SpecLibFlatQuantified {
         let mut fragment_mz_observed = Vec::new();
         let mut fragment_correlation_observed = Vec::new();
         let mut fragment_mass_error_observed = Vec::new();
+        let mut fragment_window_mz = Vec::new();
+        let mut fragment_mz_shift = Vec::new();
         let mut fragment_precursor_idx = Vec::new();
         let mut fragment_precursor_rank = Vec::new();
 
@@ -274,6 +287,8 @@ impl SpecLibFlatQuantified {
             fragment_mz_observed.extend(precursor.fragment_mz_observed);
             fragment_correlation_observed.extend(precursor.fragment_correlation_observed);
             fragment_mass_error_observed.extend(precursor.fragment_mass_error_observed);
+            fragment_window_mz.extend(precursor.fragment_window_mz);
+            fragment_mz_shift.extend(precursor.fragment_mz_shift);
 
             // Expand precursor values to fragment dimension
             fragment_precursor_idx.extend(vec![precursor.precursor_idx; fragment_count]);
@@ -327,6 +342,8 @@ impl SpecLibFlatQuantified {
             fragment_mz_observed,
             fragment_correlation_observed,
             fragment_mass_error_observed,
+            fragment_window_mz,
+            fragment_mz_shift,
             fragment_precursor_idx,
             fragment_precursor_rank,
         }

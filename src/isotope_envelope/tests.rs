@@ -2,7 +2,7 @@ use super::*;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::{AlphaRawView, DIAData};
 use crate::dia_data_builder::DIADataBuilder;
-use numpy::ndarray::{Array4, ArrayView1, ArrayView4};
+use numpy::ndarray::{ArrayView1, ArrayView4};
 
 const ISOTOPES: [f32; 4] = [0.5, 0.3, 0.15, 0.05];
 /// A heavy peptide: M1 is the most abundant isotope
@@ -315,51 +315,35 @@ fn test_dense_mz_reports_monoisotopic_mz_for_isotope_channels() {
 }
 
 #[test]
-fn test_primary_window_mz_is_the_window_expecting_most_fragment_signal() {
-    let windows = vec![[-1.0, -1.0], LOWER_WINDOW, UPPER_WINDOW];
-    let fragments = [200.0, 600.0];
-    let charges = [1, 1];
-    let intensities = [1.0, 1.0];
-    let window_mz = |mz: f32, charge: u8, isotopes: &[f32]| {
-        primary_window_mz(
-            mz,
-            charge,
-            isotopes,
-            &fragments,
-            &charges,
-            &intensities,
-            &windows,
-        )
-    };
-
-    assert_eq!(window_mz(SPLIT_PRECURSOR_MZ, 2, &HEAVY_ISOTOPES), 501.0);
-    assert_eq!(window_mz(SPLIT_PRECURSOR_MZ, 2, &ISOTOPES), 499.0);
-    assert_eq!(window_mz(498.6, 2, &ISOTOPES), 499.0);
-    assert_eq!(
-        window_mz(SPLIT_PRECURSOR_MZ, 0, &HEAVY_ISOTOPES),
-        SPLIT_PRECURSOR_MZ
+fn test_fragment_window_and_shift_follow_the_channels() {
+    // Given: the mixed precursor's short fragment reads the upper window, the long one the lower window
+    let dia_data = empty_data();
+    let plan = ExtractionPlan::isotope_envelope(
+        &dia_data,
+        SPLIT_PRECURSOR_MZ,
+        2,
+        &MIXED_ISOTOPES,
+        &[150.0, 900.0],
+        &[1, 1],
+        &[1.0, 1.0],
     );
-    assert_eq!(
-        window_mz(SPLIT_PRECURSOR_MZ, 2, &[0.0, 0.0]),
-        SPLIT_PRECURSOR_MZ
-    );
-    assert_eq!(window_mz(300.0, 2, &ISOTOPES), 300.0);
-}
-
-#[test]
-fn test_cycle_windows_span_all_scans() {
-    let mut cycle = Array4::<f32>::zeros((1, 2, 2, 2));
-    cycle[[0, 0, 0, 0]] = -1.0;
-    cycle[[0, 0, 0, 1]] = -1.0;
-    cycle[[0, 0, 1, 0]] = -1.0;
-    cycle[[0, 0, 1, 1]] = -1.0;
-    cycle[[0, 1, 0, 0]] = 500.0;
-    cycle[[0, 1, 0, 1]] = 501.0;
-    cycle[[0, 1, 1, 0]] = 500.5;
-    cycle[[0, 1, 1, 1]] = 502.0;
 
     assert_eq!(
-        cycle_windows(cycle.view()),
-        vec![[-1.0, -1.0], [500.0, 502.0]]
+        plan.primary.fragment_window_mz(&dia_data),
+        vec![501.0, 499.0]
     );
+    assert_eq!(plan.primary.fragment_mz_shift(), vec![0.0, 0.0]);
+
+    // and the heavy precursor's long fragment reads its first isotope in the upper window
+    let plan = split_plan(&HEAVY_ISOTOPES, &[600.0]);
+    assert_eq!(plan.primary.fragment_window_mz(&dia_data), vec![501.0]);
+    assert_eq!(plan.primary.fragment_mz_shift(), vec![ISOTOPE_SPACING]);
+
+    // while the monoisotopic plan reports the precursor's window without a shift
+    let plan = ExtractionPlan::monoisotopic(&dia_data, 499.0, &[300.0, 400.0]);
+    assert_eq!(
+        plan.primary.fragment_window_mz(&dia_data),
+        vec![499.0, 499.0]
+    );
+    assert_eq!(plan.primary.fragment_mz_shift(), vec![0.0, 0.0]);
 }

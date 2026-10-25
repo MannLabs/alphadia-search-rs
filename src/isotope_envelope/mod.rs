@@ -26,8 +26,6 @@
 //! channel was found to match better than `E_wj` does. The best channel of each fragment in another window
 //! is described as a secondary channel for features of its own.
 
-use numpy::ndarray::ArrayView4;
-
 use crate::constants::{
     ISOTOPE_SPACING, MAX_FRAGMENT_ISOTOPE, PRIMARY_WINDOW_TOLERANCE, PROTON_MASS,
     QUADRUPOLE_EDGE_WIDTH, SECONDARY_MIN_SIGNAL_RATIO,
@@ -81,6 +79,34 @@ impl ChannelSet {
         indices.sort_unstable();
         indices.dedup();
         indices
+    }
+
+    /// The first channel of each fragment, None for a fragment without one.
+    fn first_channel(&self, fragment_idx: usize) -> Option<&FragmentChannel> {
+        self.channels
+            .iter()
+            .find(|c| c.fragment_idx == fragment_idx)
+    }
+
+    /// Centre m/z of the isolation window each fragment is extracted from, 0 without a channel.
+    pub fn fragment_window_mz<T: DIADataTrait>(&self, dia_data: &T) -> Vec<f32> {
+        let observations = dia_data.quadrupole_observations();
+        (0..self.fragment_gain.len())
+            .map(|fragment_idx| match self.first_channel(fragment_idx) {
+                Some(channel) => {
+                    let [lower, upper] = observations[channel.observation_idx].isolation_window();
+                    0.5 * (lower + upper)
+                }
+                None => 0.0,
+            })
+            .collect()
+    }
+
+    /// Offset of the extracted m/z from the monoisotopic m/z of each fragment, 0 without a channel.
+    pub fn fragment_mz_shift(&self) -> Vec<f32> {
+        (0..self.fragment_gain.len())
+            .map(|fragment_idx| self.first_channel(fragment_idx).map_or(0.0, |c| c.mz_shift))
+            .collect()
     }
 
     fn push(&mut self, fragment_idx: usize, mz: f32, channel: &BestChannel, fragment_z: f32) {
@@ -368,31 +394,6 @@ impl ChannelGains {
                 .sum(),
         }
     }
-
-    /// The window that expects the most library-weighted signal when every fragment reads its best channel
-    /// there.
-    fn strongest_window(&self, library_intensity: &[f32]) -> usize {
-        let signal = |position: usize| -> f32 {
-            self.gain
-                .iter()
-                .zip(library_intensity)
-                .map(|(gains, &intensity)| {
-                    intensity * gains[position].iter().cloned().fold(0.0, f32::max)
-                })
-                .sum()
-        };
-        let best = (0..self.windows.len())
-            .fold((0, f32::NEG_INFINITY), |best, position| {
-                let candidate = signal(position);
-                if candidate > best.1 {
-                    (position, candidate)
-                } else {
-                    best
-                }
-            })
-            .0;
-        self.windows[best]
-    }
 }
 
 fn isotopes_usable(isotope_intensity: &[f32]) -> bool {
@@ -431,56 +432,6 @@ fn transmitted_shares(
                 / total
         })
         .collect()
-}
-
-/// Lower and upper m/z of each window of a DIA cycle of shape `(1, n_windows, n_scans, 2)`, over all scans.
-pub fn cycle_windows(cycle: ArrayView4<'_, f32>) -> Vec<[f32; 2]> {
-    let shape = cycle.shape();
-    (0..shape[1])
-        .map(|window| {
-            (0..shape[2]).fold(
-                [f32::INFINITY, f32::NEG_INFINITY],
-                |[lower, upper], scan| {
-                    [
-                        lower.min(cycle[[0, window, scan, 0]]),
-                        upper.max(cycle[[0, window, scan, 1]]),
-                    ]
-                },
-            )
-        })
-        .collect()
-}
-
-/// An m/z inside the window that expects the most library-weighted fragment signal of the precursor, the
-/// one most of its fragments are extracted from: the centre of that window, or `precursor_mz` if the
-/// isotopes are unusable or the precursor falls back to the monoisotopic extraction.
-pub fn primary_window_mz(
-    precursor_mz: f32,
-    charge: u8,
-    isotope_intensity: &[f32],
-    fragment_mz: &[f32],
-    fragment_charge: &[u8],
-    fragment_intensity: &[f32],
-    windows: &[[f32; 2]],
-) -> f32 {
-    if charge == 0 || !isotopes_usable(isotope_intensity) {
-        return precursor_mz;
-    }
-    let Some(gains) = ChannelGains::new(
-        precursor_mz,
-        charge,
-        isotope_intensity,
-        fragment_mz,
-        fragment_charge,
-        windows,
-    ) else {
-        return precursor_mz;
-    };
-    if gains.reference_gain().is_none() {
-        return precursor_mz;
-    }
-    let [lower, upper] = windows[gains.strongest_window(fragment_intensity)];
-    0.5 * (lower + upper)
 }
 
 /// Quadrupole transmission at `mz` for the window [lower, upper]: a rectangle with logistic edges.

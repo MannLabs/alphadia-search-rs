@@ -23,6 +23,8 @@ fn test_precursor_quantified_creation() {
         fragment_mz_observed: vec![200.1, 299.9],
         fragment_correlation_observed: vec![0.95, 0.88],
         fragment_mass_error_observed: vec![0.1, -0.1],
+        fragment_window_mz: vec![500.0; 2],
+        fragment_mz_shift: vec![0.0; 2],
     };
 
     assert_eq!(precursor.precursor_idx, 1);
@@ -58,6 +60,8 @@ fn test_precursor_quantified_data_consistency() {
         fragment_mz_observed: vec![150.05, 249.95, 350.1],
         fragment_correlation_observed: vec![0.92, 0.87, 0.94],
         fragment_mass_error_observed: vec![0.05, -0.05, 0.1],
+        fragment_window_mz: vec![500.0; 3],
+        fragment_mz_shift: vec![0.0; 3],
     };
 
     // Verify all fragment vectors have the same length
@@ -100,6 +104,8 @@ fn test_filter_fragments_by_intensity_keeps_valid_fragments() {
         fragment_mz_observed: vec![200.1, 299.9, 399.8],
         fragment_correlation_observed: vec![0.95, 0.88, 0.92],
         fragment_mass_error_observed: vec![0.1, -0.1, 0.05],
+        fragment_window_mz: vec![500.0; 3],
+        fragment_mz_shift: vec![0.0; 3],
     };
 
     let filtered = precursor.filter_fragments_by_intensity(0.0).unwrap();
@@ -134,6 +140,8 @@ fn test_filter_fragments_by_intensity_returns_none_when_empty() {
         fragment_mz_observed: vec![200.1, 299.9],
         fragment_correlation_observed: vec![0.95, 0.88],
         fragment_mass_error_observed: vec![0.1, -0.1],
+        fragment_window_mz: vec![500.0; 2],
+        fragment_mz_shift: vec![0.0; 2],
     };
 
     let filtered = precursor.filter_fragments_by_intensity(0.0);
@@ -163,6 +171,8 @@ fn test_filter_fragments_by_intensity_with_higher_threshold() {
         fragment_mz_observed: vec![200.1, 299.9, 399.8],
         fragment_correlation_observed: vec![0.95, 0.88, 0.92],
         fragment_mass_error_observed: vec![0.1, -0.1, 0.05],
+        fragment_window_mz: vec![500.0; 3],
+        fragment_mz_shift: vec![0.0; 3],
     };
 
     let filtered = precursor.filter_fragments_by_intensity(75.0).unwrap();

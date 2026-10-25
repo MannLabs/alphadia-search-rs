@@ -22,6 +22,7 @@ use crate::utils::{
 };
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
+use numpy::PyReadonlyArray1;
 
 pub mod parameters;
 pub mod tests;
@@ -49,7 +50,31 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         self.score_generic(dia_data, lib, candidates)
     }
+
+    /// Score each candidate on its scoring fragments minus the ones listed for it: `excluded_mz_library` holds
+    /// `excluded_per_candidate` library m/z values per candidate, row-major in candidate order, 0 for an empty
+    /// slot. A candidate left with fewer than MIN_FRAGMENTS_MASKED fragments is not scored and is absent from the
+    /// result.
+    pub fn score_masked(
+        &self,
+        dia_data: &DIAData,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+        excluded_mz_library: PyReadonlyArray1<f32>,
+        excluded_per_candidate: usize,
+    ) -> PyResult<CandidateFeatureCollection> {
+        let excluded = excluded_mz_library.as_slice()?;
+        if excluded.len() != candidates.len() * excluded_per_candidate {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "excluded_mz_library must hold excluded_per_candidate values per candidate",
+            ));
+        }
+        Ok(self.score_masked_generic(dia_data, lib, candidates, excluded, excluded_per_candidate))
+    }
 }
+
+/// The correlation and median-profile features need a few profiles to mean anything.
+pub const MIN_FRAGMENTS_MASKED: usize = 3;
 
 impl PeakGroupScoring {
     /// Generic scoring function that works with any type implementing DIADataTrait
@@ -99,6 +124,49 @@ impl PeakGroupScoring {
             candidates_per_second
         );
 
+        feature_collection
+    }
+
+    fn score_masked_generic<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+        excluded_mz_library: &[f32],
+        excluded_per_candidate: usize,
+    ) -> CandidateFeatureCollection {
+        let start_time = Instant::now();
+        let refs: Vec<&Candidate> = candidates.iter().collect();
+        let scored_candidates: Vec<CandidateFeature> = refs
+            .par_iter()
+            .enumerate()
+            .filter_map(|(i, candidate)| {
+                let excluded: Vec<f32> = excluded_mz_library
+                    [i * excluded_per_candidate..(i + 1) * excluded_per_candidate]
+                    .iter()
+                    .copied()
+                    .filter(|&mz| mz > 0.0)
+                    .collect();
+                let precursor = lib.get_precursor_by_idx_filtered(
+                    candidate.precursor_idx,
+                    true,
+                    true,
+                    self.params.top_k_fragments,
+                )?;
+                let reduced = precursor.without_fragments(&excluded);
+                if reduced.fragment_mz.len() < MIN_FRAGMENTS_MASKED {
+                    return None;
+                }
+                self.score_candidate_generic(dia_data, lib, &reduced, candidate)
+            })
+            .collect();
+        let feature_collection = CandidateFeatureCollection::from_vec(scored_candidates);
+        println!(
+            "Rescored {} of {} masked candidates in {:.1} s",
+            feature_collection.len(),
+            candidates.len(),
+            start_time.elapsed().as_secs_f32()
+        );
         feature_collection
     }
 

@@ -235,3 +235,27 @@ fn test_all_zero_intensities_filtered() {
     assert_eq!(mz, Vec::<f32>::new());
     assert_eq!(intensity, Vec::<f32>::new());
 }
+
+#[test]
+fn test_without_fragments_drops_only_the_excluded_library_mz() {
+    let precursor = test_precursor();
+
+    let reduced = precursor.without_fragments(&[300.5, 500.5, 999.0]);
+
+    assert_eq!(reduced.fragment_mz_library, vec![200.5, 400.5, 600.5]);
+    assert_eq!(reduced.fragment_mz, vec![200.0, 400.0, 600.0]);
+    assert_eq!(reduced.fragment_intensity, vec![0.0, 5.0, 0.0]);
+    assert_eq!(reduced.fragment_number, vec![1, 3, 5]);
+    assert_eq!(reduced.precursor_idx, precursor.precursor_idx);
+    assert_eq!(reduced.naa, precursor.naa);
+}
+
+#[test]
+fn test_without_fragments_keeps_everything_when_nothing_matches() {
+    let precursor = test_precursor();
+
+    let reduced = precursor.without_fragments(&[]);
+
+    assert_eq!(reduced.fragment_mz, precursor.fragment_mz);
+    assert_eq!(reduced.fragment_type, precursor.fragment_type);
+}

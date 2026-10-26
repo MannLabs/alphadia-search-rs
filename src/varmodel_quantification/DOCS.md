@@ -112,7 +112,7 @@ of the measurement, under the quantities of the first sweep. The variance falls 
 noise dominates and levels off at both ends: at the detection floor, where faint measurements are as
 noisy as the background, and at the top, where the fragment-to-fragment noise
 dominates. A weight by library share alone would see neither end. `v` is
-estimated from the residuals that give `sigma` (below): their squared scaled MAD in up to 30
+estimated from the residuals that give `sigma` (below): their squared scaled median absolute deviation (MAD) in up to 30
 bins of equal count along `mu`, at most one bin per 50 residuals, made non-increasing in `mu` and
 interpolated linearly in log variance between the bin medians. The loss scale keeps the
 tuning constant of every measurement relative to its own standard deviation, and `lambda` counts

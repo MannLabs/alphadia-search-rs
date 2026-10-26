@@ -6,8 +6,7 @@ const DEFAULT_MAX_SWEEPS: usize = 20;
 const DEFAULT_MIN_IONS: usize = 2;
 const DEFAULT_TOLERANCE: f64 = 1e-3;
 
-/// The settings of the fit. The Python class always runs `DEFAULT`, which derives `tau` and
-/// `lambda` from the data; the tests pin them to check the fit independently of the derivation.
+/// `tau` and `lambda` are derived from the data unless set.
 pub struct FitConfig {
     pub tau: Option<f64>,
     pub lambda: Option<f64>,
@@ -26,6 +25,7 @@ impl FitConfig {
     };
 }
 
+/// Run quantities, run-major `(n_runs, n_precursors)`, NaN where too few fragments were observed.
 pub struct FitResult {
     pub quantity: Vec<f64>,
     pub parameters: FitParameters,
@@ -83,9 +83,10 @@ pub fn fit(
     }
 }
 
-/// The fragment measurements of one precursor as `log2(I / s)`, ion-major, NaN where missing.
-/// Arrays with one entry per fragment measurement are f32 to bound the memory of the fit; sums
-/// and scalars are f64.
+/// One precursor: the library share `s` of each fragment with a library intensity, and its
+/// fragment measurements as `log2(I / s)`, ion-major, NaN where missing.
+/// Arrays with one entry per fragment measurement are f32 to bound memory; sums and scalars
+/// are f64.
 pub struct Group {
     values: Vec<f32>,
     pub share: Vec<f64>,

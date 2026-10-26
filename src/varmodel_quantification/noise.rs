@@ -4,8 +4,9 @@ use super::algorithm::{FitConfig, Group};
 
 /// Cauchy loss tuning constant for 95 % efficiency at the normal distribution (Holland & Welsch 1977).
 const CAUCHY_TUNING_CONSTANT: f64 = 2.385;
-/// MAD to standard deviation at the normal distribution.
+/// Median absolute deviation (MAD) to standard deviation at the normal distribution.
 const MAD_TO_SIGMA: f64 = 1.4826;
+/// Keeps the offset shrinkage finite when the fragment offsets spread no wider than the noise.
 const MIN_OFFSET_VARIANCE: f64 = 1e-4;
 /// Floor of the robust residual scale (log2): data whose majority of residuals is exactly zero
 /// would otherwise get a zero loss scale.
@@ -14,6 +15,7 @@ const VARIANCE_BINS: usize = 30;
 /// Small data gets fewer bins, so that every bin variance rests on enough residuals.
 const MIN_VARIANCE_BIN_SIZE: usize = 50;
 
+/// Residual scale `sigma`, Cauchy loss scale `tau` and offset shrinkage `lambda`, in log2.
 #[derive(Clone, Copy)]
 pub struct FitParameters {
     pub sigma: f64,
@@ -21,7 +23,8 @@ pub struct FitParameters {
     pub lambda: f64,
 }
 
-/// Step 2 of the procedure: the noise of the fragment measurements, pooled over all precursors.
+/// Step 2 of the procedure: the scalars of the fit and the variance curve, estimated from the
+/// residuals of all precursors.
 pub struct NoiseModel {
     pub parameters: FitParameters,
     pub variance: VarianceCurve,
@@ -34,8 +37,8 @@ impl NoiseModel {
             .zip(initial)
             .map(|(group, quantity)| first_sweep_residuals(group, quantity))
             .collect();
-        // one exactly sized allocation: a parallel reduce with extend holds both halves and
-        // the regrown buffer at once, which doubles the peak memory of the fit
+        // concatenated once: a parallel reduce with extend holds both halves and a regrown
+        // buffer at once, which doubles the peak memory
         let mut residuals = Vec::with_capacity(per_group.iter().map(|(r, _)| r.len()).sum());
         let mut raw_offsets = Vec::with_capacity(per_group.iter().map(|(_, o)| o.len()).sum());
         for (group_residuals, group_raw_offsets) in per_group {
@@ -61,12 +64,13 @@ impl NoiseModel {
     }
 }
 
-/// f32, because the residuals of all fragment measurements are pooled.
+/// A first-sweep residual and the expected log2 intensity of its fragment measurement.
 struct Residual {
     expected_intensity: f32,
     value: f32,
 }
 
+/// The unshrunk offset of a fragment: the mean of its deviations over its `n` observed runs.
 struct RawOffset {
     mean: f64,
     n: usize,
@@ -113,6 +117,7 @@ fn median(values: &mut [f32]) -> f64 {
     (lower as f64 + upper as f64) / 2.0
 }
 
+/// Robust standard deviation: the scaled MAD.
 fn residual_scale(residuals: &mut [f32]) -> f64 {
     if residuals.is_empty() {
         return MIN_RESIDUAL_SCALE;
@@ -124,6 +129,7 @@ fn residual_scale(residuals: &mut [f32]) -> f64 {
     (MAD_TO_SIGMA * median(residuals)).max(MIN_RESIDUAL_SCALE)
 }
 
+/// Ratio of noise to offset variance (random effects, method of moments).
 fn offset_shrinkage(raw_offsets: &[RawOffset], sigma: f64) -> f64 {
     let enough: Vec<&RawOffset> = raw_offsets.iter().filter(|offset| offset.n >= 2).collect();
     if enough.is_empty() {
@@ -144,6 +150,8 @@ fn offset_shrinkage(raw_offsets: &[RawOffset], sigma: f64) -> f64 {
     sigma * sigma / (variance - noise).max(MIN_OFFSET_VARIANCE)
 }
 
+/// Residual variance against expected log2 intensity: the robust log variance of equal-count
+/// bins at their median expected intensity, interpolated linearly between bins.
 pub struct VarianceCurve {
     expected_intensity: Vec<f64>,
     log_variance: Vec<f64>,

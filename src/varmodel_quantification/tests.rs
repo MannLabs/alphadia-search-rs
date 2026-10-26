@@ -211,8 +211,8 @@ fn test_fragments_without_library_intensity_are_ignored() {
 fn test_derives_loss_scale_and_shrinkage_from_the_data() {
     // Given many precursors whose fragments scatter with a known noise and offset spread
     let (n_precursors, n_fragments, n_runs) = (400, 6, 4);
+    // sd: standard deviation; a uniform variable on [-0.5, 0.5) has an sd of 1 / sqrt(12)
     let (noise_sd, offset_sd) = (0.2, 0.5);
-    // a uniform variable on [-0.5, 0.5) has a standard deviation of 1 / sqrt(12)
     let uniform_to_sd = 12f64.sqrt();
     let true_q: Vec<Vec<f64>> = (0..n_precursors)
         .map(|p| {
@@ -332,7 +332,7 @@ fn simulate_offsets_and_noise(
     noise_sd: f64,
 ) -> (Vec<Vec<f64>>, Vec<usize>, Vec<Vec<f64>>) {
     let (n_precursors, n_fragments, n_runs) = (1000, 10, 6);
-    // a uniform variable on [-0.5, 0.5) has a standard deviation of 1 / sqrt(12)
+    // sd: standard deviation; a uniform variable on [-0.5, 0.5) has an sd of 1 / sqrt(12)
     let uniform_to_sd = 12f64.sqrt();
     let true_q: Vec<Vec<f64>> = (0..n_precursors)
         .map(|p| {
@@ -488,8 +488,9 @@ fn test_variance_weights_follow_the_noise_of_the_measurement_intensity() {
             (0..n_runs)
                 .map(|run| {
                     let expected = log_share + true_q[p][run];
-                    let sd = if expected < 12.0 { 1.0 } else { 0.05 };
-                    expected + sd * 12f64.sqrt() * noise(14_000_000 + ion * n_runs + run)
+                    let standard_deviation = if expected < 12.0 { 1.0 } else { 0.05 };
+                    expected
+                        + standard_deviation * 12f64.sqrt() * noise(14_000_000 + ion * n_runs + run)
                 })
                 .collect()
         })

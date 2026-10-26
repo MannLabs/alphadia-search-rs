@@ -13,12 +13,12 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
-pub struct LibraryAnchoredFit {
+pub struct LibraryAnchoredQuantification {
     params: FitParameters,
 }
 
 #[pymethods]
-impl LibraryAnchoredFit {
+impl LibraryAnchoredQuantification {
     /// * `tau` - scale of the Cauchy loss in log2, None to derive it from the data.
     /// * `lam` - shrinkage of the fragment offsets towards the library pattern, None to derive it.
     /// * `max_sweeps` - maximum number of reweighting sweeps per precursor.

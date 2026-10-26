@@ -15,7 +15,6 @@ pub mod fragment_competition;
 pub mod idf;
 pub mod intensity_drift;
 mod kernel;
-pub mod library_anchored_quantification;
 mod mz_index;
 pub mod peak_group_quantification;
 pub mod peak_group_scoring;
@@ -31,6 +30,7 @@ pub mod speclib_flat_quantified;
 mod threadpool;
 pub mod traits;
 pub mod utils;
+pub mod varmodel_quantification;
 
 use crate::calibration::CalibrationEstimator;
 use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
@@ -39,12 +39,12 @@ use crate::dia_data::DIAData;
 use crate::fragment_competition::FragmentCompetition;
 use crate::intensity_drift::IntensityDriftCorrection;
 pub use crate::kernel::GaussianKernel;
-use crate::library_anchored_quantification::LibraryAnchoredQuantification;
 use crate::peak_group_quantification::{PeakGroupQuantification, QuantificationParameters};
 use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;
 use crate::speclib_flat_quantified::SpecLibFlatQuantified;
+use crate::varmodel_quantification::VarModelQuantification;
 
 #[pyfunction]
 fn get_optimal_simd_backend() -> PyResult<String> {
@@ -97,7 +97,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FragmentCompetition>()?;
     m.add_class::<CandidateContext>()?;
     m.add_class::<IntensityDriftCorrection>()?;
-    m.add_class::<LibraryAnchoredQuantification>()?;
+    m.add_class::<VarModelQuantification>()?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(clear_simd_backend, m)?)?;

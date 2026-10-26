@@ -11,10 +11,10 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
-pub struct LibraryAnchoredQuantification;
+pub struct VarModelQuantification;
 
 #[pymethods]
-impl LibraryAnchoredQuantification {
+impl VarModelQuantification {
     /// The fit runs with fixed settings; its loss scale and offset shrinkage are derived from
     /// the data.
     #[new]

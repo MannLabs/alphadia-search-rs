@@ -16,7 +16,8 @@ pub const DEFAULT_MAX_SWEEPS: usize = 20;
 pub const DEFAULT_MIN_IONS: usize = 2;
 pub const DEFAULT_TOLERANCE: f64 = 1e-3;
 
-/// What the caller sets; `tau` and `lambda` left at None are derived from the data.
+/// What the caller sets; `tau` and `lambda` left at None are derived from the data, which the
+/// Python class always does. The tests pin them to check the fit independently of the derivation.
 pub struct FitConfig {
     pub tau: Option<f64>,
     pub lambda: Option<f64>,

@@ -19,32 +19,23 @@ pub struct LibraryAnchoredQuantification {
 
 #[pymethods]
 impl LibraryAnchoredQuantification {
-    /// * `tau` - scale of the Cauchy loss in log2, None to derive it from the data.
-    /// * `lam` - shrinkage of the fragment offsets towards the library pattern, None to derive it.
     /// * `max_sweeps` - maximum number of reweighting sweeps per precursor.
     /// * `min_ions` - minimum observed fragments per precursor and run.
     /// * `tolerance` - largest change of a quantity (log2) at which the sweeps stop.
     ///
-    /// Raises `ValueError` if `tau` is not positive, `lam` or `tolerance` is negative, or
-    /// `min_ions` is zero.
+    /// The loss scale and the offset shrinkage are always derived from the data.
+    ///
+    /// Raises `ValueError` if `tolerance` is negative or `min_ions` is zero.
     #[new]
     #[pyo3(signature = (
-        tau = None,
-        lam = None,
         max_sweeps = DEFAULT_MAX_SWEEPS,
         min_ions = DEFAULT_MIN_IONS,
         tolerance = DEFAULT_TOLERANCE,
     ))]
-    fn new(
-        tau: Option<f64>,
-        lam: Option<f64>,
-        max_sweeps: usize,
-        min_ions: usize,
-        tolerance: f64,
-    ) -> PyResult<Self> {
+    fn new(max_sweeps: usize, min_ions: usize, tolerance: f64) -> PyResult<Self> {
         let config = FitConfig {
-            tau,
-            lambda: lam,
+            tau: None,
+            lambda: None,
             max_sweeps,
             min_ions,
             tolerance,

@@ -89,4 +89,4 @@ The loss scale and the shrinkage are derived from the data, not tuned:
 | `lambda`       | `sigma ** 2 / sigma_c ** 2`, `sigma_c ** 2 = var(unshrunk per-fragment mean deviations) - mean(sigma ** 2 / n_f)`, floored | random-effects (ridge) shrinkage of a fragment offset towards the library pattern |
 
 `sigma` is floored at a small value so that data whose majority of residuals is exactly zero
-still downweights its outliers. Either value can be given instead of derived.
+still downweights its outliers.

@@ -325,19 +325,6 @@ fn test_validate_shapes_rejects_mismatches() {
     assert!(validate_shapes((2, 3), 3, &[0, 0, 2], 2).is_err());
 }
 
-#[test]
-fn test_validate_rejects_invalid_parameters() {
-    assert!(config(Some(0.0), None).validate().is_err());
-    assert!(config(None, Some(-1.0)).validate().is_err());
-    assert!(FitConfig {
-        min_ions: 0,
-        ..FitConfig::DEFAULT
-    }
-    .validate()
-    .is_err());
-    assert!(FitConfig::DEFAULT.validate().is_ok());
-}
-
 fn simulate_offsets_and_noise(
     offset_sd: f64,
     noise_sd: f64,

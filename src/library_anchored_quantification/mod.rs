@@ -2,9 +2,7 @@ mod algorithm;
 #[cfg(test)]
 mod tests;
 
-use algorithm::{
-    fit, validate_shapes, FitConfig, DEFAULT_MAX_SWEEPS, DEFAULT_MIN_IONS, DEFAULT_TOLERANCE,
-};
+use algorithm::{fit, validate_shapes, FitConfig};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -13,35 +11,15 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
-pub struct LibraryAnchoredQuantification {
-    config: FitConfig,
-}
+pub struct LibraryAnchoredQuantification;
 
 #[pymethods]
 impl LibraryAnchoredQuantification {
-    /// * `max_sweeps` - maximum number of reweighting sweeps per precursor.
-    /// * `min_ions` - minimum observed fragments per precursor and run.
-    /// * `tolerance` - largest change of a quantity (log2) at which the sweeps stop.
-    ///
-    /// The loss scale and the offset shrinkage are always derived from the data.
-    ///
-    /// Raises `ValueError` if `tolerance` is negative or `min_ions` is zero.
+    /// The fit runs with fixed settings; its loss scale and offset shrinkage are derived from
+    /// the data.
     #[new]
-    #[pyo3(signature = (
-        max_sweeps = DEFAULT_MAX_SWEEPS,
-        min_ions = DEFAULT_MIN_IONS,
-        tolerance = DEFAULT_TOLERANCE,
-    ))]
-    fn new(max_sweeps: usize, min_ions: usize, tolerance: f64) -> PyResult<Self> {
-        let config = FitConfig {
-            tau: None,
-            lambda: None,
-            max_sweeps,
-            min_ions,
-            tolerance,
-        };
-        config.validate().map_err(PyValueError::new_err)?;
-        Ok(Self { config })
+    fn new() -> Self {
+        Self
     }
 
     /// Gives a dict with the `(n_runs, n_precursors)` log2 `quantity` matrix and the scalars
@@ -74,7 +52,7 @@ impl LibraryAnchoredQuantification {
             precursor,
             n_runs,
             n_precursors,
-            &self.config,
+            &FitConfig::DEFAULT,
         );
 
         let quantity = Array2::from_shape_vec((n_runs, n_precursors), result.quantity)

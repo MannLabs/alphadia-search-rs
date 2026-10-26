@@ -46,7 +46,7 @@ fragments of a precursor need not be adjacent.
 A dict with
 
 - `quantity` — `(n_runs, n_precursors)` log2 run quantities, NaN where the run of the
-  precursor has fewer than `min_ions` observed fragments.
+  precursor has fewer than 2 observed fragments (`min_ions`).
 - `residual_scale`, `loss_scale`, `offset_shrinkage` — the scalars of the fit, for logging.
 
 # Algorithm
@@ -68,7 +68,7 @@ q[g, r] = sum_f w (y - c) / sum_f w
 ```
 
 with `y = log2(I / s)`. The sweeps of a precursor stop when none of its quantities moves by
-more than `tolerance` log2, at most `max_sweeps`.
+more than 1e-3 log2 (`tolerance`), at most 20 (`max_sweeps`).
 
 `v(mu)` is the residual variance at the expected log2 intensity `mu[f, r] = log2(s[f]) + q[g, r]`
 of the cell, under the quantities of the first sweep. The variance falls with intensity where counting

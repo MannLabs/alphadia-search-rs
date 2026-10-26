@@ -12,12 +12,12 @@ const VARIANCE_BINS: usize = 30;
 /// Small data gets fewer bins, so that every bin variance rests on enough residuals.
 const MIN_VARIANCE_BIN_SIZE: usize = 50;
 
-pub const DEFAULT_MAX_SWEEPS: usize = 20;
-pub const DEFAULT_MIN_IONS: usize = 2;
-pub const DEFAULT_TOLERANCE: f64 = 1e-3;
+const DEFAULT_MAX_SWEEPS: usize = 20;
+const DEFAULT_MIN_IONS: usize = 2;
+const DEFAULT_TOLERANCE: f64 = 1e-3;
 
-/// What the caller sets; `tau` and `lambda` left at None are derived from the data, which the
-/// Python class always does. The tests pin them to check the fit independently of the derivation.
+/// The settings of the fit. The Python class always runs `DEFAULT`, which derives `tau` and
+/// `lambda` from the data; the tests pin them to check the fit independently of the derivation.
 pub struct FitConfig {
     pub tau: Option<f64>,
     pub lambda: Option<f64>,
@@ -27,8 +27,6 @@ pub struct FitConfig {
 }
 
 impl FitConfig {
-    // the Python constructor spells out every field, the tests vary single ones
-    #[cfg(test)]
     pub const DEFAULT: Self = Self {
         tau: None,
         lambda: None,
@@ -36,31 +34,6 @@ impl FitConfig {
         min_ions: DEFAULT_MIN_IONS,
         tolerance: DEFAULT_TOLERANCE,
     };
-
-    pub fn validate(&self) -> Result<(), String> {
-        if let Some(tau) = self.tau {
-            if !(tau.is_finite() && tau > 0.0) {
-                return Err(format!("tau must be a positive number, got {tau}"));
-            }
-        }
-        if let Some(lambda) = self.lambda {
-            if !(lambda.is_finite() && lambda >= 0.0) {
-                return Err(format!(
-                    "lambda must be a non-negative number, got {lambda}"
-                ));
-            }
-        }
-        if self.min_ions == 0 {
-            return Err("min_ions must be at least 1".to_string());
-        }
-        if !(self.tolerance.is_finite() && self.tolerance >= 0.0) {
-            return Err(format!(
-                "tolerance must be a non-negative number, got {}",
-                self.tolerance
-            ));
-        }
-        Ok(())
-    }
 }
 
 /// What the fit runs with: the config's `tau` and `lambda` resolved, plus the estimated `sigma`.

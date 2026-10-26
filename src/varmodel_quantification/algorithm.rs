@@ -50,14 +50,14 @@ pub struct FitResult {
 
 pub fn validate_shapes(
     intensity_shape: (usize, usize),
-    n_library: usize,
+    n_intensity_library: usize,
     precursor: &[usize],
     n_precursors: usize,
 ) -> Result<(), String> {
     let (_, n_ions) = intensity_shape;
-    if n_library != n_ions || precursor.len() != n_ions {
+    if n_intensity_library != n_ions || precursor.len() != n_ions {
         return Err(format!(
-            "intensity has {n_ions} ions, library {n_library} and precursor {}",
+            "intensity has {n_ions} ions, intensity_library {n_intensity_library} and precursor {}",
             precursor.len()
         ));
     }
@@ -83,15 +83,15 @@ impl Group {
 
 fn build_groups(
     intensity: &[f32],
-    library: &[f32],
+    intensity_library: &[f32],
     precursor: &[usize],
     n_runs: usize,
     n_precursors: usize,
 ) -> Vec<Group> {
-    let n_ions = library.len();
+    let n_ions = intensity_library.len();
     let mut members: Vec<Vec<usize>> = vec![Vec::new(); n_precursors];
     for (ion, &index) in precursor.iter().enumerate() {
-        let l = library[ion] as f64;
+        let l = intensity_library[ion] as f64;
         if l.is_finite() && l > 0.0 {
             members[index].push(ion);
         }
@@ -99,10 +99,11 @@ fn build_groups(
     members
         .into_par_iter()
         .map(|ions| {
-            let library_sum: f64 = ions.iter().map(|&ion| library[ion] as f64).sum();
+            let intensity_library_sum: f64 =
+                ions.iter().map(|&ion| intensity_library[ion] as f64).sum();
             let share: Vec<f64> = ions
                 .iter()
-                .map(|&ion| library[ion] as f64 / library_sum)
+                .map(|&ion| intensity_library[ion] as f64 / intensity_library_sum)
                 .collect();
             let mut values = Vec::with_capacity(ions.len() * n_runs);
             for (&ion, &s) in ions.iter().zip(&share) {
@@ -296,13 +297,19 @@ fn fit_group(
 
 pub fn fit(
     intensity: &[f32],
-    library: &[f32],
+    intensity_library: &[f32],
     precursor: &[usize],
     n_runs: usize,
     n_precursors: usize,
     config: &FitConfig,
 ) -> FitResult {
-    let groups = build_groups(intensity, library, precursor, n_runs, n_precursors);
+    let groups = build_groups(
+        intensity,
+        intensity_library,
+        precursor,
+        n_runs,
+        n_precursors,
+    );
 
     let initial: Vec<Vec<f64>> = groups
         .par_iter()

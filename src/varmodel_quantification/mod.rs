@@ -34,21 +34,26 @@ impl VarModelQuantification {
         &self,
         py: Python<'_>,
         intensity: PyReadonlyArray2<'_, f32>,
-        library: PyReadonlyArray1<'_, f32>,
+        intensity_library: PyReadonlyArray1<'_, f32>,
         precursor: PyReadonlyArray1<'_, usize>,
         n_precursors: usize,
     ) -> PyResult<Py<PyAny>> {
         let shape = intensity.shape();
         let n_runs = shape[0];
         let precursor = precursor.as_slice()?;
-        validate_shapes((shape[0], shape[1]), library.len(), precursor, n_precursors)
-            .map_err(PyValueError::new_err)?;
+        validate_shapes(
+            (shape[0], shape[1]),
+            intensity_library.len(),
+            precursor,
+            n_precursors,
+        )
+        .map_err(PyValueError::new_err)?;
 
         let intensity = intensity.as_slice()?;
-        let library = library.as_slice()?;
+        let intensity_library = intensity_library.as_slice()?;
         let result = fit(
             intensity,
-            library,
+            intensity_library,
             precursor,
             n_runs,
             n_precursors,

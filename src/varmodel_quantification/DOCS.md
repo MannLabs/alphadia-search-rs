@@ -35,7 +35,7 @@ Missing cells carry no information and enter no sum. Fragments without a library
 | array       | shape              | content                                                  |
 |-------------|--------------------|----------------------------------------------------------|
 | `intensity` | `(n_runs, n_ions)` | linear fragment intensities, 0 marks a missing cell      |
-| `library`   | `(n_ions,)`        | library intensity of every fragment                      |
+| `intensity_library` | `(n_ions,)` | library intensity of every fragment                |
 | `precursor` | `(n_ions,)`        | precursor (group) index of every fragment, `< n_precursors` |
 
 The arrays are run-major and C-contiguous like those of the intensity drift correction. The

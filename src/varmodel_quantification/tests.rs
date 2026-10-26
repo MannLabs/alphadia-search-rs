@@ -40,10 +40,10 @@ fn quantities(quantity: &[f64], index: usize, n_runs: usize, n_precursors: usize
 fn test_recovers_run_ratios_with_an_interfered_fragment() {
     // Given one precursor following the library pattern with small offsets and noise, one
     // minor fragment interfered 8-fold in run 2 and one missing cell
-    let library = [1.0f32, 0.8, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
+    let intensity_library = [1.0f32, 0.8, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
     let true_q = [10.0, 11.0, 8.0, 10.5];
-    let library_sum: f64 = library.iter().map(|&l| l as f64).sum();
-    let mut log2_values: Vec<Vec<f64>> = library
+    let intensity_library_sum: f64 = intensity_library.iter().map(|&l| l as f64).sum();
+    let mut log2_values: Vec<Vec<f64>> = intensity_library
         .iter()
         .enumerate()
         .map(|(ion, &l)| {
@@ -52,7 +52,9 @@ fn test_recovers_run_ratios_with_an_interfered_fragment() {
                 .iter()
                 .enumerate()
                 .map(|(run, q)| {
-                    q + (l as f64 / library_sum).log2() + offset + 0.05 * noise(100 + ion * 4 + run)
+                    q + (l as f64 / intensity_library_sum).log2()
+                        + offset
+                        + 0.05 * noise(100 + ion * 4 + run)
                 })
                 .collect()
         })
@@ -63,7 +65,7 @@ fn test_recovers_run_ratios_with_an_interfered_fragment() {
     // When
     let result = fit(
         &run_major(&log2_values),
-        &library,
+        &intensity_library,
         &[0; 8],
         4,
         1,
@@ -83,9 +85,9 @@ fn test_recovers_run_ratios_with_an_interfered_fragment() {
 #[test]
 fn test_quantity_is_on_the_summed_fragment_scale() {
     // Given fragments that follow the library pattern exactly
-    let library = [1.0f32, 0.5, 0.25];
+    let intensity_library = [1.0f32, 0.5, 0.25];
     let totals = [1000.0f64, 4000.0];
-    let log2_values: Vec<Vec<f64>> = library
+    let log2_values: Vec<Vec<f64>> = intensity_library
         .iter()
         .map(|&l| {
             totals
@@ -98,7 +100,7 @@ fn test_quantity_is_on_the_summed_fragment_scale() {
     // When
     let result = fit(
         &run_major(&log2_values),
-        &library,
+        &intensity_library,
         &[0; 3],
         2,
         1,
@@ -418,12 +420,12 @@ fn test_residual_scale_excludes_the_library_offsets() {
 fn test_offsets_are_removed_with_unequal_library_shares() {
     // Given large library offsets, interference and missing cells, and unequal library shares
     let (log2_values, precursor, true_q) = simulate_offsets_and_noise(1.0, 0.1);
-    let library: Vec<f32> = (0..precursor.len())
+    let intensity_library: Vec<f32> = (0..precursor.len())
         .map(|ion| 0.05 + 0.95 * (noise(10_000_000 + ion) as f32 + 0.5))
         .collect();
-    let library_sum_per_precursor: Vec<f64> = (0..true_q.len())
+    let intensity_library_sum_per_precursor: Vec<f64> = (0..true_q.len())
         .map(|p| {
-            library[p * 10..(p + 1) * 10]
+            intensity_library[p * 10..(p + 1) * 10]
                 .iter()
                 .map(|&l| l as f64)
                 .sum()
@@ -433,7 +435,8 @@ fn test_offsets_are_removed_with_unequal_library_shares() {
         .iter()
         .enumerate()
         .map(|(ion, values)| {
-            let share = library[ion] as f64 / library_sum_per_precursor[precursor[ion]];
+            let share =
+                intensity_library[ion] as f64 / intensity_library_sum_per_precursor[precursor[ion]];
             values.iter().map(|v| v + share.log2()).collect()
         })
         .collect();
@@ -441,7 +444,7 @@ fn test_offsets_are_removed_with_unequal_library_shares() {
     // When
     let result = fit(
         &run_major(&scaled),
-        &library,
+        &intensity_library,
         &precursor,
         6,
         true_q.len(),
@@ -467,7 +470,7 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
                 .collect()
         })
         .collect();
-    let library: Vec<f32> = (0..n_precursors * n_fragments)
+    let intensity_library: Vec<f32> = (0..n_precursors * n_fragments)
         .map(|ion| 2f32.powf(-6.0 * (noise(13_000_000 + ion) as f32 + 0.5)))
         .collect();
     let precursor: Vec<usize> = (0..n_precursors * n_fragments)
@@ -476,11 +479,12 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
     let log2_values: Vec<Vec<f64>> = (0..n_precursors * n_fragments)
         .map(|ion| {
             let p = precursor[ion];
-            let library_sum: f64 = library[p * n_fragments..(p + 1) * n_fragments]
+            let intensity_library_sum: f64 = intensity_library
+                [p * n_fragments..(p + 1) * n_fragments]
                 .iter()
                 .map(|&l| l as f64)
                 .sum();
-            let log_share = (library[ion] as f64 / library_sum).log2();
+            let log_share = (intensity_library[ion] as f64 / intensity_library_sum).log2();
             (0..n_runs)
                 .map(|run| {
                     let expected = log_share + true_q[p][run];
@@ -493,7 +497,7 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
     let error = |max_sweeps| {
         let result = fit(
             &run_major(&log2_values),
-            &library,
+            &intensity_library,
             &precursor,
             n_runs,
             n_precursors,

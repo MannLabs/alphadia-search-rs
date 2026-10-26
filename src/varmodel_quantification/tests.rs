@@ -39,7 +39,7 @@ fn quantities(quantity: &[f64], index: usize, n_runs: usize, n_precursors: usize
 #[test]
 fn test_recovers_run_ratios_with_an_interfered_fragment() {
     // Given one precursor following the library pattern with small offsets and noise, one
-    // minor fragment interfered 8-fold in run 2 and one missing cell
+    // minor fragment interfered 8-fold in run 2 and one missing measurement
     let intensity_library = [1.0f32, 0.8, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1];
     let true_q = [10.0, 11.0, 8.0, 10.5];
     let intensity_library_sum: f64 = intensity_library.iter().map(|&l| l as f64).sum();
@@ -350,19 +350,19 @@ fn simulate_offsets_and_noise(
             log2_values.push(
                 (0..n_runs)
                     .map(|run| {
-                        let cell = ion * n_runs + run;
-                        if noise(6_000_000 + cell) < -0.35 {
+                        let measurement = ion * n_runs + run;
+                        if noise(6_000_000 + measurement) < -0.35 {
                             return f64::NAN;
                         }
-                        let interference = if noise(7_000_000 + cell) > 0.45 {
-                            3.0 + 4.0 * noise(8_000_000 + cell)
+                        let interference = if noise(7_000_000 + measurement) > 0.45 {
+                            3.0 + 4.0 * noise(8_000_000 + measurement)
                         } else {
                             0.0
                         };
                         q[run]
                             + offset
                             + interference
-                            + noise_sd * uniform_to_sd * noise(9_000_000 + cell)
+                            + noise_sd * uniform_to_sd * noise(9_000_000 + measurement)
                     })
                     .collect(),
             );
@@ -390,7 +390,7 @@ fn profile_error(quantity: &[f64], true_q: &[Vec<f64>]) -> f64 {
 
 #[test]
 fn test_residual_scale_excludes_the_library_offsets() {
-    // Given the same noise, interference and missing cells, once without and once with
+    // Given the same noise, interference and missing measurements, once without and once with
     // library offsets ten times larger than the noise
     let fit_scale = |offset_sd: f64| {
         let (log2_values, precursor, true_q) = simulate_offsets_and_noise(offset_sd, 0.1);
@@ -418,7 +418,7 @@ fn test_residual_scale_excludes_the_library_offsets() {
 
 #[test]
 fn test_offsets_are_removed_with_unequal_library_shares() {
-    // Given large library offsets, interference and missing cells, and unequal library shares
+    // Given large library offsets, interference and missing measurements, and unequal library shares
     let (log2_values, precursor, true_q) = simulate_offsets_and_noise(1.0, 0.1);
     let intensity_library: Vec<f32> = (0..precursor.len())
         .map(|ion| 0.05 + 0.95 * (noise(10_000_000 + ion) as f32 + 0.5))
@@ -451,15 +451,15 @@ fn test_offsets_are_removed_with_unequal_library_shares() {
         &FitConfig::DEFAULT,
     );
 
-    // Then the profiles are close to the truth: a missing cell of a fragment with a large
+    // Then the profiles are close to the truth: a missing measurement of a fragment with a large
     // offset must not move its precursor's quantity in that run
     let error = profile_error(&result.quantity, &true_q);
     assert!(error < 0.07, "profile error {error}");
 }
 
 #[test]
-fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
-    // Given precursors over a wide abundance range with unequal library shares, whose cells
+fn test_variance_weights_follow_the_noise_of_the_measurement_intensity() {
+    // Given precursors over a wide abundance range with unequal library shares, whose measurements
     // are noisy below an expected log2 intensity of 12 and precise above, whatever their share
     let (n_precursors, n_fragments, n_runs) = (1000, 10, 6);
     let true_q: Vec<Vec<f64>> = (0..n_precursors)
@@ -512,7 +512,7 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
     // When
     let (first_sweep, fitted) = (error(0), error(FitConfig::DEFAULT.max_sweeps));
 
-    // Then the noisy cells are downweighted below the library-share weights of the first sweep
+    // Then the noisy measurements are downweighted below the library-share weights of the first sweep
     assert!(
         fitted < 0.85 * first_sweep,
         "profile error {fitted} fitted, {first_sweep} after the first sweep"

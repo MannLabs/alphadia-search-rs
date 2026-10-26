@@ -209,18 +209,24 @@ struct VarianceCurve {
 }
 
 impl VarianceCurve {
-    fn from_residuals(mut cells: Vec<(f64, f64)>) -> Self {
-        cells.par_sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
-        let n_bins = (cells.len() / MIN_VARIANCE_BIN_SIZE).clamp(1, VARIANCE_BINS);
+    fn from_residuals(mut measurements: Vec<(f64, f64)>) -> Self {
+        measurements.par_sort_unstable_by(|a, b| a.0.total_cmp(&b.0));
+        let n_bins = (measurements.len() / MIN_VARIANCE_BIN_SIZE).clamp(1, VARIANCE_BINS);
         let mut mu = Vec::with_capacity(n_bins);
         let mut log_variance = Vec::with_capacity(n_bins);
         for bin in 0..n_bins {
-            let cells = &cells[bin * cells.len() / n_bins..(bin + 1) * cells.len() / n_bins];
-            mu.push(cells.get(cells.len() / 2).map_or(0.0, |cell| cell.0));
-            let mut residuals: Vec<f64> = cells.iter().map(|cell| cell.1).collect();
+            let measurements = &measurements
+                [bin * measurements.len() / n_bins..(bin + 1) * measurements.len() / n_bins];
+            mu.push(
+                measurements
+                    .get(measurements.len() / 2)
+                    .map_or(0.0, |&(mu, _)| mu),
+            );
+            let mut residuals: Vec<f64> =
+                measurements.iter().map(|&(_, residual)| residual).collect();
             log_variance.push(2.0 * residual_scale(&mut residuals).ln());
         }
-        // a cell is at least as noisy as any brighter one
+        // a measurement is at least as noisy as any brighter one
         for bin in (1..n_bins).rev() {
             log_variance[bin - 1] = log_variance[bin - 1].max(log_variance[bin]);
         }
@@ -265,16 +271,16 @@ fn fit_group(
             let mut numerator = 0.0;
             let mut denominator = 0.0;
             for run in 0..n_runs {
-                let cell = ion * n_runs + run;
+                let measurement = ion * n_runs + run;
                 match centered(group, &quantity, ion, run, n_runs) {
                     Some(deviation) => {
                         let e = deviation - offsets[ion];
-                        let w = 1.0 / (variance[cell] + loss * e * e);
-                        weights[cell] = w;
+                        let w = 1.0 / (variance[measurement] + loss * e * e);
+                        weights[measurement] = w;
                         numerator += w * deviation;
                         denominator += w;
                     }
-                    None => weights[cell] = 0.0,
+                    None => weights[measurement] = 0.0,
                 }
             }
             // lambda counts observations of variance sigma ** 2
@@ -324,8 +330,8 @@ pub fn fit(
         .collect();
 
     // Residuals around the unshrunk offsets, so that the library offsets do not count as noise,
-    // scaled by sqrt(n / (n - 1)) for the offset fitted to the same n cells.
-    let (cells, raw_offsets): (Vec<(f64, f64)>, Vec<(f64, usize)>) = groups
+    // scaled by sqrt(n / (n - 1)) for the offset fitted to the same n measurements.
+    let (measurements, raw_offsets): (Vec<(f64, f64)>, Vec<(f64, usize)>) = groups
         .par_iter()
         .zip(&initial)
         .map(|(group, quantity)| {
@@ -360,7 +366,12 @@ pub fn fit(
                 (residuals, offsets)
             },
         );
-    let sigma = residual_scale(&mut cells.iter().map(|cell| cell.1).collect::<Vec<_>>());
+    let sigma = residual_scale(
+        &mut measurements
+            .iter()
+            .map(|&(_, residual)| residual)
+            .collect::<Vec<_>>(),
+    );
     let parameters = FitParameters {
         sigma,
         tau: config.tau.unwrap_or(CAUCHY_TUNING_CONSTANT * sigma),
@@ -368,7 +379,7 @@ pub fn fit(
             .lambda
             .unwrap_or_else(|| offset_shrinkage(&raw_offsets, sigma)),
     };
-    let curve = VarianceCurve::from_residuals(cells);
+    let curve = VarianceCurve::from_residuals(measurements);
 
     let fitted: Vec<Vec<f64>> = groups
         .par_iter()

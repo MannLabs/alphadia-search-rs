@@ -36,7 +36,6 @@ impl FitConfig {
     };
 }
 
-/// What the fit runs with: the config's `tau` and `lambda` resolved, plus the estimated `sigma`.
 #[derive(Clone, Copy)]
 pub struct FitParameters {
     pub sigma: f64,

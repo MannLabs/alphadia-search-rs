@@ -18,7 +18,7 @@ on:
       pypi_target:
         description: 'PyPI target'
         required: true
-        default: 'testpypi'
+        default: 'testpypi_and_pypi'
         type: choice
         options:
         - testpypi

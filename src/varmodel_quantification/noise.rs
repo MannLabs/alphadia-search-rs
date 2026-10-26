@@ -42,11 +42,10 @@ impl NoiseModel {
             residuals.extend(group_residuals);
             raw_offsets.extend(group_raw_offsets);
         }
-        let sigma = residual_scale(
-            &mut residuals
-                .iter()
-                .map(|residual| residual.value)
-                .collect::<Vec<_>>(),
+        let mut values: Vec<f64> = residuals.iter().map(|residual| residual.value).collect();
+        let (sigma, variance) = rayon::join(
+            || residual_scale(&mut values),
+            || VarianceCurve::from_residuals(residuals),
         );
         let parameters = FitParameters {
             sigma,
@@ -57,7 +56,7 @@ impl NoiseModel {
         };
         Self {
             parameters,
-            variance: VarianceCurve::from_residuals(residuals),
+            variance,
         }
     }
 }

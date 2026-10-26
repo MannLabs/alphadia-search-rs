@@ -84,8 +84,10 @@ pub fn fit(
 }
 
 /// The fragment measurements of one precursor as `log2(I / s)`, ion-major, NaN where missing.
+/// Stored as f32 because they are the largest array of the fit; the input intensities are f32,
+/// and the fit computes in f64.
 pub struct Group {
-    values: Vec<f64>,
+    values: Vec<f32>,
     pub share: Vec<f64>,
     pub n_ions: usize,
     pub n_runs: usize,
@@ -97,7 +99,7 @@ impl Group {
     }
 
     fn value(&self, ion: usize, run: usize) -> f64 {
-        self.values[self.index(ion, run)]
+        self.values[self.index(ion, run)] as f64
     }
 
     pub fn deviation(&self, ion: usize, run: usize, quantity: &[f64]) -> Option<f64> {
@@ -153,9 +155,9 @@ fn build_groups(
                 for run in 0..n_runs {
                     let i = intensity[run * n_ions + ion] as f64;
                     values.push(if i > 0.0 && i.is_finite() {
-                        (i / s).log2()
+                        (i / s).log2() as f32
                     } else {
-                        f64::NAN
+                        f32::NAN
                     });
                 }
             }

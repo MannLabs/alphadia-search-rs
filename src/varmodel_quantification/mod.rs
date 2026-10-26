@@ -1,4 +1,5 @@
 mod algorithm;
+mod noise;
 #[cfg(test)]
 mod tests;
 

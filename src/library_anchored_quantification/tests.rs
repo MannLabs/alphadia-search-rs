@@ -1,6 +1,6 @@
 use approx::assert_abs_diff_eq;
 
-use super::algorithm::{fit, validate_shapes, FitParameters};
+use super::algorithm::{fit, validate_shapes, FitConfig};
 
 fn noise(seed: usize) -> f64 {
     let hashed = (seed as u64)
@@ -22,11 +22,11 @@ fn run_major(log2_values: &[Vec<f64>]) -> Vec<f32> {
     intensity
 }
 
-fn params(tau: Option<f64>, lambda: Option<f64>) -> FitParameters {
-    FitParameters {
+fn config(tau: Option<f64>, lambda: Option<f64>) -> FitConfig {
+    FitConfig {
         tau,
         lambda,
-        ..FitParameters::DEFAULT
+        ..FitConfig::DEFAULT
     }
 }
 
@@ -67,7 +67,7 @@ fn test_recovers_run_ratios_with_an_interfered_fragment() {
         &[0; 8],
         4,
         1,
-        &params(Some(0.7), Some(1.0)),
+        &config(Some(0.7), Some(1.0)),
     );
 
     // Then
@@ -102,7 +102,7 @@ fn test_quantity_is_on_the_summed_fragment_scale() {
         &[0; 3],
         2,
         1,
-        &FitParameters::DEFAULT,
+        &FitConfig::DEFAULT,
     );
 
     // Then
@@ -127,7 +127,7 @@ fn test_min_ions_gives_nan() {
         &[0; 3],
         2,
         1,
-        &params(Some(0.7), Some(1.0)),
+        &config(Some(0.7), Some(1.0)),
     );
 
     // Then
@@ -155,7 +155,7 @@ fn test_partially_observed_precursors_keep_their_observed_runs() {
         &precursor,
         3,
         2,
-        &params(Some(1.0), Some(1.0)),
+        &config(Some(1.0), Some(1.0)),
     );
 
     // Then
@@ -192,7 +192,7 @@ fn test_fragments_without_library_intensity_are_ignored() {
         &[0; 4],
         3,
         1,
-        &params(Some(1.5), Some(1.0)),
+        &config(Some(1.5), Some(1.0)),
     );
 
     // Then
@@ -245,17 +245,17 @@ fn test_derives_loss_scale_and_shrinkage_from_the_data() {
         &precursor,
         n_runs,
         n_precursors,
-        &FitParameters::DEFAULT,
+        &FitConfig::DEFAULT,
     );
 
     // Then the first-sweep residuals carry noise and offsets, the loss scale follows them
-    assert!(result.scales.sigma > noise_sd);
+    assert!(result.parameters.sigma > noise_sd);
     assert_abs_diff_eq!(
-        result.scales.tau,
-        2.385 * result.scales.sigma,
+        result.parameters.tau,
+        2.385 * result.parameters.sigma,
         epsilon = 1e-9
     );
-    assert!(result.scales.lambda > 0.0);
+    assert!(result.parameters.lambda > 0.0);
     let mut error = 0.0;
     for (p, q) in true_q.iter().enumerate() {
         let est = quantities(&result.quantity, p, n_runs, n_precursors);
@@ -276,14 +276,14 @@ fn test_stops_at_convergence_with_exact_ratios() {
     ];
 
     // When fitted with a tight tolerance and many allowed sweeps
-    let params = FitParameters {
+    let config = FitConfig {
         tau: Some(1.0),
         lambda: Some(1.0),
         max_sweeps: 50,
         tolerance: 1e-6,
-        ..FitParameters::DEFAULT
+        ..FitConfig::DEFAULT
     };
-    let result = fit(&run_major(&log2_values), &[1.0; 3], &[0; 3], 3, 1, &params);
+    let result = fit(&run_major(&log2_values), &[1.0; 3], &[0; 3], 3, 1, &config);
 
     // Then
     for run in 0..3 {
@@ -310,7 +310,7 @@ fn test_noise_free_data_downweights_an_outlier() {
         &[0; 6],
         4,
         1,
-        &FitParameters::DEFAULT,
+        &FitConfig::DEFAULT,
     );
 
     // Then
@@ -327,15 +327,15 @@ fn test_validate_shapes_rejects_mismatches() {
 
 #[test]
 fn test_validate_rejects_invalid_parameters() {
-    assert!(params(Some(0.0), None).validate().is_err());
-    assert!(params(None, Some(-1.0)).validate().is_err());
-    assert!(FitParameters {
+    assert!(config(Some(0.0), None).validate().is_err());
+    assert!(config(None, Some(-1.0)).validate().is_err());
+    assert!(FitConfig {
         min_ions: 0,
-        ..FitParameters::DEFAULT
+        ..FitConfig::DEFAULT
     }
     .validate()
     .is_err());
-    assert!(FitParameters::DEFAULT.validate().is_ok());
+    assert!(FitConfig::DEFAULT.validate().is_ok());
 }
 
 fn simulate_offsets_and_noise(
@@ -411,9 +411,9 @@ fn test_residual_scale_excludes_the_library_offsets() {
             &precursor,
             6,
             true_q.len(),
-            &FitParameters::DEFAULT,
+            &FitConfig::DEFAULT,
         )
-        .scales
+        .parameters
         .sigma
     };
 
@@ -458,7 +458,7 @@ fn test_offsets_are_removed_with_unequal_library_shares() {
         &precursor,
         6,
         true_q.len(),
-        &FitParameters::DEFAULT,
+        &FitConfig::DEFAULT,
     );
 
     // Then the profiles are close to the truth: a missing cell of a fragment with a large
@@ -510,16 +510,16 @@ fn test_variance_weights_follow_the_noise_of_the_cell_intensity() {
             &precursor,
             n_runs,
             n_precursors,
-            &FitParameters {
+            &FitConfig {
                 max_sweeps,
-                ..FitParameters::DEFAULT
+                ..FitConfig::DEFAULT
             },
         );
         profile_error(&result.quantity, &true_q)
     };
 
     // When
-    let (first_sweep, fitted) = (error(0), error(FitParameters::DEFAULT.max_sweeps));
+    let (first_sweep, fitted) = (error(0), error(FitConfig::DEFAULT.max_sweeps));
 
     // Then the noisy cells are downweighted below the library-share weights of the first sweep
     assert!(

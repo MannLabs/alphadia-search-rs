@@ -3,7 +3,7 @@ mod algorithm;
 mod tests;
 
 use algorithm::{
-    fit, validate_shapes, FitParameters, DEFAULT_MAX_SWEEPS, DEFAULT_MIN_IONS, DEFAULT_TOLERANCE,
+    fit, validate_shapes, FitConfig, DEFAULT_MAX_SWEEPS, DEFAULT_MIN_IONS, DEFAULT_TOLERANCE,
 };
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
@@ -14,7 +14,7 @@ use pyo3::types::{PyDict, PyDictMethods};
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
 pub struct LibraryAnchoredQuantification {
-    params: FitParameters,
+    config: FitConfig,
 }
 
 #[pymethods]
@@ -42,15 +42,15 @@ impl LibraryAnchoredQuantification {
         min_ions: usize,
         tolerance: f64,
     ) -> PyResult<Self> {
-        let params = FitParameters {
+        let config = FitConfig {
             tau,
             lambda: lam,
             max_sweeps,
             min_ions,
             tolerance,
         };
-        params.validate().map_err(PyValueError::new_err)?;
-        Ok(Self { params })
+        config.validate().map_err(PyValueError::new_err)?;
+        Ok(Self { config })
     }
 
     /// Gives a dict with the `(n_runs, n_precursors)` log2 `quantity` matrix and the scalars
@@ -83,7 +83,7 @@ impl LibraryAnchoredQuantification {
             precursor,
             n_runs,
             n_precursors,
-            &self.params,
+            &self.config,
         );
 
         let quantity = Array2::from_shape_vec((n_runs, n_precursors), result.quantity)
@@ -91,9 +91,9 @@ impl LibraryAnchoredQuantification {
             .into_pyarray(py);
         let dict = PyDict::new(py);
         dict.set_item("quantity", quantity)?;
-        dict.set_item("residual_scale", result.scales.sigma)?;
-        dict.set_item("loss_scale", result.scales.tau)?;
-        dict.set_item("offset_shrinkage", result.scales.lambda)?;
+        dict.set_item("residual_scale", result.parameters.sigma)?;
+        dict.set_item("loss_scale", result.parameters.tau)?;
+        dict.set_item("offset_shrinkage", result.parameters.lambda)?;
         Ok(dict.into())
     }
 }

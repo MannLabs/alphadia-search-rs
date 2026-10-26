@@ -16,7 +16,8 @@ pub const DEFAULT_MAX_SWEEPS: usize = 20;
 pub const DEFAULT_MIN_IONS: usize = 2;
 pub const DEFAULT_TOLERANCE: f64 = 1e-3;
 
-pub struct FitParameters {
+/// What the caller sets; `tau` and `lambda` left at None are derived from the data.
+pub struct FitConfig {
     pub tau: Option<f64>,
     pub lambda: Option<f64>,
     pub max_sweeps: usize,
@@ -24,7 +25,7 @@ pub struct FitParameters {
     pub tolerance: f64,
 }
 
-impl FitParameters {
+impl FitConfig {
     // the Python constructor spells out every field, the tests vary single ones
     #[cfg(test)]
     pub const DEFAULT: Self = Self {
@@ -61,8 +62,9 @@ impl FitParameters {
     }
 }
 
+/// What the fit runs with: the config's `tau` and `lambda` resolved, plus the estimated `sigma`.
 #[derive(Clone, Copy)]
-pub struct Scales {
+pub struct FitParameters {
     pub sigma: f64,
     pub tau: f64,
     pub lambda: f64,
@@ -70,7 +72,7 @@ pub struct Scales {
 
 pub struct FitResult {
     pub quantity: Vec<f64>,
-    pub scales: Scales,
+    pub parameters: FitParameters,
 }
 
 pub fn validate_shapes(
@@ -270,11 +272,11 @@ fn fit_group(
     group: &Group,
     mut quantity: Vec<f64>,
     curve: &VarianceCurve,
-    scales: Scales,
-    params: &FitParameters,
+    parameters: FitParameters,
+    config: &FitConfig,
     n_runs: usize,
 ) -> Vec<f64> {
-    let Scales { sigma, tau, lambda } = scales;
+    let FitParameters { sigma, tau, lambda } = parameters;
     let loss = (sigma / tau).powi(2);
     // fixed at the share-weighted first pass, so that the weights cannot chase the fit
     let mut variance = Vec::with_capacity(group.n_ions * n_runs);
@@ -284,7 +286,7 @@ fn fit_group(
     }
     let mut offsets = vec![0.0; group.n_ions];
     let mut weights = vec![0.0; group.n_ions * n_runs];
-    for _ in 0..params.max_sweeps {
+    for _ in 0..config.max_sweeps {
         for ion in 0..group.n_ions {
             let mut numerator = 0.0;
             let mut denominator = 0.0;
@@ -312,7 +314,7 @@ fn fit_group(
             .map(|(q, p)| (q - p).abs())
             .filter(|change| change.is_finite())
             .fold(0.0, f64::max);
-        if largest_change < params.tolerance {
+        if largest_change < config.tolerance {
             break;
         }
     }
@@ -325,7 +327,7 @@ pub fn fit(
     precursor: &[usize],
     n_runs: usize,
     n_precursors: usize,
-    params: &FitParameters,
+    config: &FitConfig,
 ) -> FitResult {
     let groups = build_groups(intensity, library, precursor, n_runs, n_precursors);
 
@@ -379,10 +381,10 @@ pub fn fit(
             },
         );
     let sigma = residual_scale(&mut cells.iter().map(|cell| cell.1).collect::<Vec<_>>());
-    let scales = Scales {
+    let parameters = FitParameters {
         sigma,
-        tau: params.tau.unwrap_or(CAUCHY_TUNING_CONSTANT * sigma),
-        lambda: params
+        tau: config.tau.unwrap_or(CAUCHY_TUNING_CONSTANT * sigma),
+        lambda: config
             .lambda
             .unwrap_or_else(|| offset_shrinkage(&raw_offsets, sigma)),
     };
@@ -392,7 +394,7 @@ pub fn fit(
         .par_iter()
         .zip(initial)
         .map(|(group, quantity)| {
-            let quantity = fit_group(group, quantity, &curve, scales, params, n_runs);
+            let quantity = fit_group(group, quantity, &curve, parameters, config, n_runs);
             let mut n_observed = vec![0usize; n_runs];
             for ion in 0..group.n_ions {
                 for (run, count) in n_observed.iter_mut().enumerate() {
@@ -404,7 +406,7 @@ pub fn fit(
             quantity
                 .into_iter()
                 .zip(n_observed)
-                .map(|(q, n)| if n >= params.min_ions { q } else { f64::NAN })
+                .map(|(q, n)| if n >= config.min_ions { q } else { f64::NAN })
                 .collect()
         })
         .collect();
@@ -415,5 +417,8 @@ pub fn fit(
             quantity[run * n_precursors + index] = q;
         }
     }
-    FitResult { quantity, scales }
+    FitResult {
+        quantity,
+        parameters,
+    }
 }

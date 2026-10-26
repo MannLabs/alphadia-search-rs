@@ -29,18 +29,19 @@ pub struct NoiseModel {
 
 impl NoiseModel {
     pub fn estimate(groups: &[Group], initial: &[Vec<f64>], config: &FitConfig) -> Self {
-        let (residuals, raw_offsets) = groups
+        let per_group: Vec<(Vec<Residual>, Vec<RawOffset>)> = groups
             .par_iter()
             .zip(initial)
             .map(|(group, quantity)| first_sweep_residuals(group, quantity))
-            .reduce(
-                || (Vec::new(), Vec::new()),
-                |(mut residuals, mut raw_offsets), (r, o)| {
-                    residuals.extend(r);
-                    raw_offsets.extend(o);
-                    (residuals, raw_offsets)
-                },
-            );
+            .collect();
+        // one exactly sized allocation: a parallel reduce with extend holds both halves and
+        // the regrown buffer at once, which doubles the peak memory of the fit
+        let mut residuals = Vec::with_capacity(per_group.iter().map(|(r, _)| r.len()).sum());
+        let mut raw_offsets = Vec::with_capacity(per_group.iter().map(|(_, o)| o.len()).sum());
+        for (group_residuals, group_raw_offsets) in per_group {
+            residuals.extend(group_residuals);
+            raw_offsets.extend(group_raw_offsets);
+        }
         let sigma = residual_scale(
             &mut residuals
                 .iter()

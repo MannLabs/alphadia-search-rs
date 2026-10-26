@@ -19,30 +19,21 @@ estimate of the precursor abundance in a run, on the scale of the summed fragmen
 intensity of the precursor.
 
 1. Proportionality. In the absence of interference, the intensity of every fragment is
-   proportional to the precursor abundance. Fragment ratios are therefore run-independent.
+   proportional to the precursor abundance, so fragment ratios are run-independent. Errors
+   scale with intensity, so the model is additive on the log2 scale.
 
-2. Multiplicative error. Errors scale with intensity, so the model is additive on the
-   log2 scale.
-
-3. Library prior. The spectral library predicts the relative fragment intensities. Its
+2. Library prior. The spectral library predicts the relative fragment intensities. Its
    prediction error is a run-independent offset per fragment, modelled as a random effect
    centred on zero whose variance is estimated from the data.
 
-4. Intensity-dependent variance. The residual variance of a fragment measurement depends
+3. Intensity-dependent variance. The residual variance of a fragment measurement depends
    only on its expected intensity and is common to all precursors and runs. It decreases
    with intensity and is bounded at the detection floor and at high intensity. Residuals
    are independent given this variance.
 
-5. Sparse interference. Interference affects a minority of fragment measurements and
+4. Sparse interference. Interference affects a minority of fragment measurements and
    shifts them predominantly upwards. The residuals are therefore heavy-tailed, and the
    estimator must bound the influence of single measurements.
-
-6. Ignorable missingness. Missing fragment measurements are treated as missing at random
-   and do not contribute to the fit.
-
-7. Conditional independence of precursors. Precursors are fitted independently, given the
-   variance function, the residual scale, the loss scale and the offset shrinkage, which
-   are estimated jointly from all precursors.
 
 # Procedure
 

@@ -84,8 +84,8 @@ pub fn fit(
 }
 
 /// The fragment measurements of one precursor as `log2(I / s)`, ion-major, NaN where missing.
-/// Stored as f32 because they are the largest array of the fit; the input intensities are f32,
-/// and the fit computes in f64.
+/// Arrays with one entry per fragment measurement are f32 to bound the memory of the fit; sums
+/// and scalars are f64.
 pub struct Group {
     values: Vec<f32>,
     pub share: Vec<f64>,
@@ -175,7 +175,7 @@ fn build_groups(
 fn initial_quantities(group: &Group) -> Vec<f64> {
     let mut weights = Vec::with_capacity(group.n_ions * group.n_runs);
     for &share in &group.share {
-        weights.extend(std::iter::repeat_n(share, group.n_runs));
+        weights.extend(std::iter::repeat_n(share as f32, group.n_runs));
     }
     run_quantities(group, &weights, &vec![0.0; group.n_ions])
 }
@@ -194,7 +194,7 @@ fn fit_group(
     // fixed at the share-weighted first pass, so that the weights cannot chase the fit
     let variance = measurement_variances(group, &quantity, &noise.variance);
     let mut offsets = vec![0.0; group.n_ions];
-    let mut weights = vec![0.0; group.n_ions * group.n_runs];
+    let mut weights = vec![0.0f32; group.n_ions * group.n_runs];
     for _ in 0..config.max_sweeps {
         update_weights(group, &quantity, &offsets, &variance, loss, &mut weights);
         update_offsets(group, &quantity, &weights, prior_weight, &mut offsets);
@@ -207,11 +207,15 @@ fn fit_group(
     quantity
 }
 
-fn measurement_variances(group: &Group, quantity: &[f64], curve: &VarianceCurve) -> Vec<f64> {
+fn measurement_variances(group: &Group, quantity: &[f64], curve: &VarianceCurve) -> Vec<f32> {
     let mut variance = Vec::with_capacity(group.n_ions * group.n_runs);
     for &share in &group.share {
         let log_share = share.log2();
-        variance.extend(quantity.iter().map(|&q| curve.variance(log_share + q)));
+        variance.extend(
+            quantity
+                .iter()
+                .map(|&q| curve.variance(log_share + q) as f32),
+        );
     }
     variance
 }
@@ -221,9 +225,9 @@ fn update_weights(
     group: &Group,
     quantity: &[f64],
     offsets: &[f64],
-    variance: &[f64],
+    variance: &[f32],
     loss: f64,
-    weights: &mut [f64],
+    weights: &mut [f32],
 ) {
     for ion in 0..group.n_ions {
         for run in 0..group.n_runs {
@@ -231,7 +235,7 @@ fn update_weights(
             weights[index] = match group.deviation(ion, run, quantity) {
                 Some(deviation) => {
                     let e = deviation - offsets[ion];
-                    1.0 / (variance[index] + loss * e * e)
+                    (1.0 / (variance[index] as f64 + loss * e * e)) as f32
                 }
                 None => 0.0,
             };
@@ -242,7 +246,7 @@ fn update_weights(
 fn update_offsets(
     group: &Group,
     quantity: &[f64],
-    weights: &[f64],
+    weights: &[f32],
     prior_weight: f64,
     offsets: &mut [f64],
 ) {
@@ -251,7 +255,7 @@ fn update_offsets(
         let mut denominator = 0.0;
         for run in 0..group.n_runs {
             if let Some(deviation) = group.deviation(ion, run, quantity) {
-                let w = weights[group.index(ion, run)];
+                let w = weights[group.index(ion, run)] as f64;
                 numerator += w * deviation;
                 denominator += w;
             }
@@ -260,13 +264,13 @@ fn update_offsets(
     }
 }
 
-fn run_quantities(group: &Group, weights: &[f64], offsets: &[f64]) -> Vec<f64> {
+fn run_quantities(group: &Group, weights: &[f32], offsets: &[f64]) -> Vec<f64> {
     let mut numerator = vec![0.0; group.n_runs];
     let mut denominator = vec![0.0; group.n_runs];
     for ion in 0..group.n_ions {
         for run in 0..group.n_runs {
             let y = group.value(ion, run);
-            let w = weights[group.index(ion, run)];
+            let w = weights[group.index(ion, run)] as f64;
             if y.is_finite() && w > 0.0 {
                 numerator[run] += w * (y - offsets[ion]);
                 denominator[run] += w;

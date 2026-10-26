@@ -42,7 +42,7 @@ impl NoiseModel {
             residuals.extend(group_residuals);
             raw_offsets.extend(group_raw_offsets);
         }
-        let mut values: Vec<f64> = residuals.iter().map(|residual| residual.value).collect();
+        let mut values: Vec<f32> = residuals.iter().map(|residual| residual.value).collect();
         let (sigma, variance) = rayon::join(
             || residual_scale(&mut values),
             || VarianceCurve::from_residuals(residuals),
@@ -61,9 +61,10 @@ impl NoiseModel {
     }
 }
 
+/// f32, because the residuals of all fragment measurements are pooled.
 struct Residual {
-    expected_intensity: f64,
-    value: f64,
+    expected_intensity: f32,
+    value: f32,
 }
 
 struct RawOffset {
@@ -90,8 +91,8 @@ fn first_sweep_residuals(group: &Group, quantity: &[f64]) -> (Vec<Residual>, Vec
             let scale = (n as f64 / (n - 1) as f64).sqrt();
             let log_share = group.share[ion].log2();
             residuals.extend(deviations.iter().map(|(q, d)| Residual {
-                expected_intensity: log_share + q,
-                value: (d - mean) * scale,
+                expected_intensity: (log_share + q) as f32,
+                value: ((d - mean) * scale) as f32,
             }));
         }
         raw_offsets.push(RawOffset { mean, n });
@@ -99,26 +100,26 @@ fn first_sweep_residuals(group: &Group, quantity: &[f64]) -> (Vec<Residual>, Vec
     (residuals, raw_offsets)
 }
 
-fn median(values: &mut [f64]) -> f64 {
+fn median(values: &mut [f32]) -> f64 {
     let n = values.len();
-    let (_, &mut upper, _) = values.select_nth_unstable_by(n / 2, f64::total_cmp);
+    let (_, &mut upper, _) = values.select_nth_unstable_by(n / 2, f32::total_cmp);
     if n % 2 == 1 {
-        return upper;
+        return upper as f64;
     }
     let lower = values[..n / 2]
         .iter()
         .copied()
-        .fold(f64::NEG_INFINITY, f64::max);
-    (lower + upper) / 2.0
+        .fold(f32::NEG_INFINITY, f32::max);
+    (lower as f64 + upper as f64) / 2.0
 }
 
-fn residual_scale(residuals: &mut [f64]) -> f64 {
+fn residual_scale(residuals: &mut [f32]) -> f64 {
     if residuals.is_empty() {
         return MIN_RESIDUAL_SCALE;
     }
     let center = median(residuals);
     for r in residuals.iter_mut() {
-        *r = (*r - center).abs();
+        *r = (*r as f64 - center).abs() as f32;
     }
     (MAD_TO_SIGMA * median(residuals)).max(MIN_RESIDUAL_SCALE)
 }
@@ -161,9 +162,9 @@ impl VarianceCurve {
             expected_intensity.push(
                 residuals
                     .get(residuals.len() / 2)
-                    .map_or(0.0, |residual| residual.expected_intensity),
+                    .map_or(0.0, |residual| residual.expected_intensity as f64),
             );
-            let mut values: Vec<f64> = residuals.iter().map(|residual| residual.value).collect();
+            let mut values: Vec<f32> = residuals.iter().map(|residual| residual.value).collect();
             log_variance.push(2.0 * residual_scale(&mut values).ln());
         }
         // a measurement is at least as noisy as any brighter one

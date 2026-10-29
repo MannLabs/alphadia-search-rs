@@ -15,7 +15,7 @@ use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor_quantified::PrecursorQuantified;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
 use numpy::ndarray::Axis;
@@ -99,6 +99,7 @@ impl PeakGroupQuantification {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            MobilityFilter::ANY,
             cycle_start,
             cycle_stop,
             self.params.tolerance_ppm,

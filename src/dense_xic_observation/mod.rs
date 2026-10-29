@@ -103,12 +103,30 @@ impl DenseXICMZObservation {
         mass_tolerance: f32,
         fragment_mz: &[f32], // Use slice for better performance
     ) -> Self {
+        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
+        Self::from_observations(
+            dia_data,
+            valid_obs_idxs,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            fragment_mz,
+        )
+    }
+
+    /// Like `new`, but over the given observations.
+    pub fn from_observations<T: DIADataTrait>(
+        dia_data: &T,
+        valid_obs_idxs: Vec<usize>,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+        fragment_mz: &[f32],
+    ) -> Self {
         let n_fragments = fragment_mz.len();
         let n_cycles = cycle_stop_idx - cycle_start_idx;
         let mut dense_xic = Array2::zeros((n_fragments, n_cycles));
         let mut dense_mz = Array2::zeros((n_fragments, n_cycles));
-
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
 
         for &obs_idx in &valid_obs_idxs {
             let obs = &dia_data.quadrupole_observations()[obs_idx];

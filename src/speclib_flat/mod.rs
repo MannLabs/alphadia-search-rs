@@ -360,6 +360,43 @@ impl SpecLibFlat {
         }
     }
 
+    /// The precursor m/z and at most `k` fragments of a precursor in alphaDIA's riding-slot order: non-zero library
+    /// intensity, no y1, by library intensity descending, ties in library order. Each fragment is
+    /// (m/z used for extraction, library m/z, library intensity, charge).
+    pub fn top_fragments_by_intensity(
+        &self,
+        precursor_idx: usize,
+        k: usize,
+    ) -> Option<(f32, Vec<(f32, f32, f32, u8)>)> {
+        let array_index = self.precursor_idx.binary_search(&precursor_idx).ok()?;
+        let start = self.flat_frag_start_idx[array_index];
+        let stop = self.flat_frag_stop_idx[array_index];
+        let mut fragments: Vec<(usize, f32)> = (start..stop)
+            .filter(|&i| {
+                self.fragment_intensity[i] > 0.0
+                    && !(self.fragment_type[i] == crate::constants::FragmentType::Y
+                        && self.fragment_number[i] == 1)
+            })
+            .map(|i| (i, self.fragment_intensity[i]))
+            .collect();
+        fragments.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+        fragments.truncate(k);
+        Some((
+            self.precursor_mz[array_index],
+            fragments
+                .into_iter()
+                .map(|(i, intensity)| {
+                    (
+                        self.fragment_mz[i],
+                        self.fragment_mz_library[i],
+                        intensity,
+                        self.fragment_charge[i],
+                    )
+                })
+                .collect(),
+        ))
+    }
+
     pub fn get_precursor(&self, index: usize) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];

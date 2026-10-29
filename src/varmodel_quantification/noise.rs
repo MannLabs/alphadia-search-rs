@@ -78,25 +78,50 @@ struct RawOffset {
 
 /// Residuals around the unshrunk offsets, so that the library offsets do not count as noise,
 /// scaled by sqrt(n / (n - 1)) for the offset fitted to the same n measurements.
+///
+/// The first-sweep quantity of a run is the share-weighted mean `sum_g w_g y_g` over the
+/// fragments observed in that run, so it contains the fragment's own noise. With equal noise
+/// variance v, its deviation has variance `v * (1 - 2 w_f + sum_g w_g^2)`: high-share
+/// fragments would look too precise, and since high share means high expected intensity, the
+/// variance curve would fall although the noise is flat. Each deviation is therefore divided
+/// by the square root of this leverage factor. Runs with a single observed fragment have a
+/// factor of zero and carry no information on noise or offsets.
 fn first_sweep_residuals(group: &Group, quantity: &[f64]) -> (Vec<Residual>, Vec<RawOffset>) {
+    let mut share_sum = vec![0.0; group.n_runs];
+    let mut share_square_sum = vec![0.0; group.n_runs];
+    let mut n_observed = vec![0usize; group.n_runs];
+    for (ion, &share) in group.share.iter().enumerate() {
+        for run in 0..group.n_runs {
+            if group.deviation(ion, run, quantity).is_some() {
+                share_sum[run] += share;
+                share_square_sum[run] += share * share;
+                n_observed[run] += 1;
+            }
+        }
+    }
     let mut residuals = Vec::new();
     let mut raw_offsets = Vec::with_capacity(group.n_ions);
     let mut deviations = Vec::with_capacity(group.n_runs);
     for ion in 0..group.n_ions {
         deviations.clear();
         deviations.extend((0..group.n_runs).filter_map(|run| {
-            group
-                .deviation(ion, run, quantity)
-                .map(|d| (quantity[run], d))
+            if n_observed[run] < 2 {
+                return None;
+            }
+            group.deviation(ion, run, quantity).map(|d| {
+                let w = group.share[ion] / share_sum[run];
+                let leverage = 1.0 - 2.0 * w + share_square_sum[run] / share_sum[run].powi(2);
+                (quantity[run], d, leverage.sqrt())
+            })
         }));
         let n = deviations.len();
-        let mean = deviations.iter().map(|(_, d)| d).sum::<f64>() / n.max(1) as f64;
+        let mean = deviations.iter().map(|(_, d, _)| d).sum::<f64>() / n.max(1) as f64;
         if n >= 2 {
             let scale = (n as f64 / (n - 1) as f64).sqrt();
             let log_share = group.share[ion].log2();
-            residuals.extend(deviations.iter().map(|(q, d)| Residual {
+            residuals.extend(deviations.iter().map(|(q, d, leverage)| Residual {
                 expected_intensity: (log_share + q) as f32,
-                value: ((d - mean) * scale) as f32,
+                value: ((d - mean) / leverage * scale) as f32,
             }));
         }
         raw_offsets.push(RawOffset { mean, n });

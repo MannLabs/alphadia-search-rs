@@ -127,7 +127,7 @@ impl Group {
     }
 }
 
-fn build_groups(
+pub fn build_groups(
     intensity: &[f32],
     intensity_library: &[f32],
     precursor: &[usize],
@@ -173,7 +173,7 @@ fn build_groups(
 }
 
 /// Step 1 of the procedure: the library-share weighted mean, without fragment offsets.
-fn initial_quantities(group: &Group) -> Vec<f64> {
+pub fn initial_quantities(group: &Group) -> Vec<f64> {
     let mut weights = Vec::with_capacity(group.n_ions * group.n_runs);
     for &share in &group.share {
         weights.extend(std::iter::repeat_n(share as f32, group.n_runs));

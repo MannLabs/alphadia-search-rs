@@ -1,7 +1,8 @@
 //! These tests cover the log-m/z binning, the key packing, and the features on a small
 //! synthetic run: two candidates that share three of six fragments at the same cycle, one
 //! candidate three cycles away, one in another isolation window, and a second rank of the same
-//! precursor.
+//! precursor. On timsTOF data, two candidates that share fragments only compete within the
+//! window group their mobility falls into.
 
 use super::algorithm::{
     compute_context_features, log_mz_bin, log_mz_bin_width, pack_key, ContextFeatures,
@@ -13,6 +14,7 @@ use crate::dia_data::DIAData;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 use crate::speclib_flat::SpecLibFlat;
+use crate::tims_dia_data::{TimsDIAData, TimsQuadrupoleObservation};
 use approx::assert_abs_diff_eq;
 use numpy::ndarray::{Array1, Array4};
 
@@ -110,6 +112,7 @@ fn params() -> ContextParameters {
         top_k_fragments: 12,
         min_shared: 3,
         cycle_radius: 1,
+        mobility_tolerance: f32::INFINITY,
     }
 }
 
@@ -422,4 +425,67 @@ fn test_huge_cycle_radius_still_counts_the_candidate_itself() {
     let features = compute_context_features(&dia_data, &lib, &candidates, &everything).unwrap();
 
     assert_no_competition(row(&features, 0, 0));
+}
+
+/// timsTOF data with two window groups that isolate the same m/z range at different mobilities:
+/// group 0 on scans 0-1 (1/K0 1.3 and 1.2), group 1 on scans 2-3 (1.1 and 1.0). A (precursor 0)
+/// and B (precursor 1) share three fragments at cycle 10, but A sits at 1/K0 1.25 and B at 1.05.
+fn tims_scenario() -> (TimsDIAData, SpecLibFlat, CandidateCollection) {
+    let group = |scans: [bool; 4]| {
+        TimsQuadrupoleObservation::new(
+            scans
+                .iter()
+                .map(|&isolated| isolated.then_some([WINDOW_LOW.0, WINDOW_LOW.1]))
+                .collect(),
+        )
+    };
+    let dia_data = TimsDIAData {
+        rt_index: RTIndex::new(),
+        quadrupole_observations: vec![
+            group([true, true, false, false]),
+            group([false, false, true, true]),
+        ],
+        scan_mobility: vec![1.3, 1.2, 1.1, 1.0],
+        rt_values: Array1::zeros(0),
+        cycle: Array4::zeros((0, 0, 0, 0)),
+    };
+    let mut lib = library(&[(0, 500.0, &FRAGMENTS_A), (1, 505.0, &FRAGMENTS_B)]);
+    lib.set_precursor_mobility_from_slices(&[0, 1], &[1.25, 1.05])
+        .unwrap();
+    let candidates =
+        CandidateCollection::from_vec(vec![candidate(0, 0, 2.0, 10), candidate(1, 0, 1.0, 10)]);
+    (dia_data, lib, candidates)
+}
+
+#[test]
+fn test_precursors_in_different_mobility_groups_do_not_compete() {
+    let (dia_data, lib, candidates) = tims_scenario();
+    let params = ContextParameters {
+        mobility_tolerance: 0.06,
+        ..params()
+    };
+
+    let features = compute_context_features(&dia_data, &lib, &candidates, &params).unwrap();
+
+    assert_no_competition(row(&features, 0, 0));
+    assert_no_competition(row(&features, 1, 0));
+}
+
+#[test]
+fn test_without_mobility_tolerance_tims_precursors_share_the_first_group() {
+    let (dia_data, lib, candidates) = tims_scenario();
+
+    let features = compute_context_features(&dia_data, &lib, &candidates, &params()).unwrap();
+
+    assert_eq!(row(&features, 0, 0).n_competitors, 1.0);
+    assert_eq!(row(&features, 1, 0).n_competitors, 1.0);
+}
+
+#[test]
+fn test_negative_mobility_tolerance_is_rejected() {
+    let params = ContextParameters {
+        mobility_tolerance: -0.1,
+        ..params()
+    };
+    assert!(params.validate().is_err());
 }

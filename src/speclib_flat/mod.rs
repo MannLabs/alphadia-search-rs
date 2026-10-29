@@ -28,6 +28,11 @@ pub struct SpecLibFlat {
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
     precursor_naa: Vec<u8>,
 
+    /// Precursor ion mobility (1/K0), sorted according to precursor_idx order.
+    /// Empty when the library has no mobility; set with `set_precursor_mobility`.
+    /// It's left to the caller if these are library or calibrated values.
+    precursor_mobility: Vec<f32>,
+
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     flat_frag_start_idx: Vec<usize>,
 
@@ -80,6 +85,7 @@ impl SpecLibFlat {
             precursor_rt_library: Vec::new(),
             precursor_rt: Vec::new(),
             precursor_naa: Vec::new(),
+            precursor_mobility: Vec::new(),
             flat_frag_start_idx: Vec::new(),
             flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
@@ -135,6 +141,20 @@ impl SpecLibFlat {
             fragment_position.as_array().to_vec(),
             fragment_type.as_array().to_vec(),
         )
+    }
+
+    /// Sets the ion mobility (1/K0) of each precursor, matched by `precursor_idx`.
+    ///
+    /// Replaces any earlier values. Precursors not listed, and those given NaN, have no
+    /// mobility and are not restricted by it. Raises ValueError for unequal lengths, an unknown
+    /// or repeated `precursor_idx`, or a mobility that is infinite or not positive.
+    fn set_precursor_mobility(
+        &mut self,
+        precursor_idx: PyReadonlyArray1<'_, usize>,
+        mobility: PyReadonlyArray1<'_, f32>,
+    ) -> PyResult<()> {
+        self.set_precursor_mobility_from_slices(precursor_idx.as_slice()?, mobility.as_slice()?)
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     #[getter]
@@ -296,6 +316,40 @@ pub fn filter_sort_fragments(
 
 // Regular Rust implementation (not exposed to Python)
 impl SpecLibFlat {
+    /// Sets the ion mobility of each precursor, matched by `precursor_idx`; see `set_precursor_mobility`.
+    pub fn set_precursor_mobility_from_slices(
+        &mut self,
+        precursor_idx: &[usize],
+        mobility: &[f32],
+    ) -> Result<(), String> {
+        if precursor_idx.len() != mobility.len() {
+            return Err(format!(
+                "precursor_idx has {} entries but mobility has {}",
+                precursor_idx.len(),
+                mobility.len()
+            ));
+        }
+        let mut sorted = vec![f32::NAN; self.precursor_idx.len()];
+        let mut seen = vec![false; self.precursor_idx.len()];
+        for (idx, &value) in precursor_idx.iter().zip(mobility) {
+            if !value.is_nan() && (value.is_infinite() || value <= 0.0) {
+                return Err(format!(
+                    "mobility {value} of precursor_idx {idx} is not positive and finite"
+                ));
+            }
+            let position = self
+                .precursor_idx
+                .binary_search(idx)
+                .map_err(|_| format!("precursor_idx {idx} is not in the library"))?;
+            if std::mem::replace(&mut seen[position], true) {
+                return Err(format!("precursor_idx {idx} is given more than once"));
+            }
+            sorted[position] = value;
+        }
+        self.precursor_mobility = sorted;
+        Ok(())
+    }
+
     /// Builds the library from plain vectors, without a Python interpreter.
     ///
     /// The precursor arrays are reordered by `precursor_idx` so that lookups can use binary
@@ -345,6 +399,7 @@ impl SpecLibFlat {
             precursor_rt_library: sorted_precursor_rt_library,
             precursor_rt: sorted_precursor_rt,
             precursor_naa: sorted_precursor_naa,
+            precursor_mobility: Vec::new(),
             flat_frag_start_idx: sorted_flat_frag_start_idx,
             flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library,
@@ -367,6 +422,11 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
+        let precursor_mobility = self
+            .precursor_mobility
+            .get(index)
+            .copied()
+            .unwrap_or(f32::NAN);
         let start_idx = self.flat_frag_start_idx[index];
         let stop_idx = self.flat_frag_stop_idx[index];
 
@@ -386,6 +446,7 @@ impl SpecLibFlat {
             mz_library: precursor_mz_library,
             rt: precursor_rt,
             rt_library: precursor_rt_library,
+            mobility: precursor_mobility,
             naa: precursor_naa,
             fragment_mz,
             fragment_mz_library,
@@ -412,6 +473,11 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
+        let precursor_mobility = self
+            .precursor_mobility
+            .get(index)
+            .copied()
+            .unwrap_or(f32::NAN);
         let start_idx = self.flat_frag_start_idx[index];
         let stop_idx = self.flat_frag_stop_idx[index];
 
@@ -456,6 +522,7 @@ impl SpecLibFlat {
             mz_library: precursor_mz_library,
             rt: precursor_rt,
             rt_library: precursor_rt_library,
+            mobility: precursor_mobility,
             naa: precursor_naa,
             fragment_mz,
             fragment_mz_library,

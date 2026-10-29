@@ -4,14 +4,14 @@ use rayon::prelude::*;
 use std::cmp::min;
 use std::time::Instant;
 
+use crate::any_dia_data::AnyDIAData;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::convolution::convolution;
 use crate::dense_xic_observation::DenseXICObservation;
-use crate::dia_data::DIAData;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
-use crate::traits::{DIADataTrait, MobilityFilter};
+use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
 
 pub mod parameters;
@@ -86,8 +86,8 @@ impl PeakGroupSelection {
         Self { params }
     }
 
-    pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
-        self.search_generic(dia_data, lib)
+    pub fn search(&self, dia_data: AnyDIAData<'_>, lib: &SpecLibFlat) -> CandidateCollection {
+        crate::any_dia_data::with_dia_data!(dia_data, |data| self.search_generic(data, lib))
     }
 }
 
@@ -162,7 +162,7 @@ impl PeakGroupSelection {
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
             precursor.mz,
-            MobilityFilter::ANY,
+            precursor.mobility_filter(self.params.mobility_tolerance),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

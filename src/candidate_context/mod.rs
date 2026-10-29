@@ -13,9 +13,10 @@ pub use algorithm::{
     DEFAULT_MIN_SHARED, FEATURES,
 };
 
+use crate::any_dia_data::AnyDIAData;
 use crate::candidate::CandidateCollection;
-use crate::dia_data::DIAData;
 use crate::speclib_flat::SpecLibFlat;
+use crate::traits::DEFAULT_MOBILITY_TOLERANCE;
 use numpy::IntoPyArray;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -39,6 +40,8 @@ impl CandidateContext {
     /// * `min_shared` - two candidates compete if they share this many fragment m/z or more.
     /// * `cycle_radius` - two candidates are compared if their apex cycles are at most this
     ///   many cycles apart.
+    /// * `mobility_tolerance` - ion mobility (1/K0) tolerance used to find the window group of
+    ///   a precursor in timsTOF data; ignored for data without mobility.
     ///
     /// Raises `ValueError` if the tolerance is not positive or if a count is zero.
     #[new]
@@ -47,18 +50,21 @@ impl CandidateContext {
         top_k_fragments,
         min_shared = DEFAULT_MIN_SHARED,
         cycle_radius = DEFAULT_CYCLE_RADIUS,
+        mobility_tolerance = DEFAULT_MOBILITY_TOLERANCE,
     ))]
     fn new(
         mass_tolerance: f32,
         top_k_fragments: usize,
         min_shared: usize,
         cycle_radius: u32,
+        mobility_tolerance: f32,
     ) -> PyResult<Self> {
         let params = ContextParameters {
             mass_tolerance,
             top_k_fragments,
             min_shared,
             cycle_radius,
+            mobility_tolerance,
         };
         params.validate().map_err(PyValueError::new_err)?;
         Ok(Self { params })
@@ -71,12 +77,14 @@ impl CandidateContext {
     fn compute(
         &self,
         py: Python<'_>,
-        dia_data: &DIAData,
+        dia_data: AnyDIAData<'_>,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> PyResult<Py<PyAny>> {
-        let features = compute_context_features(dia_data, lib, candidates, &self.params)
-            .map_err(PyValueError::new_err)?;
+        let features = crate::any_dia_data::with_dia_data!(dia_data, |data| {
+            compute_context_features(data, lib, candidates, &self.params)
+        })
+        .map_err(PyValueError::new_err)?;
 
         let dict = PyDict::new(py);
         let precursor_idx: Vec<u64> = features.iter().map(|f| f.precursor_idx as u64).collect();

@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::speclib_flat::SpecLibFlat;
-use crate::traits::{DIADataTrait, MobilityFilter};
+use crate::traits::{check_mobility_tolerance, DIADataTrait};
 
 /// Fewer shared ions are a coincidence, see `fragment_competition`.
 pub const DEFAULT_MIN_SHARED: usize = 3;
@@ -29,6 +29,9 @@ pub struct ContextParameters {
     pub top_k_fragments: usize,
     pub min_shared: usize,
     pub cycle_radius: u32,
+    /// Ion mobility (1/K0) tolerance for choosing the window of a precursor; data without
+    /// mobility ignores it.
+    pub mobility_tolerance: f32,
 }
 
 impl ContextParameters {
@@ -45,6 +48,7 @@ impl ContextParameters {
         if self.min_shared == 0 {
             return Err("min_shared must be at least 1".to_string());
         }
+        check_mobility_tolerance(self.mobility_tolerance)?;
         Ok(())
     }
 }
@@ -186,9 +190,14 @@ fn build_index<T: DIADataTrait + Sync>(
                 true,
                 params.top_k_fragments,
             );
+            // On timsTOF data a window group isolates an m/z range per mobility range, so
+            // the precursor's mobility decides which group it falls into.
             let window = precursor.as_ref().and_then(|precursor| {
                 dia_data
-                    .select_observations(precursor.mz, MobilityFilter::ANY)
+                    .select_observations(
+                        precursor.mz,
+                        precursor.mobility_filter(params.mobility_tolerance),
+                    )
                     .first()
                     .map(|(window, _)| *window as u32)
             });

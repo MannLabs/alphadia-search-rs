@@ -1,6 +1,7 @@
 use approx::assert_abs_diff_eq;
 
-use super::algorithm::{fit, validate_shapes, FitConfig};
+use super::algorithm::{build_groups, fit, initial_quantities, validate_shapes, FitConfig};
+use super::noise::NoiseModel;
 
 fn noise(seed: usize) -> f64 {
     let hashed = (seed as u64)
@@ -518,4 +519,73 @@ fn test_variance_weights_follow_the_noise_of_the_measurement_intensity() {
         fitted < 0.85 * first_sweep,
         "profile error {fitted} fitted, {first_sweep} after the first sweep"
     );
+}
+
+/// Approximately standard normal: the Irwin-Hall sum of twelve uniforms.
+fn gaussian(seed: usize) -> f64 {
+    (0..12).map(|k| noise(seed * 12 + k)).sum()
+}
+
+#[test]
+fn test_variance_curve_is_flat_for_equal_noise_with_skewed_shares() {
+    // Given the same noise at every intensity, no offsets and no interference, skewed library
+    // shares, precursors with six or three fragments and some missing measurements
+    let (n_precursors, n_runs, noise_sd) = (5000, 10, 0.3);
+    let all_shares = [0.40f32, 0.20, 0.15, 0.10, 0.10, 0.05];
+    let mut intensity_library = Vec::new();
+    let mut precursor = Vec::new();
+    let mut log2_values = Vec::new();
+    for p in 0..n_precursors {
+        let shares = &all_shares[..if p % 2 == 0 { 6 } else { 3 }];
+        let shares_sum: f64 = shares.iter().map(|&s| s as f64).sum();
+        let level = 15.0 + 8.0 * noise(15_000_000 + p);
+        let q: Vec<f64> = (0..n_runs)
+            .map(|run| level + 2.0 * noise(16_000_000 + p * n_runs + run))
+            .collect();
+        for &s in shares {
+            let ion = precursor.len();
+            let log_share = (s as f64 / shares_sum).log2();
+            log2_values.push(
+                (0..n_runs)
+                    .map(|run| {
+                        let measurement = ion * n_runs + run;
+                        if noise(17_000_000 + measurement) < -0.4 {
+                            return f64::NAN;
+                        }
+                        q[run] + log_share + noise_sd * gaussian(18_000_000 + measurement)
+                    })
+                    .collect(),
+            );
+            intensity_library.push(s);
+            precursor.push(p);
+        }
+    }
+    let groups = build_groups(
+        &run_major(&log2_values),
+        &intensity_library,
+        &precursor,
+        n_runs,
+        n_precursors,
+    );
+    let initial: Vec<Vec<f64>> = groups.iter().map(initial_quantities).collect();
+
+    // When
+    let noise_model = NoiseModel::estimate(&groups, &initial, &FitConfig::DEFAULT);
+
+    // Then the curve neither falls with intensity nor misses the true noise
+    let variances: Vec<f64> = (0..=40)
+        .map(|k| noise_model.variance.variance(4.0 + 0.4 * k as f64))
+        .collect();
+    let (lowest, highest) = variances
+        .iter()
+        .fold((f64::INFINITY, 0.0f64), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
+    assert!(
+        highest / lowest < 1.15,
+        "variance ranges from {lowest} to {highest}"
+    );
+    for v in [lowest, highest] {
+        assert_abs_diff_eq!(v.sqrt(), noise_sd, epsilon = 0.03);
+    }
 }

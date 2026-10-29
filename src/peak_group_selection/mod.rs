@@ -11,7 +11,7 @@ use crate::dia_data::DIAData;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 use crate::SpecLibFlat;
 
 pub mod parameters;
@@ -162,6 +162,7 @@ impl PeakGroupSelection {
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
             precursor.mz,
+            MobilityFilter::ANY,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

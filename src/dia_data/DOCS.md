@@ -164,8 +164,9 @@ library mobility with `MobilityFilter::from_library(mobility, tolerance)`: a NaN
 has none) or an infinite tolerance gives `Any`, and a NaN or negative tolerance, or a mobility that
 is not finite and positive, is an error.
 
-Selection, scoring and quantification all take the filter from `Precursor::mobility_filter()`, which
-returns `Any` until precursors carry a library mobility.
+Selection, scoring and quantification all take the filter from
+`precursor.mobility_filter(mobility_tolerance)`, built from the library ion mobility set with
+`SpecLibFlat.set_precursor_mobility`. `TimsDIAData` needs the `tims` cargo feature.
 
 # Benefits
 

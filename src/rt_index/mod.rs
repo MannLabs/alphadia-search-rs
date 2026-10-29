@@ -48,6 +48,13 @@ impl RTIndex {
         self.delta_t
     }
 
+    /// Creates an RTIndex from the retention time of every cycle.
+    #[cfg(feature = "tims")]
+    pub fn from_rt(rt: Array1<f32>) -> Self {
+        let delta_t = Self::calculate_mean_delta_t(&rt);
+        Self { rt, delta_t }
+    }
+
     /// Creates an RTIndex from an AlphaRawView.
     ///
     /// Extracts retention times for MS1 scans (where delta_scan_idx is 0).

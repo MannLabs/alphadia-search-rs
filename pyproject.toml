@@ -58,4 +58,4 @@ homepage = "https://www.alphapept.org"
 
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+features = ["pyo3/extension-module", "tims"]

@@ -1,3 +1,5 @@
+use crate::traits::{check_mobility_tolerance, DEFAULT_MOBILITY_TOLERANCE};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -14,6 +16,8 @@ pub struct SelectionParameters {
     pub mass_tolerance: f32,
     #[pyo3(get)]
     pub rt_tolerance: f32,
+    #[pyo3(get)]
+    pub mobility_tolerance: f32,
     #[pyo3(get)]
     pub candidate_count: usize,
     #[pyo3(get)]
@@ -35,6 +39,8 @@ impl SelectionParameters {
             mass_tolerance: 7.0,
             // maximum retention time error expected for fragment matching in seconds.
             rt_tolerance: 200.0,
+            // maximum ion mobility (1/K0) deviation from the precursor's library value, ignored for data without mobility.
+            mobility_tolerance: DEFAULT_MOBILITY_TOLERANCE,
             // maximum number of peak group candidates to select per precursor.
             candidate_count: 3,
             // maximum number of fragments to use for selecting precursors from a DIAData object.
@@ -57,6 +63,10 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("rt_tolerance")? {
             self.rt_tolerance = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("mobility_tolerance")? {
+            self.mobility_tolerance =
+                check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
         }
         if let Some(value) = config.get_item("candidate_count")? {
             self.candidate_count = value.extract::<usize>()?;

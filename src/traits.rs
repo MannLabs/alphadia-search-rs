@@ -2,6 +2,21 @@ use crate::mz_index::MZIndex;
 use crate::rt_index::RTIndex;
 use numpy::ndarray::ArrayViewMut1;
 
+/// Default for the `mobility_tolerance` parameter of selection, scoring and quantification.
+pub const DEFAULT_MOBILITY_TOLERANCE: f32 = 0.04;
+
+/// Checks a `mobility_tolerance` parameter: not NaN and not negative (infinite means no
+/// mobility restriction).
+pub fn check_mobility_tolerance(tolerance: f32) -> Result<f32, String> {
+    if tolerance.is_nan() || tolerance < 0.0 {
+        Err(format!(
+            "mobility_tolerance must not be NaN or negative, got {tolerance}"
+        ))
+    } else {
+        Ok(tolerance)
+    }
+}
+
 /// Which ion mobility (1/K0) range a precursor's peaks may come from.
 ///
 /// Data without an ion mobility dimension ignores it.
@@ -20,11 +35,7 @@ impl MobilityFilter {
     /// A NaN or negative tolerance, or a mobility that is infinite or not positive, is an error
     /// rather than a silently dropped restriction.
     pub fn from_library(mobility: f32, tolerance: f32) -> Result<Self, String> {
-        if tolerance.is_nan() || tolerance < 0.0 {
-            return Err(format!(
-                "mobility tolerance must not be NaN or negative, got {tolerance}"
-            ));
-        }
+        check_mobility_tolerance(tolerance)?;
         if mobility.is_nan() {
             return Ok(Self::Any);
         }
@@ -106,7 +117,15 @@ pub trait QuadrupoleObservationTrait {
 
 #[cfg(test)]
 mod tests {
-    use super::MobilityFilter;
+    use super::*;
+
+    #[test]
+    fn test_mobility_tolerance_must_not_be_nan_or_negative() {
+        assert_eq!(check_mobility_tolerance(0.0), Ok(0.0));
+        assert_eq!(check_mobility_tolerance(f32::INFINITY), Ok(f32::INFINITY));
+        assert!(check_mobility_tolerance(-0.01).is_err());
+        assert!(check_mobility_tolerance(f32::NAN).is_err());
+    }
 
     #[test]
     fn test_from_library_without_mobility_is_any() {

@@ -3,6 +3,7 @@ mod noise;
 #[cfg(test)]
 mod tests;
 
+use crate::utils::require_c_contiguous;
 use algorithm::{fit, validate_shapes, FitConfig};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
@@ -30,7 +31,7 @@ impl VarModelQuantification {
     /// C-contiguous.
     ///
     /// Raises `ValueError` if the shapes disagree or a precursor index is out of range, and
-    /// `TypeError` if an array is not contiguous.
+    /// `TypeError` if an array is not C-contiguous.
     fn fit(
         &self,
         py: Python<'_>,
@@ -50,6 +51,7 @@ impl VarModelQuantification {
         )
         .map_err(PyValueError::new_err)?;
 
+        require_c_contiguous(&*intensity, "intensity")?;
         let intensity = intensity.as_slice()?;
         let intensity_library = intensity_library.as_slice()?;
         let result = fit(

@@ -8,6 +8,7 @@ mod algorithm;
 #[cfg(test)]
 mod tests;
 
+use crate::utils::require_c_contiguous;
 use algorithm::{
     correct_drift, validate_shapes, DriftParameters, DEFAULT_BIN_SECONDS, DEFAULT_MIN_CORRELATION,
     DEFAULT_MIN_IONS_PER_BIN, DEFAULT_MIN_IONS_PER_RUN, DEFAULT_MIN_OBSERVATIONS,
@@ -73,7 +74,7 @@ impl IntensityDriftCorrection {
     /// C-contiguous.
     ///
     /// Raises `ValueError` if the shapes disagree or a precursor index is out of range, and
-    /// `TypeError` if an array is not contiguous.
+    /// `TypeError` if an array is not C-contiguous.
     fn correct(
         &self,
         py: Python<'_>,
@@ -92,6 +93,9 @@ impl IntensityDriftCorrection {
             precursor,
         )
         .map_err(PyValueError::new_err)?;
+        require_c_contiguous(&**intensity, "intensity")?;
+        require_c_contiguous(&*correlation, "correlation")?;
+        require_c_contiguous(&*rt, "rt")?;
 
         let curves = correct_drift(
             intensity.as_slice_mut()?,

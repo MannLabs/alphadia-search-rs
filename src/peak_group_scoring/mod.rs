@@ -2,12 +2,12 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
+use crate::any_dia_data::AnyDIAData;
 use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
 use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
-use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
     calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
@@ -42,11 +42,12 @@ impl PeakGroupScoring {
 
     pub fn score(
         &self,
-        dia_data: &DIAData,
+        dia_data: AnyDIAData<'_>,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        self.score_generic(dia_data, lib, candidates)
+        crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .score_generic(data, lib, candidates))
     }
 }
 
@@ -120,6 +121,7 @@ impl PeakGroupScoring {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            precursor.mobility_filter(self.params.mobility_tolerance),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

@@ -8,9 +8,9 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
+use crate::any_dia_data::AnyDIAData;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::dense_xic_observation::DenseXICMZObservation;
-use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
@@ -38,11 +38,12 @@ impl PeakGroupQuantification {
 
     pub fn quantify(
         &self,
-        dia_data: &DIAData,
+        dia_data: AnyDIAData<'_>,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> SpecLibFlatQuantified {
-        self.quantify_generic(dia_data, lib, candidates)
+        crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .quantify_generic(data, lib, candidates))
     }
 }
 
@@ -99,6 +100,7 @@ impl PeakGroupQuantification {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            precursor.mobility_filter(self.params.mobility_tolerance),
             cycle_start,
             cycle_stop,
             self.params.tolerance_ppm,

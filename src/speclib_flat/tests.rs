@@ -744,3 +744,107 @@ fn test_speclib_flat_empty_idf() {
     assert_eq!(idf_values, vec![1.0, 1.0, 1.0]);
     assert_eq!(empty_speclib.idf.total_fragments, 0.0);
 }
+
+mod precursor_mobility {
+    use super::super::SpecLibFlat;
+
+    /// Two precursors given out of order, with idx 7 and 3, one fragment each.
+    fn library() -> SpecLibFlat {
+        SpecLibFlat::from_vecs(
+            vec![7, 3],
+            vec![500.0, 600.0],
+            vec![500.0, 600.0],
+            vec![10.0, 20.0],
+            vec![10.0, 20.0],
+            vec![8, 9],
+            vec![0, 1],
+            vec![1, 2],
+            vec![300.0, 400.0],
+            vec![300.0, 400.0],
+            vec![1.0, 1.0],
+            vec![1, 1],
+            vec![1, 1],
+            vec![0, 0],
+            vec![1, 1],
+            vec![1, 1],
+            vec![0, 0],
+        )
+    }
+
+    #[test]
+    fn test_mobility_is_nan_until_set() {
+        let lib = library();
+        assert!(lib.get_precursor(0).mobility.is_nan());
+    }
+
+    #[test]
+    fn test_mobility_is_matched_by_precursor_idx() {
+        let mut lib = library();
+        lib.set_precursor_mobility_from_slices(&[3, 7], &[0.9, 1.1])
+            .unwrap();
+        // sorted by precursor_idx: position 0 is idx 3
+        assert_eq!(lib.get_precursor(0).mobility, 0.9);
+        assert_eq!(lib.get_precursor(1).mobility, 1.1);
+    }
+
+    #[test]
+    fn test_unlisted_precursors_and_nan_have_no_mobility() {
+        let mut lib = library();
+        lib.set_precursor_mobility_from_slices(&[7], &[1.1])
+            .unwrap();
+        assert!(lib.get_precursor(0).mobility.is_nan());
+        lib.set_precursor_mobility_from_slices(&[3, 7], &[0.9, f32::NAN])
+            .unwrap();
+        assert_eq!(lib.get_precursor(0).mobility, 0.9);
+        assert!(lib.get_precursor(1).mobility.is_nan());
+    }
+
+    #[test]
+    fn test_setting_again_replaces_all_values() {
+        let mut lib = library();
+        lib.set_precursor_mobility_from_slices(&[3, 7], &[0.9, 1.1])
+            .unwrap();
+        lib.set_precursor_mobility_from_slices(&[7], &[1.2])
+            .unwrap();
+        assert!(lib.get_precursor(0).mobility.is_nan());
+        assert_eq!(lib.get_precursor(1).mobility, 1.2);
+    }
+
+    #[test]
+    fn test_filtered_precursor_carries_mobility() {
+        let mut lib = library();
+        lib.set_precursor_mobility_from_slices(&[3, 7], &[0.9, 1.1])
+            .unwrap();
+        let precursor = lib
+            .get_precursor_by_idx_filtered(7, false, false, usize::MAX)
+            .unwrap();
+        assert_eq!(precursor.mobility, 1.1);
+    }
+
+    #[test]
+    fn test_invalid_input_is_an_error_and_keeps_earlier_values() {
+        let mut lib = library();
+        lib.set_precursor_mobility_from_slices(&[3], &[0.9])
+            .unwrap();
+        for (idx, mobility) in [
+            (vec![3, 7], vec![1.0]),
+            (vec![3, 3], vec![1.0, 1.0]),
+            (vec![3], vec![f32::INFINITY]),
+            (vec![3], vec![-1.0]),
+            (vec![3], vec![0.0]),
+        ] {
+            assert!(lib
+                .set_precursor_mobility_from_slices(&idx, &mobility)
+                .is_err());
+        }
+        assert_eq!(lib.get_precursor(0).mobility, 0.9);
+    }
+
+    #[test]
+    fn test_unknown_precursor_idx_is_an_error() {
+        let mut lib = library();
+        assert!(lib
+            .set_precursor_mobility_from_slices(&[5], &[1.0])
+            .is_err());
+    }
+}

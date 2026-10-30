@@ -60,7 +60,8 @@ A dict of arrays with one row per candidate, in the candidate order of the calle
 **1. Index.** Every fragment of every candidate becomes one entry `(key, candidate, m/z)`.
 The key packs the isolation window, the apex cycle of the candidate and a logarithmic m/z bin
 into one integer, `window << 48 | cycle << 32 | bin`. The window is the first isolation
-window that contains the precursor m/z. The bin width is `ln(1 + 2 · tolerance)`, twice the
+window that contains the precursor m/z; on timsTOF data, the first window group that isolates
+it within `mobility_tolerance` of its mobility. The bin width is `ln(1 + 2 · tolerance)`, twice the
 tolerance, so that two m/z values within the tolerance always fall into the same or an
 adjacent bin. The entries are sorted by key. A candidate whose precursor m/z lies in no
 window, or whose precursor is not in the library, adds no entries and gets the values of a

@@ -14,7 +14,7 @@ use crate::peak_group_scoring::utils::{
     filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 use crate::utils::{
     calculate_fragment_mz_and_errors, calculate_median, calculate_std,
     calculate_weighted_mean_absolute_error, count_values_above, create_ranked_mask,
@@ -120,6 +120,7 @@ impl PeakGroupScoring {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            MobilityFilter::ANY,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

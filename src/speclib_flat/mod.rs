@@ -69,6 +69,9 @@ pub struct SpecLibFlat {
     pub idf: InverseDocumentFrequency,
 }
 
+/// (m/z used for extraction, library m/z, library intensity, charge) of a fragment.
+pub type TopFragment = (f32, f32, f32, u8);
+
 #[pymethods]
 impl SpecLibFlat {
     #[new]
@@ -367,7 +370,7 @@ impl SpecLibFlat {
         &self,
         precursor_idx: usize,
         k: usize,
-    ) -> Option<(f32, Vec<(f32, f32, f32, u8)>)> {
+    ) -> Option<(f32, Vec<TopFragment>)> {
         let array_index = self.precursor_idx.binary_search(&precursor_idx).ok()?;
         let start = self.flat_frag_start_idx[array_index];
         let stop = self.flat_frag_stop_idx[array_index];

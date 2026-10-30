@@ -17,7 +17,7 @@ use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::speclib_flat::SpecLibFlat;
 use crate::traits::DIADataTrait;
 use numpy::ndarray::{Array1, Array2, Array3};
-use numpy::{IntoPyArray, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 use rayon::prelude::*;
@@ -89,6 +89,29 @@ pub fn observation_tic(dia_data: &DIAData, num_cycles: usize) -> Array2<f32> {
         out.row_mut(i).assign(&Array1::from(row.clone()));
     }
     out
+}
+
+/// Per entry the TIC at `cycle[i]` summed over the observations whose isolation window contains `mz[i]`; 0 for a
+/// cycle outside the run.
+pub fn reference_tic(
+    dia_data: &DIAData,
+    tic: &numpy::ndarray::ArrayView2<f32>,
+    mz: &[f32],
+    cycle: &[i64],
+) -> Vec<f32> {
+    mz.par_iter()
+        .zip(cycle.par_iter())
+        .map(|(&m, &c)| {
+            if c < 0 || c as usize >= tic.ncols() {
+                return 0.0;
+            }
+            dia_data
+                .get_valid_observations(m)
+                .iter()
+                .map(|&obs_idx| tic[[obs_idx, c as usize]])
+                .sum()
+        })
+        .collect()
 }
 
 /// Occupied m/z bins with intensity at `cycle` within `ppm` of `mz`.
@@ -248,6 +271,26 @@ impl FragmentTraceExport {
     ) -> Bound<'py, numpy::PyArray2<f32>> {
         let num_cycles = dia_data.rt_index().rt.len();
         observation_tic(dia_data, num_cycles).into_pyarray(py)
+    }
+
+    /// The `tic` (from `observation_tic`) at each `cycle`, summed over the isolation windows that contain the
+    /// matching `mz`.
+    #[staticmethod]
+    fn reference_tic<'py>(
+        py: Python<'py>,
+        dia_data: &DIAData,
+        tic: PyReadonlyArray2<'py, f32>,
+        mz: PyReadonlyArray1<'py, f32>,
+        cycle: PyReadonlyArray1<'py, i64>,
+    ) -> PyResult<Bound<'py, numpy::PyArray1<f32>>> {
+        let mz = mz.as_slice()?;
+        let cycle = cycle.as_slice()?;
+        if mz.len() != cycle.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "mz and cycle must have the same length",
+            ));
+        }
+        Ok(reference_tic(dia_data, &tic.as_array(), mz, cycle).into_pyarray(py))
     }
 
     /// A dict of arrays with one row per candidate, in the candidate order of the caller.

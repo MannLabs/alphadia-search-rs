@@ -97,3 +97,16 @@ fn traces_follow_slot_order_and_window() {
     assert_eq!(t.apex_neighbours[0], 1);
     assert_eq!(t.apex_neighbours[2], 0);
 }
+
+#[test]
+fn reference_tic_reads_the_windows_of_the_given_mz() {
+    let dia_data = three_cycle_data();
+    let tic = observation_tic(&dia_data, 3);
+    let values = reference_tic(
+        &dia_data,
+        &tic.view(),
+        &[500.0, 500.0, 700.0, 500.0],
+        &[1, 2, 1, -1],
+    );
+    assert_eq!(values, vec![150.0, 29.0, 0.0, 0.0]);
+}

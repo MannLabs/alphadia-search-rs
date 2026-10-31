@@ -1,8 +1,7 @@
 //! MS1 precursor-isotope features of a candidate peak group.
 //!
 //! The isotope XICs M-1 .. M+(n-1) are extracted from the MS1 survey scans over the candidate's cycles at the MS1 m/z
-//! the library sets per precursor. alphaDIA gives a decoy the m/z and isotope envelope of its target, so MS1 evidence
-//! at the precursor mass cannot tell a decoy from a target, only MS1 that agrees with the fragment peak counts.
+//! the library sets per precursor (alphaDIA: every precursor at its own m/z, shifted by its MS1 calibration).
 //! The features look at the cycles around the fragment apex only: the candidate window is several peak widths wide and
 //! mostly background.
 

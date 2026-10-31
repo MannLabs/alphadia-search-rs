@@ -158,7 +158,7 @@ impl SpecLibFlat {
 
     /// Set precursor charges, MS1 m/z and library isotope abundances ([precursor, isotope]) for MS1 scoring.
     ///
-    /// The MS1 m/z may differ from the precursor m/z: a decoy is scored at its target's mass and envelope.
+    /// The MS1 m/z may differ from the precursor m/z, e.g. by an MS1 mass calibration.
     /// Precursors not listed keep no isotopes, so their MS1 features take the missing values.
     fn set_isotopes(
         &mut self,

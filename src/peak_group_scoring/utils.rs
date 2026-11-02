@@ -580,37 +580,29 @@ pub fn calculate_ion_identity_features(
 
 /// Correlation above which a fragment counts as co-eluting with the peak
 pub const AGREEMENT_MIN_CORRELATION: f32 = 0.5;
-/// Fragments averaged at each end of the sorted correlations for the correlation gap
-pub const CORRELATION_GAP_FRAGMENTS: usize = 3;
 /// Minimum number of y ions for the y-ion intensity correlation
 pub const MIN_Y_IONS_FOR_CORRELATION: usize = 3;
 
 /// How well the observed fragments agree with the expected spectrum once interfered fragments are separated from
 /// co-eluting ones. In fragment XICs of ARATH entrapment runs these separate real peptides from false targets
 /// beyond correlation and intensity summaries, also when trained against decoys only.
-/// Returns (lib_explained, correlation_gap, log_ratio_std, y_intensity_correlation, complementary_pairs):
+/// Returns (lib_explained, log_ratio_std, y_intensity_correlation):
 /// - the share of the library intensity in fragments correlating above AGREEMENT_MIN_CORRELATION
-/// - the mean of the CORRELATION_GAP_FRAGMENTS highest minus the lowest correlations of the observed fragments,
-///   0 with fewer than twice that many observed fragments
 /// - the standard deviation of log2(observed share / library share) over observed fragments
 /// - the observed vs library intensity correlation over y ions, 0 with fewer than MIN_Y_IONS_FOR_CORRELATION
-/// - the number of complementary b/y pairs (b_k, y_(naa-k)) that both correlate above AGREEMENT_MIN_CORRELATION
 pub fn calculate_fragment_agreement_features(
     fragment_types: &[u8],
-    fragment_numbers: &[u8],
     library_intensities: &[f32],
     correlations: &[f32],
     observation_intensities: &[f32],
-    naa: u8,
-) -> (f32, f32, f32, f32, f32) {
+) -> (f32, f32, f32) {
     let n = fragment_types.len();
     if n == 0
-        || fragment_numbers.len() != n
         || library_intensities.len() != n
         || correlations.len() != n
         || observation_intensities.len() != n
     {
-        return (0.0, 0.0, 0.0, 0.0, 0.0);
+        return (0.0, 0.0, 0.0);
     }
 
     let library_total: f32 = library_intensities.iter().sum();
@@ -624,28 +616,8 @@ pub fn calculate_fragment_agreement_features(
         0.0
     };
 
-    let observed: Vec<usize> = (0..n)
-        .filter(|&i| observation_intensities[i] > 0.0)
-        .collect();
-
-    let mut observed_correlations: Vec<f32> = observed.iter().map(|&i| correlations[i]).collect();
-    let correlation_gap = if observed_correlations.len() >= 2 * CORRELATION_GAP_FRAGMENTS {
-        observed_correlations.sort_unstable_by(|a, b| b.total_cmp(a));
-        let k = CORRELATION_GAP_FRAGMENTS;
-        let top: f32 = observed_correlations[..k].iter().sum::<f32>() / k as f32;
-        let bottom: f32 = observed_correlations[observed_correlations.len() - k..]
-            .iter()
-            .sum::<f32>()
-            / k as f32;
-        top - bottom
-    } else {
-        0.0
-    };
-
-    let paired: Vec<usize> = observed
-        .iter()
-        .copied()
-        .filter(|&i| library_intensities[i] > 0.0)
+    let paired: Vec<usize> = (0..n)
+        .filter(|&i| observation_intensities[i] > 0.0 && library_intensities[i] > 0.0)
         .collect();
     let log_ratio_std = if paired.len() >= 2 {
         let observed_total: f32 = paired.iter().map(|&i| observation_intensities[i]).sum();
@@ -676,28 +648,7 @@ pub fn calculate_fragment_agreement_features(
         0.0
     };
 
-    let coeluting_b: Vec<u8> = (0..n)
-        .filter(|&i| {
-            fragment_types[i] == FragmentType::B && correlations[i] > AGREEMENT_MIN_CORRELATION
-        })
-        .map(|i| fragment_numbers[i])
-        .collect();
-    let complementary_pairs = (0..n)
-        .filter(|&i| {
-            fragment_types[i] == FragmentType::Y
-                && correlations[i] > AGREEMENT_MIN_CORRELATION
-                && fragment_numbers[i] < naa
-                && coeluting_b.contains(&(naa - fragment_numbers[i]))
-        })
-        .count();
-
-    (
-        lib_explained,
-        correlation_gap,
-        log_ratio_std,
-        y_intensity_correlation,
-        complementary_pairs as f32,
-    )
+    (lib_explained, log_ratio_std, y_intensity_correlation)
 }
 
 /// Cycles on each side of the median-profile apex summed for the apex spectrum

@@ -236,20 +236,13 @@ impl PeakGroupScoring {
             precursor.naa,
         );
 
-        let (
-            lib_explained,
-            correlation_gap,
-            log_ratio_std,
-            y_intensity_correlation,
-            complementary_pairs,
-        ) = calculate_fragment_agreement_features(
-            &precursor.fragment_type,
-            &precursor.fragment_number,
-            &precursor.fragment_intensity,
-            &correlations,
-            observation_intensities.as_slice().unwrap(),
-            precursor.naa,
-        );
+        let (lib_explained, log_ratio_std, y_intensity_correlation) =
+            calculate_fragment_agreement_features(
+                &precursor.fragment_type,
+                &precursor.fragment_intensity,
+                &correlations,
+                observation_intensities.as_slice().unwrap(),
+            );
 
         let lib_cosine_coherent = calculate_lib_cosine_coherent(
             &dense_xic_mz_obs.dense_xic,
@@ -377,10 +370,8 @@ impl PeakGroupScoring {
             num_over_50_short_ions,
             long_ion_intensity_share,
             lib_explained,
-            correlation_gap,
             log_ratio_std,
             y_intensity_correlation,
-            complementary_pairs,
             lib_cosine_coherent,
         ))
     }

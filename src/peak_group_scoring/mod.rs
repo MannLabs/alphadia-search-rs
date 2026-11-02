@@ -224,12 +224,7 @@ impl PeakGroupScoring {
             &matched_mask_intensity,
         );
 
-        let (
-            ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
-            long_ion_intensity_share,
-        ) = calculate_ion_identity_features(
+        let (ion_position_mean, long_ion_intensity_share) = calculate_ion_identity_features(
             &precursor.fragment_number,
             &correlations,
             observation_intensities.as_slice().unwrap(),
@@ -366,8 +361,6 @@ impl PeakGroupScoring {
             num_over_0_top6_idf as f32,
             num_over_50_top6_idf as f32,
             ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
             long_ion_intensity_share,
             lib_explained,
             log_ratio_std,

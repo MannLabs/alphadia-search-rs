@@ -46,8 +46,6 @@ pub const FEATURE_NAMES: &[&str] = &[
     "num_over_0_top6_idf",
     "num_over_50_top6_idf",
     "ion_position_mean",
-    "num_over_50_long_ions",
-    "num_over_50_short_ions",
     "long_ion_intensity_share",
     "lib_explained",
     "log_ratio_std",
@@ -101,8 +99,6 @@ pub struct CandidateFeature {
     pub num_over_0_top6_idf: f32,
     pub num_over_50_top6_idf: f32,
     pub ion_position_mean: f32,
-    pub num_over_50_long_ions: f32,
-    pub num_over_50_short_ions: f32,
     pub long_ion_intensity_share: f32,
     pub lib_explained: f32,
     pub log_ratio_std: f32,
@@ -157,8 +153,6 @@ impl CandidateFeature {
         num_over_0_top6_idf: f32,
         num_over_50_top6_idf: f32,
         ion_position_mean: f32,
-        num_over_50_long_ions: f32,
-        num_over_50_short_ions: f32,
         long_ion_intensity_share: f32,
         lib_explained: f32,
         log_ratio_std: f32,
@@ -210,8 +204,6 @@ impl CandidateFeature {
             num_over_0_top6_idf,
             num_over_50_top6_idf,
             ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
             long_ion_intensity_share,
             lib_explained,
             log_ratio_std,
@@ -296,8 +288,6 @@ impl CandidateFeatureCollection {
         let mut num_over_0_top6_idf = Array1::<f32>::zeros(n);
         let mut num_over_50_top6_idf = Array1::<f32>::zeros(n);
         let mut ion_position_mean = Array1::<f32>::zeros(n);
-        let mut num_over_50_long_ions = Array1::<f32>::zeros(n);
-        let mut num_over_50_short_ions = Array1::<f32>::zeros(n);
         let mut long_ion_intensity_share = Array1::<f32>::zeros(n);
         let mut lib_explained = Array1::<f32>::zeros(n);
         let mut log_ratio_std = Array1::<f32>::zeros(n);
@@ -349,8 +339,6 @@ impl CandidateFeatureCollection {
             num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
             num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
             ion_position_mean[i] = feature.ion_position_mean;
-            num_over_50_long_ions[i] = feature.num_over_50_long_ions;
-            num_over_50_short_ions[i] = feature.num_over_50_short_ions;
             long_ion_intensity_share[i] = feature.long_ion_intensity_share;
             lib_explained[i] = feature.lib_explained;
             log_ratio_std[i] = feature.log_ratio_std;
@@ -454,14 +442,6 @@ impl CandidateFeatureCollection {
             num_over_50_top6_idf.into_pyarray(py),
         )?;
         dict.set_item("ion_position_mean", ion_position_mean.into_pyarray(py))?;
-        dict.set_item(
-            "num_over_50_long_ions",
-            num_over_50_long_ions.into_pyarray(py),
-        )?;
-        dict.set_item(
-            "num_over_50_short_ions",
-            num_over_50_short_ions.into_pyarray(py),
-        )?;
         dict.set_item(
             "long_ion_intensity_share",
             long_ion_intensity_share.into_pyarray(py),

@@ -1034,3 +1034,32 @@ fn test_calculate_dot_product_zeros() {
     let result = calculate_dot_product(&a, &b);
     assert_eq!(result, 0.0);
 }
+
+#[test]
+fn test_calculate_ion_identity_features_separates_long_and_short_ions() {
+    use super::utils::calculate_ion_identity_features;
+    let fragment_numbers = [2u8, 3, 6, 8];
+    let correlations = [0.9f32, 0.2, 0.8, 0.6];
+    let intensities = [10.0f32, 10.0, 30.0, 50.0];
+
+    let (position_mean, n_long, n_short, long_share) =
+        calculate_ion_identity_features(&fragment_numbers, &correlations, &intensities, 10);
+
+    // carrying fragments: numbers 2, 6 and 8 of a 10-residue peptide
+    assert!((position_mean - (0.2 + 0.6 + 0.8) / 3.0).abs() < 1e-6);
+    assert_eq!(n_long, 2.0);
+    assert_eq!(n_short, 1.0);
+    assert!((long_share - 0.8).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_ion_identity_features_without_signal() {
+    use super::utils::calculate_ion_identity_features;
+    let (position_mean, n_long, n_short, long_share) =
+        calculate_ion_identity_features(&[4u8, 7], &[0.1f32, -0.3], &[0.0f32, 0.0], 9);
+
+    assert_eq!(
+        (position_mean, n_long, n_short, long_share),
+        (0.0, 0.0, 0.0, 0.0)
+    );
+}

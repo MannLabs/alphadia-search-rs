@@ -9,10 +9,10 @@ use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
-    calculate_hyperscore_inverse_mass_error, calculate_ion_identity_features,
-    calculate_longest_ion_series, correlation_axis_0, filter_non_zero, intensity_ion_series,
-    median_axis_0, normalize_profiles,
+    calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
+    calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
+    calculate_ion_identity_features, calculate_longest_ion_series, correlation_axis_0,
+    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -236,6 +236,21 @@ impl PeakGroupScoring {
             precursor.naa,
         );
 
+        let (
+            lib_explained,
+            correlation_gap,
+            log_ratio_std,
+            y_intensity_correlation,
+            complementary_pairs,
+        ) = calculate_fragment_agreement_features(
+            &precursor.fragment_type,
+            &precursor.fragment_number,
+            &precursor.fragment_intensity,
+            &correlations,
+            observation_intensities.as_slice().unwrap(),
+            precursor.naa,
+        );
+
         // Calculate fragment m/z and mass errors
         let (_fragment_mz_observed, fragment_mass_errors) = calculate_fragment_mz_and_errors(
             &dense_xic_mz_obs.dense_mz,
@@ -354,6 +369,11 @@ impl PeakGroupScoring {
             num_over_50_long_ions,
             num_over_50_short_ions,
             long_ion_intensity_share,
+            lib_explained,
+            correlation_gap,
+            log_ratio_std,
+            y_intensity_correlation,
+            complementary_pairs,
         ))
     }
 }

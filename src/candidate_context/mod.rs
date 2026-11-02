@@ -9,8 +9,8 @@ mod algorithm;
 mod tests;
 
 pub use algorithm::{
-    compute_context_features, ContextFeatures, ContextParameters, DEFAULT_CYCLE_RADIUS,
-    DEFAULT_MIN_SHARED, FEATURES,
+    compute_context_features, log_mz_bin, log_mz_bin_width, pack_key, ContextFeatures,
+    ContextParameters, DEFAULT_CYCLE_RADIUS, DEFAULT_MIN_SHARED, FEATURES,
 };
 
 use crate::candidate::CandidateCollection;

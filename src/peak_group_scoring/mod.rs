@@ -8,6 +8,9 @@ use crate::candidate::{
 use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
+use crate::peak_group_scoring::fragment_features::{
+    calculate_fragment_features, num_ion_classes, IonEvidence, IonNoiseModel,
+};
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
     calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
@@ -23,6 +26,7 @@ use crate::utils::{
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
+pub mod fragment_features;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
@@ -62,7 +66,7 @@ impl PeakGroupScoring {
         let start_time = Instant::now();
 
         // Parallel iteration over candidates to score each one
-        let scored_candidates: Vec<CandidateFeature> = candidates
+        let (mut scored_candidates, ion_evidence): (Vec<_>, Vec<Vec<IonEvidence>>) = candidates
             .par_iter()
             .filter_map(|candidate| {
                 // Find precursor by idx (not array position)
@@ -84,7 +88,25 @@ impl PeakGroupScoring {
                     }
                 }
             })
-            .collect();
+            .unzip();
+
+        // The ion-class noise model needs all candidates: it is fitted on those that are not the best of their
+        // precursor, targets and decoys alike, and then scores every candidate's fragments.
+        let noise_model = IonNoiseModel::fit(
+            scored_candidates
+                .par_iter()
+                .zip(ion_evidence.par_iter())
+                .filter(|(feature, _)| feature.rank >= 1)
+                .map(|(_, evidence)| evidence.as_slice()),
+            num_ion_classes(self.params.top_k_fragments),
+        );
+        scored_candidates
+            .par_iter_mut()
+            .zip(ion_evidence.par_iter())
+            .for_each(|(feature, evidence)| {
+                (feature.ion_fisher, feature.ion_fisher_lib) = noise_model.fisher(evidence);
+            });
+        drop(ion_evidence);
 
         // Create collection from Vec
         let feature_collection = CandidateFeatureCollection::from_vec(scored_candidates);
@@ -109,7 +131,7 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         precursor: &Precursor,
         candidate: &Candidate,
-    ) -> Option<CandidateFeature> {
+    ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
 
@@ -246,6 +268,16 @@ impl PeakGroupScoring {
             &precursor.fragment_intensity,
         );
 
+        let (fragment_features, ion_evidence) = calculate_fragment_features(
+            &precursor.fragment_intensity,
+            observation_intensities.as_slice().unwrap(),
+            &correlations,
+            &precursor.fragment_type,
+            &precursor.fragment_number,
+            &precursor.fragment_charge,
+            self.params.top_k_fragments,
+        );
+
         // Calculate fragment m/z and mass errors
         let (_fragment_mz_observed, fragment_mass_errors) = calculate_fragment_mz_and_errors(
             &dense_xic_mz_obs.dense_mz,
@@ -315,8 +347,8 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
-        // Create and return candidate feature
-        Some(CandidateFeature::new(
+        // Create and return candidate feature; ion_fisher and ion_fisher_lib follow from the noise model
+        let feature = CandidateFeature::new(
             candidate.precursor_idx,
             candidate.rank,
             candidate.score,
@@ -366,6 +398,23 @@ impl PeakGroupScoring {
             log_ratio_std,
             y_intensity_correlation,
             lib_cosine_coherent,
-        ))
+            fragment_features.xic_libweighted,
+            fragment_features.xic_obsweighted,
+            0.0,
+            0.0,
+            fragment_features.ion_coherent_2plus,
+            fragment_features.ion_coherent_b_short,
+            fragment_features.ion_coherent_b_mid,
+            fragment_features.ion_coherent_b_long,
+            fragment_features.ion_coherent_y_short,
+            fragment_features.ion_coherent_y_mid,
+            fragment_features.ion_coherent_y_long,
+            fragment_features.ent_sim,
+            fragment_features.ent_sim_coherent,
+            fragment_features.z2_libw_corr,
+            fragment_features.z2_explained,
+            fragment_features.z2_n_over_50,
+        );
+        Some((feature, ion_evidence))
     }
 }

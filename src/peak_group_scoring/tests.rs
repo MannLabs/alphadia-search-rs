@@ -1103,3 +1103,161 @@ fn test_calculate_lib_cosine_coherent_uses_only_coeluting_fragments() {
     assert!((coherent - 1.0).abs() < 1e-5);
     assert_eq!(too_few, 0.0);
 }
+
+#[test]
+fn test_calculate_fragment_features() {
+    use super::fragment_features::calculate_fragment_features;
+    use crate::constants::FragmentType;
+    let library = [4.0f32, 2.0, 1.0, 1.0];
+    let observed = [8.0f32, 4.0, 0.0, 2.0];
+    let correlations = [0.75f32, 0.625, 0.0, 0.25];
+    let types = [
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let numbers = [9u8, 2, 5, 3];
+    let charges = [1u8, 1, 2, 2];
+
+    let (features, _) = calculate_fragment_features(
+        &library,
+        &observed,
+        &correlations,
+        &types,
+        &numbers,
+        &charges,
+        12,
+    );
+
+    assert!((features.xic_libweighted - 0.5625).abs() < 1e-6);
+    assert!((features.xic_obsweighted - 9.0 / 14.0).abs() < 1e-6);
+    // co-eluting: the y9 (long) and the b2 (short)
+    assert_eq!(features.ion_coherent_y_long, 1.0);
+    assert_eq!(features.ion_coherent_b_short, 1.0);
+    assert_eq!(
+        features.ion_coherent_b_mid
+            + features.ion_coherent_b_long
+            + features.ion_coherent_y_short
+            + features.ion_coherent_y_mid,
+        0.0
+    );
+    // the doubly charged y5 and y3 carry a library intensity of 2, only the y3 correlates (0.25)
+    assert!((features.z2_libw_corr - 0.125).abs() < 1e-6);
+    assert_eq!(features.z2_explained, 0.0);
+    assert_eq!(features.z2_n_over_50, 0.0);
+    assert_eq!(features.ion_coherent_2plus, 0.0);
+    assert!(features.ent_sim > 0.0 && features.ent_sim < 1.0);
+}
+
+#[test]
+fn test_calculate_fragment_features_entropy_similarity() {
+    use super::fragment_features::calculate_fragment_features;
+    use crate::constants::FragmentType;
+    let library = [4.0f32, 2.0, 1.0];
+    let types = [FragmentType::Y; 3];
+
+    let (proportional, _) = calculate_fragment_features(
+        &library,
+        &[40.0, 20.0, 10.0],
+        &[1.0, 1.0, 1.0],
+        &types,
+        &[3, 4, 5],
+        &[1, 1, 1],
+        12,
+    );
+    let (no_signal, _) = calculate_fragment_features(
+        &library,
+        &[0.0, 0.0, 0.0],
+        &[0.0, 0.0, 0.0],
+        &types,
+        &[3, 4, 5],
+        &[1, 1, 1],
+        12,
+    );
+
+    assert!((proportional.ent_sim - 1.0).abs() < 1e-6);
+    assert!((proportional.ent_sim_coherent - 1.0).abs() < 1e-6);
+    assert_eq!(no_signal.ent_sim, 0.0);
+    assert_eq!(no_signal.ent_sim_coherent, 0.0);
+}
+
+#[test]
+fn test_calculate_fragment_features_ion_evidence_in_library_slot_order() {
+    use super::fragment_features::calculate_fragment_features;
+    use crate::constants::FragmentType;
+    // scored in m/z order; the library slots order them by intensity
+    let library = [1.0f32, 4.0, 2.0, 1.0];
+    let observed = [0.0f32, 8.0, 4.0, 2.0];
+    let correlations = [0.0f32, 0.75, 0.625, -0.25];
+
+    let (_, evidence) = calculate_fragment_features(
+        &library,
+        &observed,
+        &correlations,
+        &[
+            FragmentType::B,
+            FragmentType::Y,
+            FragmentType::B,
+            FragmentType::Y,
+        ],
+        &[2, 9, 2, 3],
+        &[1, 1, 1, 1],
+        12,
+    );
+
+    let shares: Vec<f32> = evidence.iter().map(|e| e.library_share).collect();
+    assert_eq!(shares, vec![0.5, 0.25, 0.125, 0.125]);
+    assert_eq!(evidence[0].bin, 75);
+    assert_eq!(evidence[1].bin, 62);
+    assert!(evidence[0].positive && evidence[1].positive);
+    // a hit with a negative correlation is no positive hit, no signal is no hit
+    assert!(evidence[3].hit && !evidence[3].positive);
+    assert!(!evidence[2].hit);
+    // y9 in slot 0, b2 in slot 1 and the b2 in slot 2 share a slot group: only ion class and slot group count
+    assert_ne!(evidence[0].class, evidence[1].class);
+    assert_eq!(evidence[1].class, evidence[2].class);
+}
+
+#[test]
+fn test_ion_noise_model_fisher() {
+    use super::fragment_features::{IonEvidence, IonNoiseModel};
+    use rayon::prelude::*;
+    let fragment = |bin: u8, hit: bool, positive: bool, library_share: f32| IonEvidence {
+        class: 0,
+        bin,
+        hit,
+        positive,
+        library_share,
+    };
+    // class 0: four fragments, two positive hits at bins 10 and 90
+    let null = vec![
+        vec![
+            fragment(10, true, true, 0.5),
+            fragment(0, false, false, 0.5),
+        ],
+        vec![
+            fragment(90, true, true, 0.5),
+            fragment(0, false, false, 0.5),
+        ],
+    ];
+    let model = IonNoiseModel::fit(null.par_iter().map(|e| e.as_slice()), 1);
+
+    // hit rate 0.5 times the share of hits at bin 90 or above (0.5)
+    let (plain, weighted) = model.fisher(&[fragment(90, true, true, 0.5)]);
+    assert!((plain - 4f32.ln()).abs() < 1e-6);
+    assert!((weighted - 0.5 * 4f32.ln()).abs() < 1e-6);
+
+    // no null hit correlates this well: the chance is floored
+    let (floored, _) = model.fisher(&[fragment(95, true, true, 1.0)]);
+    assert!((floored - 1e4f32.ln()).abs() < 1e-4);
+
+    // only positive hits add surprise
+    assert_eq!(
+        model.fisher(&[
+            fragment(90, true, false, 1.0),
+            fragment(0, false, false, 1.0)
+        ]),
+        (0.0, 0.0)
+    );
+}

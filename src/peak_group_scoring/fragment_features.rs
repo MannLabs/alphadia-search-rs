@@ -6,8 +6,8 @@
 //! A decoy's fragments are its target's (copied intensities, ion types and numbers) at the m/z of its own sequence,
 //! so every feature measures the evidence of a target and of its decoy the same way.
 //!
-//! `ion_fisher` and `ion_fisher_lib` need a noise model fitted over all scored candidates (`IonNoiseModel`); the
-//! other features depend on the candidate alone.
+//! `ion_fisher_lib` needs a noise model fitted over all scored candidates (`IonNoiseModel`); the other features
+//! depend on the candidate alone.
 
 use rayon::prelude::*;
 
@@ -40,9 +40,9 @@ pub struct FragmentFeatures {
     pub xic_obsweighted: f32,
     /// co-eluting doubly charged fragments
     pub ion_coherent_2plus: f32,
-    /// co-eluting b and y fragments of short (< 4), mid (4-7) and long (>= 8) ion number
+    /// co-eluting b and y fragments of short (< 4), mid (4-7) and long (>= 8) ion number; b ions of mid number are
+    /// left out
     pub ion_coherent_b_short: f32,
-    pub ion_coherent_b_mid: f32,
     pub ion_coherent_b_long: f32,
     pub ion_coherent_y_short: f32,
     pub ion_coherent_y_mid: f32,
@@ -51,11 +51,6 @@ pub struct FragmentFeatures {
     pub ent_sim: f32,
     /// the same with each observed intensity weighted by its (non-negative) correlation
     pub ent_sim_coherent: f32,
-    /// over the doubly charged fragments: library-weighted correlation, library share of the co-eluting ones and
-    /// their count
-    pub z2_libw_corr: f32,
-    pub z2_explained: f32,
-    pub z2_n_over_50: f32,
 }
 
 /// What the noise model needs of one scored fragment.
@@ -186,28 +181,19 @@ pub fn calculate_fragment_features(
         .collect();
     features.ent_sim_coherent = entropy_similarity(&library, &observed_coherent) as f32;
 
-    let mut z2_library = 0.0f64;
-    let mut z2_weighted_correlation = 0.0f64;
-    let mut z2_coherent_library = 0.0f64;
     for i in 0..n {
-        if fragment_charges[i] == MAX_FRAGMENT_CHARGE {
-            z2_library += library[i];
-            z2_weighted_correlation += library[i] * correlation[i];
-            if coherent[i] {
-                z2_coherent_library += library[i];
-                features.z2_n_over_50 += 1.0;
-                features.ion_coherent_2plus += 1.0;
-            }
-        }
         if !coherent[i] {
             continue;
+        }
+        if fragment_charges[i] == MAX_FRAGMENT_CHARGE {
+            features.ion_coherent_2plus += 1.0;
         }
         let count = match (
             fragment_types[i],
             number_bucket(fragment_numbers[i], &COUNT_NUMBER_EDGES),
         ) {
             (FragmentType::B, 0) => &mut features.ion_coherent_b_short,
-            (FragmentType::B, 1) => &mut features.ion_coherent_b_mid,
+            (FragmentType::B, 1) => continue,
             (FragmentType::B, _) => &mut features.ion_coherent_b_long,
             (FragmentType::Y, 0) => &mut features.ion_coherent_y_short,
             (FragmentType::Y, 1) => &mut features.ion_coherent_y_mid,
@@ -215,10 +201,6 @@ pub fn calculate_fragment_features(
             _ => continue,
         };
         *count += 1.0;
-    }
-    if z2_library > 0.0 {
-        features.z2_libw_corr = (z2_weighted_correlation / z2_library) as f32;
-        features.z2_explained = (z2_coherent_library / z2_library) as f32;
     }
 
     // library slots: fragments by descending library intensity, ties in their scored order
@@ -326,19 +308,16 @@ impl IonNoiseModel {
         Self { hit_rate, survival }
     }
 
-    /// (ion_fisher, ion_fisher_lib): the summed surprise -ln(chance) of a candidate's positive hits, plain and
-    /// weighted by library share, where chance is the class's hit rate times its share of hits correlating at least
-    /// as well.
-    pub fn fisher(&self, evidence: &[IonEvidence]) -> (f32, f32) {
-        let mut plain = 0.0f64;
+    /// ion_fisher_lib: the summed surprise -ln(chance) of a candidate's positive hits, weighted by library share,
+    /// where chance is the class's hit rate times its share of hits correlating at least as well.
+    pub fn fisher(&self, evidence: &[IonEvidence]) -> f32 {
         let mut library_weighted = 0.0f64;
         for e in evidence.iter().filter(|e| e.positive) {
             let c = e.class as usize;
             let chance = self.hit_rate[c] * self.survival[c * CORRELATION_BINS + e.bin as usize];
             let surprise = -chance.max(MIN_CHANCE).ln();
-            plain += surprise;
             library_weighted += e.library_share as f64 * surprise;
         }
-        (plain as f32, library_weighted as f32)
+        library_weighted as f32
     }
 }

@@ -104,7 +104,7 @@ impl PeakGroupScoring {
             .par_iter_mut()
             .zip(ion_evidence.par_iter())
             .for_each(|(feature, evidence)| {
-                (feature.ion_fisher, feature.ion_fisher_lib) = noise_model.fisher(evidence);
+                feature.ion_fisher_lib = noise_model.fisher(evidence);
             });
         drop(ion_evidence);
 
@@ -347,7 +347,7 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
-        // Create and return candidate feature; ion_fisher and ion_fisher_lib follow from the noise model
+        // Create and return candidate feature; ion_fisher_lib follows from the noise model
         let feature = CandidateFeature::new(
             candidate.precursor_idx,
             candidate.rank,
@@ -401,19 +401,14 @@ impl PeakGroupScoring {
             fragment_features.xic_libweighted,
             fragment_features.xic_obsweighted,
             0.0,
-            0.0,
             fragment_features.ion_coherent_2plus,
             fragment_features.ion_coherent_b_short,
-            fragment_features.ion_coherent_b_mid,
             fragment_features.ion_coherent_b_long,
             fragment_features.ion_coherent_y_short,
             fragment_features.ion_coherent_y_mid,
             fragment_features.ion_coherent_y_long,
             fragment_features.ent_sim,
             fragment_features.ent_sim_coherent,
-            fragment_features.z2_libw_corr,
-            fragment_features.z2_explained,
-            fragment_features.z2_n_over_50,
         );
         Some((feature, ion_evidence))
     }

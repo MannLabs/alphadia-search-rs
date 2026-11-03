@@ -7,7 +7,7 @@ fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
     // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 63);
+    assert_eq!(feature_names.len(), 58);
     assert!(feature_names.contains(&"long_ion_intensity_share".to_string()));
     assert!(feature_names.contains(&"ion_fisher_lib".to_string()));
 
@@ -213,20 +213,15 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         0.95,  // lib_cosine_coherent
         0.61,  // xic_libweighted
         0.72,  // xic_obsweighted
-        7.5,   // ion_fisher
         1.3,   // ion_fisher_lib
         2.0,   // ion_coherent_2plus
         1.0,   // ion_coherent_b_short
-        2.0,   // ion_coherent_b_mid
         3.0,   // ion_coherent_b_long
         1.0,   // ion_coherent_y_short
         2.0,   // ion_coherent_y_mid
         4.0,   // ion_coherent_y_long
         0.81,  // ent_sim
         0.86,  // ent_sim_coherent
-        0.66,  // z2_libw_corr
-        0.5,   // z2_explained
-        2.0,   // z2_n_over_50
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 

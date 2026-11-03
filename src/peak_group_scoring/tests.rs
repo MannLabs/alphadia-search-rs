@@ -1136,16 +1136,10 @@ fn test_calculate_fragment_features() {
     assert_eq!(features.ion_coherent_y_long, 1.0);
     assert_eq!(features.ion_coherent_b_short, 1.0);
     assert_eq!(
-        features.ion_coherent_b_mid
-            + features.ion_coherent_b_long
-            + features.ion_coherent_y_short
-            + features.ion_coherent_y_mid,
+        features.ion_coherent_b_long + features.ion_coherent_y_short + features.ion_coherent_y_mid,
         0.0
     );
-    // the doubly charged y5 and y3 carry a library intensity of 2, only the y3 correlates (0.25)
-    assert!((features.z2_libw_corr - 0.125).abs() < 1e-6);
-    assert_eq!(features.z2_explained, 0.0);
-    assert_eq!(features.z2_n_over_50, 0.0);
+    // neither doubly charged fragment (y5 without signal, y3 at 0.25) co-elutes
     assert_eq!(features.ion_coherent_2plus, 0.0);
     assert!(features.ent_sim > 0.0 && features.ent_sim < 1.0);
 }
@@ -1244,12 +1238,11 @@ fn test_ion_noise_model_fisher() {
     let model = IonNoiseModel::fit(null.par_iter().map(|e| e.as_slice()), 1);
 
     // hit rate 0.5 times the share of hits at bin 90 or above (0.5)
-    let (plain, weighted) = model.fisher(&[fragment(90, true, true, 0.5)]);
-    assert!((plain - 4f32.ln()).abs() < 1e-6);
+    let weighted = model.fisher(&[fragment(90, true, true, 0.5)]);
     assert!((weighted - 0.5 * 4f32.ln()).abs() < 1e-6);
 
     // no null hit correlates this well: the chance is floored
-    let (floored, _) = model.fisher(&[fragment(95, true, true, 1.0)]);
+    let floored = model.fisher(&[fragment(95, true, true, 1.0)]);
     assert!((floored - 1e4f32.ln()).abs() < 1e-4);
 
     // only positive hits add surprise
@@ -1258,6 +1251,6 @@ fn test_ion_noise_model_fisher() {
             fragment(90, true, false, 1.0),
             fragment(0, false, false, 1.0)
         ]),
-        (0.0, 0.0)
+        0.0
     );
 }

@@ -9,7 +9,7 @@ fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
     // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 64);
+    assert_eq!(feature_names.len(), 58);
     assert!(feature_names.contains(&"short_ion_intensity_share".to_string()));
     assert!(feature_names.contains(&"ion_fisher_lib".to_string()));
 
@@ -209,21 +209,16 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         3.0,   // num_over_50_top6_idf
         IonCoverageFeatures {
             ion_position_mean: 0.55,
-            num_over_50_long_ions: 4.0,
-            num_over_50_short_ions: 2.0,
             short_ion_intensity_share: 0.3,
             num_over_50_b_short: 1.0,
-            num_over_50_b_mid: 2.0,
             num_over_50_b_long: 3.0,
             num_over_50_y_short: 1.0,
             num_over_50_y_mid: 2.0,
             num_over_50_y_long: 4.0,
             num_over_50_z2: 2.0,
             lib_share_over_50: 0.8,
-            lib_share_over_50_z2: 0.5,
             xic_libweighted: 0.61,
             xic_obsweighted: 0.72,
-            xic_libweighted_z2: 0.66,
         },
         LibraryAgreementFeatures {
             log_ratio_std: 1.2,

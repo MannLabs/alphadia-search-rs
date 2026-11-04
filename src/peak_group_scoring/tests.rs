@@ -1061,8 +1061,6 @@ fn test_calculate_ion_coverage_features_ion_lengths() {
 
     // co-eluting fragments: numbers 2, 6 and 8 of a 10-residue peptide
     assert!((features.ion_position_mean - (0.2 + 0.6 + 0.8) / 3.0).abs() < 1e-6);
-    assert_eq!(features.num_over_50_short_ions, 1.0);
-    assert_eq!(features.num_over_50_long_ions, 1.0);
     assert_eq!(features.num_over_50_b_short, 1.0);
     assert_eq!(features.num_over_50_y_mid, 1.0);
     assert_eq!(features.num_over_50_y_long, 1.0);
@@ -1120,16 +1118,11 @@ fn test_calculate_ion_coverage_features() {
     assert_eq!(features.num_over_50_y_long, 1.0);
     assert_eq!(features.num_over_50_b_short, 1.0);
     assert_eq!(
-        features.num_over_50_b_mid
-            + features.num_over_50_b_long
-            + features.num_over_50_y_short
-            + features.num_over_50_y_mid,
+        features.num_over_50_b_long + features.num_over_50_y_short + features.num_over_50_y_mid,
         0.0
     );
     assert!((features.lib_share_over_50 - 0.75).abs() < 1e-6);
-    // the doubly charged y5 and y3 carry a library intensity of 2, only the y3 correlates (0.25)
-    assert!((features.xic_libweighted_z2 - 0.125).abs() < 1e-6);
-    assert_eq!(features.lib_share_over_50_z2, 0.0);
+    // neither doubly charged fragment (y5 without signal, y3 at 0.25) co-elutes
     assert_eq!(features.num_over_50_z2, 0.0);
 }
 
@@ -1195,12 +1188,11 @@ fn test_ion_noise_model_fisher() {
     let model = IonNoiseModel::fit(noise.par_iter().map(|e| e.as_slice()), 1);
 
     // hit rate 0.5 times the share of hits at bin 90 or above (0.5)
-    let (plain, weighted) = model.fisher(&[fragment(90, true, true, 0.5)]);
-    assert!((plain - 4f32.ln()).abs() < 1e-6);
+    let weighted = model.fisher(&[fragment(90, true, true, 0.5)]);
     assert!((weighted - 0.5 * 4f32.ln()).abs() < 1e-6);
 
     // no noise hit correlates this well: the chance is floored
-    let (floored, _) = model.fisher(&[fragment(95, true, true, 1.0)]);
+    let floored = model.fisher(&[fragment(95, true, true, 1.0)]);
     assert!((floored - 1e4f32.ln()).abs() < 1e-4);
 
     // only positive hits add surprise
@@ -1209,7 +1201,7 @@ fn test_ion_noise_model_fisher() {
             fragment(90, true, false, 1.0),
             fragment(0, false, false, 1.0)
         ]),
-        (0.0, 0.0)
+        0.0
     );
 }
 

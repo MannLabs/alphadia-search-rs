@@ -105,7 +105,7 @@ impl PeakGroupScoring {
             .par_iter_mut()
             .zip(ion_evidence.par_iter())
             .for_each(|(feature, evidence)| {
-                (feature.ion_fisher, feature.ion_fisher_lib) = noise_model.fisher(evidence);
+                feature.ion_fisher_lib = noise_model.fisher(evidence);
             });
         drop(ion_evidence);
 
@@ -336,7 +336,7 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
-        // Create and return candidate feature; ion_fisher and ion_fisher_lib follow from the noise model
+        // Create and return candidate feature; ion_fisher_lib follows from the noise model
         let feature = CandidateFeature::new(
             candidate.precursor_idx,
             candidate.rank,

@@ -6,8 +6,8 @@
 //! A decoy's fragments are its target's (copied intensities, ion types and numbers) at the m/z of its own sequence,
 //! so every feature measures the evidence of a target and of its decoy the same way.
 //!
-//! `ion_fisher` and `ion_fisher_lib` need a noise model fitted over all scored candidates (`IonNoiseModel`); the
-//! other features depend on the candidate alone.
+//! `ion_fisher_lib` needs a noise model fitted over all scored candidates (`IonNoiseModel`); the other features
+//! depend on the candidate alone.
 
 use rayon::prelude::*;
 
@@ -58,29 +58,22 @@ fn ion_length(number: u8) -> IonLength {
 pub struct IonCoverageFeatures {
     /// mean ion number relative to the peptide length over the co-eluting fragments
     pub ion_position_mean: f32,
-    /// co-eluting long and short ions
-    pub num_over_50_long_ions: f32,
-    pub num_over_50_short_ions: f32,
     /// share of the observed fragment intensity in short ions
     pub short_ion_intensity_share: f32,
-    /// co-eluting b and y ions, short, mid and long
+    /// co-eluting b and y ions, short, mid and long; mid b ions are left out
     pub num_over_50_b_short: f32,
-    pub num_over_50_b_mid: f32,
     pub num_over_50_b_long: f32,
     pub num_over_50_y_short: f32,
     pub num_over_50_y_mid: f32,
     pub num_over_50_y_long: f32,
     /// co-eluting doubly charged fragments
     pub num_over_50_z2: f32,
-    /// share of the library intensity in co-eluting fragments, over all and over the doubly charged fragments
+    /// share of the library intensity in co-eluting fragments
     pub lib_share_over_50: f32,
-    pub lib_share_over_50_z2: f32,
     /// fragment correlations averaged with the library intensity shares as weights
     pub xic_libweighted: f32,
     /// fragment correlations averaged with the observed intensity shares as weights
     pub xic_obsweighted: f32,
-    /// the library-weighted correlation over the doubly charged fragments
-    pub xic_libweighted_z2: f32,
 }
 
 /// What the noise model needs of one scored fragment.
@@ -192,14 +185,12 @@ pub fn calculate_ion_coverage_features(
             position_sum += fragment_numbers[i] as f32 / naa as f32;
         }
         n_coeluting += 1;
-        match length {
-            IonLength::Short => features.num_over_50_short_ions += 1.0,
-            IonLength::Long => features.num_over_50_long_ions += 1.0,
-            IonLength::Mid => {}
+        if fragment_charges[i] == Z2_FRAGMENT_CHARGE {
+            features.num_over_50_z2 += 1.0;
         }
         let count = match (fragment_types[i], length) {
             (FragmentType::B, IonLength::Short) => &mut features.num_over_50_b_short,
-            (FragmentType::B, IonLength::Mid) => &mut features.num_over_50_b_mid,
+            (FragmentType::B, IonLength::Mid) => continue,
             (FragmentType::B, IonLength::Long) => &mut features.num_over_50_b_long,
             (FragmentType::Y, IonLength::Short) => &mut features.num_over_50_y_short,
             (FragmentType::Y, IonLength::Mid) => &mut features.num_over_50_y_mid,
@@ -235,22 +226,6 @@ pub fn calculate_ion_coverage_features(
     features.xic_obsweighted = (0..n)
         .map(|i| observed_share[i] * correlation[i])
         .sum::<f64>() as f32;
-
-    let mut z2_library = 0.0f64;
-    let mut z2_weighted_correlation = 0.0f64;
-    let mut z2_coeluting_library = 0.0f64;
-    for i in (0..n).filter(|&i| fragment_charges[i] == Z2_FRAGMENT_CHARGE) {
-        z2_library += library[i];
-        z2_weighted_correlation += library[i] * correlation[i];
-        if coeluting[i] {
-            z2_coeluting_library += library[i];
-            features.num_over_50_z2 += 1.0;
-        }
-    }
-    if z2_library > 0.0 {
-        features.xic_libweighted_z2 = (z2_weighted_correlation / z2_library) as f32;
-        features.lib_share_over_50_z2 = (z2_coeluting_library / z2_library) as f32;
-    }
 
     // library intensity ranks: fragments by descending library intensity, ties in their scored order
     let mut by_intensity: Vec<usize> = (0..n).collect();
@@ -357,19 +332,16 @@ impl IonNoiseModel {
         Self { hit_rate, survival }
     }
 
-    /// (ion_fisher, ion_fisher_lib): the summed surprise -ln(chance) of a candidate's positive hits, plain and
-    /// weighted by library share, where chance is the class's hit rate times its share of hits correlating at least
-    /// as well.
-    pub fn fisher(&self, evidence: &[IonEvidence]) -> (f32, f32) {
-        let mut plain = 0.0f64;
+    /// ion_fisher_lib: the summed surprise -ln(chance) of a candidate's positive hits, weighted by library share,
+    /// where chance is the class's hit rate times its share of hits correlating at least as well.
+    pub fn fisher(&self, evidence: &[IonEvidence]) -> f32 {
         let mut library_weighted = 0.0f64;
         for e in evidence.iter().filter(|e| e.positive) {
             let c = e.class as usize;
             let chance = self.hit_rate[c] * self.survival[c * CORRELATION_BINS + e.bin as usize];
             let surprise = -chance.max(MIN_CHANCE).ln();
-            plain += surprise;
             library_weighted += e.library_share as f64 * surprise;
         }
-        (plain as f32, library_weighted as f32)
+        library_weighted as f32
     }
 }

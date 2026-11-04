@@ -515,3 +515,16 @@ pub fn calculate_fwhm_rt(
 
     right_rt - left_rt
 }
+
+/// Correlation with the median profile above which a fragment co-elutes with the peak
+pub const COELUTION_MIN_CORRELATION: f32 = 0.5;
+
+/// Each value's share of the sum; all 0 if the sum is not positive.
+pub fn shares(values: &[f64]) -> Vec<f64> {
+    let total: f64 = values.iter().sum();
+    if total > 0.0 {
+        values.iter().map(|v| v / total).collect()
+    } else {
+        vec![0.0; values.len()]
+    }
+}

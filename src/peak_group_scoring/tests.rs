@@ -7,7 +7,7 @@ use super::utils::{
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
 #[allow(unused_imports)]
-use numpy::ndarray::{arr1, arr2, Array1};
+use numpy::ndarray::{arr1, arr2, Array1, Array2};
 
 #[test]
 fn test_median_axis_0_basic() {
@@ -1033,4 +1033,278 @@ fn test_calculate_dot_product_zeros() {
 
     let result = calculate_dot_product(&a, &b);
     assert_eq!(result, 0.0);
+}
+
+#[test]
+fn test_calculate_ion_coverage_features_ion_lengths() {
+    use super::ion_coverage::calculate_ion_coverage_features;
+    let fragment_numbers = [2u8, 3, 6, 8];
+    let correlations = [0.9f32, 0.2, 0.8, 0.6];
+    let intensities = [10.0f32, 10.0, 30.0, 50.0];
+    let types = [
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+
+    let (features, _) = calculate_ion_coverage_features(
+        &[1.0f32; 4],
+        &intensities,
+        &correlations,
+        &types,
+        &fragment_numbers,
+        &[1u8; 4],
+        10,
+        12,
+    );
+
+    // co-eluting fragments: numbers 2, 6 and 8 of a 10-residue peptide
+    assert!((features.ion_position_mean - (0.2 + 0.6 + 0.8) / 3.0).abs() < 1e-6);
+    assert_eq!(features.num_over_50_short_ions, 1.0);
+    assert_eq!(features.num_over_50_long_ions, 1.0);
+    assert_eq!(features.num_over_50_b_short, 1.0);
+    assert_eq!(features.num_over_50_y_mid, 1.0);
+    assert_eq!(features.num_over_50_y_long, 1.0);
+    // the short ions b2 and y3 carry 20 of 100
+    assert!((features.short_ion_intensity_share - 0.2).abs() < 1e-6);
+    assert!((features.lib_share_over_50 - 0.75).abs() < 1e-6);
+}
+
+#[test]
+fn test_calculate_ion_coverage_features_without_signal() {
+    use super::ion_coverage::{calculate_ion_coverage_features, IonCoverageFeatures};
+    let (features, _) = calculate_ion_coverage_features(
+        &[1.0f32, 1.0],
+        &[0.0f32, 0.0],
+        &[0.0f32, 0.0],
+        &[FragmentType::Y; 2],
+        &[4u8, 7],
+        &[1u8, 1],
+        9,
+        12,
+    );
+
+    assert_eq!(features, IonCoverageFeatures::default());
+}
+
+#[test]
+fn test_calculate_ion_coverage_features() {
+    use super::ion_coverage::calculate_ion_coverage_features;
+    let library = [4.0f32, 2.0, 1.0, 1.0];
+    let observed = [8.0f32, 4.0, 0.0, 2.0];
+    let correlations = [0.75f32, 0.625, 0.0, 0.25];
+    let types = [
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let numbers = [9u8, 2, 5, 3];
+    let charges = [1u8, 1, 2, 2];
+
+    let (features, _) = calculate_ion_coverage_features(
+        &library,
+        &observed,
+        &correlations,
+        &types,
+        &numbers,
+        &charges,
+        12,
+        12,
+    );
+
+    assert!((features.xic_libweighted - 0.5625).abs() < 1e-6);
+    assert!((features.xic_obsweighted - 9.0 / 14.0).abs() < 1e-6);
+    // co-eluting: the y9 (long) and the b2 (short)
+    assert_eq!(features.num_over_50_y_long, 1.0);
+    assert_eq!(features.num_over_50_b_short, 1.0);
+    assert_eq!(
+        features.num_over_50_b_mid
+            + features.num_over_50_b_long
+            + features.num_over_50_y_short
+            + features.num_over_50_y_mid,
+        0.0
+    );
+    assert!((features.lib_share_over_50 - 0.75).abs() < 1e-6);
+    // the doubly charged y5 and y3 carry a library intensity of 2, only the y3 correlates (0.25)
+    assert!((features.xic_libweighted_z2 - 0.125).abs() < 1e-6);
+    assert_eq!(features.lib_share_over_50_z2, 0.0);
+    assert_eq!(features.num_over_50_z2, 0.0);
+}
+
+#[test]
+fn test_calculate_ion_coverage_features_ion_evidence_in_intensity_rank_order() {
+    use super::ion_coverage::calculate_ion_coverage_features;
+    // scored in m/z order; the library intensity ranks order them by intensity
+    let library = [1.0f32, 4.0, 2.0, 1.0];
+    let observed = [0.0f32, 8.0, 4.0, 2.0];
+    let correlations = [0.0f32, 0.75, 0.625, -0.25];
+
+    let (_, evidence) = calculate_ion_coverage_features(
+        &library,
+        &observed,
+        &correlations,
+        &[
+            FragmentType::B,
+            FragmentType::Y,
+            FragmentType::B,
+            FragmentType::Y,
+        ],
+        &[2, 9, 2, 3],
+        &[1, 1, 1, 1],
+        12,
+        12,
+    );
+
+    let shares: Vec<f32> = evidence.iter().map(|e| e.library_share).collect();
+    assert_eq!(shares, vec![0.5, 0.25, 0.125, 0.125]);
+    assert_eq!(evidence[0].bin, 75);
+    assert_eq!(evidence[1].bin, 62);
+    assert!(evidence[0].positive && evidence[1].positive);
+    // a hit with a negative correlation is no positive hit, no signal is no hit
+    assert!(evidence[3].hit && !evidence[3].positive);
+    assert!(!evidence[2].hit);
+    // y9 at rank 0, b2 at rank 1 and the b2 at rank 2 share a rank group: only ion class and rank group count
+    assert_ne!(evidence[0].class, evidence[1].class);
+    assert_eq!(evidence[1].class, evidence[2].class);
+}
+
+#[test]
+fn test_ion_noise_model_fisher() {
+    use super::ion_coverage::{IonEvidence, IonNoiseModel};
+    use rayon::prelude::*;
+    let fragment = |bin: u8, hit: bool, positive: bool, library_share: f32| IonEvidence {
+        class: 0,
+        bin,
+        hit,
+        positive,
+        library_share,
+    };
+    // class 0: four fragments, two positive hits at bins 10 and 90
+    let noise = vec![
+        vec![
+            fragment(10, true, true, 0.5),
+            fragment(0, false, false, 0.5),
+        ],
+        vec![
+            fragment(90, true, true, 0.5),
+            fragment(0, false, false, 0.5),
+        ],
+    ];
+    let model = IonNoiseModel::fit(noise.par_iter().map(|e| e.as_slice()), 1);
+
+    // hit rate 0.5 times the share of hits at bin 90 or above (0.5)
+    let (plain, weighted) = model.fisher(&[fragment(90, true, true, 0.5)]);
+    assert!((plain - 4f32.ln()).abs() < 1e-6);
+    assert!((weighted - 0.5 * 4f32.ln()).abs() < 1e-6);
+
+    // no noise hit correlates this well: the chance is floored
+    let (floored, _) = model.fisher(&[fragment(95, true, true, 1.0)]);
+    assert!((floored - 1e4f32.ln()).abs() < 1e-4);
+
+    // only positive hits add surprise
+    assert_eq!(
+        model.fisher(&[
+            fragment(90, true, false, 1.0),
+            fragment(0, false, false, 1.0)
+        ]),
+        (0.0, 0.0)
+    );
+}
+
+#[test]
+fn test_calculate_library_agreement_features() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let types = [
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+    ];
+    let library = [1.0f32, 4.0, 2.0, 1.0, 1.0, 1.0];
+    let correlations = [0.9f32, 0.95, 0.8, 0.1, 0.0, -0.2];
+    let observed = [1.0f32, 4.0, 2.0, 1.0, 1.0, 1.0];
+    let xic = Array2::from_shape_fn((6, 1), |(i, _)| observed[i]);
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &[1.0],
+        &library,
+        &observed,
+        &correlations,
+        &types,
+    );
+
+    assert!(features.log_ratio_std.abs() < 1e-6);
+    assert!((features.y_intensity_correlation - 1.0).abs() < 1e-6);
+    assert!((features.lib_cosine_over_50 - 1.0).abs() < 1e-5);
+    assert!((features.ent_sim - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_lib_cosine_over_50_uses_only_coeluting_fragments() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let xic = arr2(&[
+        [0.0, 4.0, 8.0, 4.0, 0.0],
+        [0.0, 2.0, 4.0, 2.0, 0.0],
+        [0.0, 1.0, 2.0, 1.0, 0.0],
+        [50.0, 0.0, 0.0, 0.0, 50.0],
+    ]);
+    let profile = [0.0, 0.5, 1.0, 0.5, 0.0];
+    let library = [4.0f32, 2.0, 1.0, 9.0];
+    let observed: Vec<f32> = (0..4).map(|i| xic.row(i).sum()).collect();
+    let types = [FragmentType::Y; 4];
+
+    let coeluting = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[0.99, 0.99, 0.99, -0.5],
+        &types,
+    );
+    let too_few = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[0.99, 0.99, 0.1, -0.5],
+        &types,
+    );
+
+    assert!((coeluting.lib_cosine_over_50 - 1.0).abs() < 1e-5);
+    assert_eq!(too_few.lib_cosine_over_50, 0.0);
+}
+
+#[test]
+fn test_calculate_library_agreement_features_entropy_similarity() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let library = [4.0f32, 2.0, 1.0];
+    let types = [FragmentType::Y; 3];
+    let xic = Array2::<f32>::zeros((3, 1));
+
+    let proportional = calculate_library_agreement_features(
+        &xic,
+        &[0.0],
+        &library,
+        &[40.0, 20.0, 10.0],
+        &[1.0, 1.0, 1.0],
+        &types,
+    );
+    let no_signal = calculate_library_agreement_features(
+        &xic,
+        &[0.0],
+        &library,
+        &[0.0, 0.0, 0.0],
+        &[0.0, 0.0, 0.0],
+        &types,
+    );
+
+    assert!((proportional.ent_sim - 1.0).abs() < 1e-6);
+    assert!((proportional.ent_sim_corrweighted - 1.0).abs() < 1e-6);
+    assert_eq!(no_signal.ent_sim, 0.0);
+    assert_eq!(no_signal.ent_sim_corrweighted, 0.0);
 }

@@ -143,6 +143,25 @@ fn test_get_valid_observations() {
 
     let valid_for_175 = dia_data.get_valid_observations(175.0);
     assert_eq!(valid_for_175, Vec::<usize>::new()); // Between windows
+
+    // without a mobility dimension select_observations ignores the mobility filter
+    use crate::traits::{DIADataTrait, MobilityFilter};
+    let narrow = MobilityFilter {
+        mobility: 1.0,
+        tolerance: 0.0,
+    };
+    for mz in [50.0, 100.0, 112.0, 125.0, 175.0, 212.0, 312.0] {
+        let expected: Vec<(usize, ())> = dia_data
+            .get_valid_observations(mz)
+            .into_iter()
+            .map(|obs_idx| (obs_idx, ()))
+            .collect();
+        assert_eq!(
+            dia_data.select_observations(mz, MobilityFilter::ANY),
+            expected
+        );
+        assert_eq!(dia_data.select_observations(mz, narrow), expected);
+    }
 }
 
 #[test]

@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::speclib_flat::SpecLibFlat;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 
 /// Fewer shared ions are a coincidence, see `fragment_competition`.
 pub const DEFAULT_MIN_SHARED: usize = 3;
@@ -188,9 +188,9 @@ fn build_index<T: DIADataTrait + Sync>(
             );
             let window = precursor.as_ref().and_then(|precursor| {
                 dia_data
-                    .get_valid_observations(precursor.mz)
+                    .select_observations(precursor.mz, MobilityFilter::ANY)
                     .first()
-                    .map(|&window| window as u32)
+                    .map(|(window, _)| *window as u32)
             });
             let (fragment_mz, fragment_intensity) = precursor
                 .map(|precursor| (precursor.fragment_mz, precursor.fragment_intensity))

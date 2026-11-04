@@ -6,8 +6,7 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 41);
+    assert_eq!(feature_names.len(), 64);
 
     // Verify some key feature names are present
     assert!(feature_names.contains(&"score".to_string()));
@@ -28,6 +27,31 @@ fn test_get_feature_names() {
     assert!(feature_names.contains(&"log10_b_ion_intensity".to_string()));
     assert!(feature_names.contains(&"log10_y_ion_intensity".to_string()));
     assert!(feature_names.contains(&"fwhm_rt".to_string()));
+
+    // New scoring features
+    assert!(feature_names.contains(&"hyperscore_v3_corr".to_string()));
+    assert!(feature_names.contains(&"hyperscore_v4_strict".to_string()));
+    assert!(feature_names.contains(&"hyperscore_v5_combined".to_string()));
+    assert!(feature_names.contains(&"xtandem_openms".to_string()));
+    assert!(feature_names.contains(&"xtandem_count".to_string()));
+    assert!(feature_names.contains(&"xtandem_intensity".to_string()));
+    assert!(feature_names.contains(&"xtandem_consecutive".to_string()));
+    assert!(feature_names.contains(&"n_b_strict".to_string()));
+    assert!(feature_names.contains(&"matched_intensity_fraction".to_string()));
+    assert!(feature_names.contains(&"intensity_corr_strict".to_string()));
+    assert!(feature_names.contains(&"apex_intensity".to_string()));
+    assert!(feature_names.contains(&"center_to_apex_offset".to_string()));
+    assert!(feature_names.contains(&"peak_sharpness".to_string()));
+    assert!(feature_names.contains(&"peak_concentration".to_string()));
+    assert!(feature_names.contains(&"idf_weighted_count_strict".to_string()));
+    assert!(feature_names.contains(&"idf_weighted_count_corr30".to_string()));
+    assert!(feature_names.contains(&"idf_corr_weighted_strict".to_string()));
+    assert!(feature_names.contains(&"n_mass_strict_3ppm".to_string()));
+    assert!(feature_names.contains(&"n_mass_strict_5ppm".to_string()));
+    assert!(feature_names.contains(&"idf_mass_strict_3ppm".to_string()));
+    assert!(feature_names.contains(&"idf_corr_mass_gaussian".to_string()));
+    assert!(feature_names.contains(&"composite_mult".to_string()));
+    assert!(feature_names.contains(&"idf_corr_top6".to_string()));
 
     // Verify that non-f32 columns are NOT included
     assert!(!feature_names.contains(&"precursor_idx".to_string()));
@@ -160,49 +184,72 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
     pyo3::Python::initialize();
 
     let feature = CandidateFeature::new(
-        5,     // precursor_idx
-        2,     // rank
-        0.95,  // score
-        0.8,   // mean_correlation
-        0.75,  // median_correlation
-        0.05,  // correlation_std
-        0.9,   // intensity_correlation
-        12.0,  // num_fragments
-        30.0,  // num_scans
-        3.0,   // num_over_95
-        5.0,   // num_over_90
-        8.0,   // num_over_80
-        15.0,  // num_over_50
-        20.0,  // num_over_0
-        5.0,   // num_over_0_rank_0_5
-        6.0,   // num_over_0_rank_6_11
-        5.0,   // num_over_0_rank_12_17
-        4.0,   // num_over_0_rank_18_23
-        3.0,   // num_over_50_rank_0_5
-        4.0,   // num_over_50_rank_6_11
-        4.0,   // num_over_50_rank_12_17
-        4.0,   // num_over_50_rank_18_23
-        100.0, // hyperscore_intensity_observation
-        120.0, // hyperscore_intensity_library
-        80.0,  // hyperscore_inverse_mass_error
-        123.4, // rt_observed
-        -2.5,  // delta_rt
-        4.0,   // longest_b_series
-        6.0,   // longest_y_series
-        10.0,  // naa
-        2.5,   // weighted_mass_error
-        3.2,   // log10_b_ion_intensity
-        3.8,   // log10_y_ion_intensity
-        15.5,  // fwhm_rt
-        50.0,  // idf_hyperscore
-        10.5,  // idf_xic_dot_product
-        8.2,   // idf_intensity_dot_product
-        100.0, // median_profile_sum
-        95.0,  // median_profile_sum_filtered
-        12.0,  // num_profiles
-        11.0,  // num_profiles_filtered
-        5.0,   // num_over_0_top6_idf
-        3.0,   // num_over_50_top6_idf
+        5,      // precursor_idx
+        2,      // rank
+        0.95,   // score
+        0.8,    // mean_correlation
+        0.75,   // median_correlation
+        0.05,   // correlation_std
+        0.9,    // intensity_correlation
+        12.0,   // num_fragments
+        30.0,   // num_scans
+        3.0,    // num_over_95
+        5.0,    // num_over_90
+        8.0,    // num_over_80
+        15.0,   // num_over_50
+        20.0,   // num_over_0
+        5.0,    // num_over_0_rank_0_5
+        6.0,    // num_over_0_rank_6_11
+        5.0,    // num_over_0_rank_12_17
+        4.0,    // num_over_0_rank_18_23
+        3.0,    // num_over_50_rank_0_5
+        4.0,    // num_over_50_rank_6_11
+        4.0,    // num_over_50_rank_12_17
+        4.0,    // num_over_50_rank_18_23
+        100.0,  // hyperscore_intensity_observation
+        120.0,  // hyperscore_intensity_library
+        80.0,   // hyperscore_inverse_mass_error
+        123.4,  // rt_observed
+        -2.5,   // delta_rt
+        4.0,    // longest_b_series
+        6.0,    // longest_y_series
+        10.0,   // naa
+        2.5,    // weighted_mass_error
+        3.2,    // log10_b_ion_intensity
+        3.8,    // log10_y_ion_intensity
+        15.5,   // fwhm_rt
+        50.0,   // idf_hyperscore
+        10.5,   // idf_xic_dot_product
+        8.2,    // idf_intensity_dot_product
+        100.0,  // median_profile_sum
+        95.0,   // median_profile_sum_filtered
+        12.0,   // num_profiles
+        11.0,   // num_profiles_filtered
+        5.0,    // num_over_0_top6_idf
+        3.0,    // num_over_50_top6_idf
+        90.0,   // hyperscore_v3_corr
+        85.0,   // hyperscore_v4_strict
+        88.0,   // hyperscore_v5_combined
+        70.0,   // xtandem_openms
+        5.0,    // xtandem_count
+        60.0,   // xtandem_intensity
+        45.0,   // xtandem_consecutive
+        3.0,    // n_b_strict
+        0.85,   // matched_intensity_fraction
+        0.92,   // intensity_corr_strict
+        1000.0, // apex_intensity
+        1.5,    // center_to_apex_offset
+        2.3,    // peak_sharpness
+        0.75,   // peak_concentration
+        12.5,   // idf_weighted_count_strict
+        15.0,   // idf_weighted_count_corr30
+        10.0,   // idf_corr_weighted_strict
+        4.0,    // n_mass_strict_3ppm
+        5.0,    // n_mass_strict_5ppm
+        8.5,    // idf_mass_strict_3ppm
+        7.2,    // idf_corr_mass_gaussian
+        25.0,   // composite_mult
+        6.3,    // idf_corr_top6
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 

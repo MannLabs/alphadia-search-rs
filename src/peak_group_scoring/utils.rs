@@ -395,6 +395,439 @@ pub fn calculate_hyperscore_inverse_mass_error(
     )
 }
 
+/// Sage-style hyperscore: ln((sum_b + 1) * (sum_y + 1)) + lnfact(n_b) + lnfact(n_y)
+///
+/// The +1 ensures a meaningful score even when only b or only y ions match,
+/// unlike the standard formula which zeroes out the missing series.
+pub fn calculate_hyperscore_sage(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+    {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b = 0.0f64;
+    let mut sum_y = 0.0f64;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 {
+            continue;
+        }
+        match fragment_types[i] {
+            FragmentType::B => {
+                n_b += 1;
+                sum_b += fragment_intensities[i] as f64;
+            }
+            FragmentType::Y => {
+                n_y += 1;
+                sum_y += fragment_intensities[i] as f64;
+            }
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let intensity_product = (sum_b + 1.0) * (sum_y + 1.0);
+    let score = intensity_product.ln()
+        + gamma_ln(n_b as f32 + 1.0) as f64
+        + gamma_ln(n_y as f32 + 1.0) as f64;
+
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
+/// Hyperscore using correlation-weighted intensities.
+///
+/// Each fragment's observed intensity is multiplied by max(correlation, 0),
+/// down-weighting fragments with poor XIC shape.
+pub fn calculate_hyperscore_corr_weighted(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+        || fragment_types.len() != correlations.len()
+    {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b = 0.0f64;
+    let mut sum_y = 0.0f64;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 {
+            continue;
+        }
+        let w = correlations[i].max(0.0) as f64;
+        let weighted = fragment_intensities[i] as f64 * w;
+        match fragment_types[i] {
+            FragmentType::B => {
+                n_b += 1;
+                sum_b += weighted;
+            }
+            FragmentType::Y => {
+                n_y += 1;
+                sum_y += weighted;
+            }
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let intensity_product = (sum_b + 1.0) * (sum_y + 1.0);
+    let score = intensity_product.ln()
+        + gamma_ln(n_b as f32 + 1.0) as f64
+        + gamma_ln(n_y as f32 + 1.0) as f64;
+
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
+/// Hyperscore with strict matching: only fragments with correlation > 0.5 count.
+///
+/// Uses Sage-style product formula but restricts which fragments participate.
+pub fn calculate_hyperscore_strict(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+        || fragment_types.len() != correlations.len()
+    {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b = 0.0f64;
+    let mut sum_y = 0.0f64;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 || correlations[i] <= 0.5 {
+            continue;
+        }
+        match fragment_types[i] {
+            FragmentType::B => {
+                n_b += 1;
+                sum_b += fragment_intensities[i] as f64;
+            }
+            FragmentType::Y => {
+                n_y += 1;
+                sum_y += fragment_intensities[i] as f64;
+            }
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let intensity_product = (sum_b + 1.0) * (sum_y + 1.0);
+    let score = intensity_product.ln()
+        + gamma_ln(n_b as f32 + 1.0) as f64
+        + gamma_ln(n_y as f32 + 1.0) as f64;
+
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
+/// Combined hyperscore: Sage-style product + correlation weighting + strict matching.
+///
+/// Only fragments with correlation > 0.5 count, and intensities are weighted by correlation.
+pub fn calculate_hyperscore_combined(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+        || fragment_types.len() != correlations.len()
+    {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_b = 0.0f64;
+    let mut sum_y = 0.0f64;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 || correlations[i] <= 0.5 {
+            continue;
+        }
+        let w = correlations[i] as f64;
+        let weighted = fragment_intensities[i] as f64 * w;
+        match fragment_types[i] {
+            FragmentType::B => {
+                n_b += 1;
+                sum_b += weighted;
+            }
+            FragmentType::Y => {
+                n_y += 1;
+                sum_y += weighted;
+            }
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let intensity_product = (sum_b + 1.0) * (sum_y + 1.0);
+    let score = intensity_product.ln()
+        + gamma_ln(n_b as f32 + 1.0) as f64
+        + gamma_ln(n_y as f32 + 1.0) as f64;
+
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
+/// X!Tandem OpenMS-style with strict matching (corr > 0.5).
+///
+/// ln(1 + sum_b + sum_y) + lnfact(n_b) + lnfact(n_y)
+/// Sums all intensities together instead of using a product.
+pub fn calculate_xtandem_openms_strict(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+        || fragment_types.len() != correlations.len()
+    {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+    let mut sum_all = 0.0f64;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 || correlations[i] <= 0.5 {
+            continue;
+        }
+        match fragment_types[i] {
+            FragmentType::B => {
+                n_b += 1;
+                sum_all += fragment_intensities[i] as f64;
+            }
+            FragmentType::Y => {
+                n_y += 1;
+                sum_all += fragment_intensities[i] as f64;
+            }
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let score = (1.0 + sum_all).ln()
+        + gamma_ln(n_b as f32 + 1.0) as f64
+        + gamma_ln(n_y as f32 + 1.0) as f64;
+
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
+/// X!Tandem count-only score with strict matching (corr > 0.5).
+///
+/// lnfact(n_b) + lnfact(n_y) — pure matched ion count, no intensity.
+pub fn calculate_xtandem_count_strict(
+    fragment_types: &[u8],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != matched_mask.len() || fragment_types.len() != correlations.len() {
+        return 0.0;
+    }
+
+    let mut n_b = 0u32;
+    let mut n_y = 0u32;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || correlations[i] <= 0.5 {
+            continue;
+        }
+        match fragment_types[i] {
+            FragmentType::B => n_b += 1,
+            FragmentType::Y => n_y += 1,
+            _ => {}
+        }
+    }
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let score = gamma_ln(n_b as f32 + 1.0) + gamma_ln(n_y as f32 + 1.0);
+
+    if score.is_finite() {
+        score
+    } else {
+        0.0
+    }
+}
+
+/// X!Tandem intensity-only score with strict matching (corr > 0.5).
+///
+/// ln((sum_b + 1) * (sum_y + 1)) — no factorial terms.
+pub fn calculate_xtandem_intensity_strict(
+    fragment_types: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+        || fragment_types.len() != correlations.len()
+    {
+        return 0.0;
+    }
+
+    let mut sum_b = 0.0f64;
+    let mut sum_y = 0.0f64;
+    let mut any_match = false;
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 || correlations[i] <= 0.5 {
+            continue;
+        }
+        any_match = true;
+        match fragment_types[i] {
+            FragmentType::B => sum_b += fragment_intensities[i] as f64,
+            FragmentType::Y => sum_y += fragment_intensities[i] as f64,
+            _ => {}
+        }
+    }
+
+    if !any_match {
+        return 0.0;
+    }
+
+    let score = ((sum_b + 1.0) * (sum_y + 1.0)).ln();
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
+/// X!Tandem consecutive-only hyperscore with strict matching (corr > 0.5).
+///
+/// Only fragments that are part of a consecutive ion series (length >= 2) contribute
+/// to the hyperscore. Rewards coherent fragment ladders.
+pub fn calculate_xtandem_consecutive_strict(
+    fragment_types: &[u8],
+    fragment_numbers: &[u8],
+    fragment_intensities: &[f32],
+    matched_mask: &[bool],
+    correlations: &[f32],
+) -> f32 {
+    if fragment_types.len() != fragment_intensities.len()
+        || fragment_types.len() != matched_mask.len()
+        || fragment_types.len() != correlations.len()
+        || fragment_types.len() != fragment_numbers.len()
+    {
+        return 0.0;
+    }
+
+    let mut b_ions: Vec<(u8, f32)> = Vec::new();
+    let mut y_ions: Vec<(u8, f32)> = Vec::new();
+
+    for i in 0..fragment_types.len() {
+        if !matched_mask[i] || fragment_intensities[i] == 0.0 || correlations[i] <= 0.5 {
+            continue;
+        }
+        match fragment_types[i] {
+            FragmentType::B => b_ions.push((fragment_numbers[i], fragment_intensities[i])),
+            FragmentType::Y => y_ions.push((fragment_numbers[i], fragment_intensities[i])),
+            _ => {}
+        }
+    }
+
+    let filter_consecutive = |mut ions: Vec<(u8, f32)>| -> (u32, f64) {
+        if ions.len() < 2 {
+            return (0, 0.0);
+        }
+        ions.sort_by_key(|&(num, _)| num);
+
+        let mut in_consecutive = vec![false; ions.len()];
+        for i in 1..ions.len() {
+            if ions[i].0 == ions[i - 1].0 + 1 {
+                in_consecutive[i] = true;
+                in_consecutive[i - 1] = true;
+            }
+        }
+
+        let mut count = 0u32;
+        let mut sum = 0.0f64;
+        for (j, &(_, intensity)) in ions.iter().enumerate() {
+            if in_consecutive[j] {
+                count += 1;
+                sum += intensity as f64;
+            }
+        }
+        (count, sum)
+    };
+
+    let (n_b, sum_b) = filter_consecutive(b_ions);
+    let (n_y, sum_y) = filter_consecutive(y_ions);
+
+    if n_b == 0 && n_y == 0 {
+        return 0.0;
+    }
+
+    let intensity_product = (sum_b + 1.0) * (sum_y + 1.0);
+    let score = intensity_product.ln()
+        + gamma_ln(n_b as f32 + 1.0) as f64
+        + gamma_ln(n_y as f32 + 1.0) as f64;
+
+    if score.is_finite() {
+        score as f32
+    } else {
+        0.0
+    }
+}
+
 /// Calculate total intensity for a specific ion series
 ///
 /// Sums all observed intensities for fragments of the specified type

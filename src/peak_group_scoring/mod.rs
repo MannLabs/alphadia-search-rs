@@ -8,14 +8,14 @@ use crate::candidate::{
 use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
-use crate::peak_group_scoring::fragment_features::{
-    calculate_fragment_features, num_ion_classes, IonEvidence, IonNoiseModel,
+use crate::peak_group_scoring::ion_coverage::{
+    calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
 };
+use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
-    calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
-    calculate_ion_identity_features, calculate_lib_cosine_coherent, calculate_longest_ion_series,
-    correlation_axis_0, filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
+    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
+    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
+    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -26,7 +26,8 @@ use crate::utils::{
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
-pub mod fragment_features;
+pub mod ion_coverage;
+pub mod library_agreement;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
@@ -246,41 +247,24 @@ impl PeakGroupScoring {
             &matched_mask_intensity,
         );
 
-        let (
-            ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
-            long_ion_intensity_share,
-        ) = calculate_ion_identity_features(
-            &precursor.fragment_number,
-            &correlations,
-            observation_intensities.as_slice().unwrap(),
-            precursor.naa,
-        );
-
-        let (lib_explained, log_ratio_std, y_intensity_correlation) =
-            calculate_fragment_agreement_features(
-                &precursor.fragment_type,
-                &precursor.fragment_intensity,
-                &correlations,
-                observation_intensities.as_slice().unwrap(),
-            );
-
-        let lib_cosine_coherent = calculate_lib_cosine_coherent(
-            &dense_xic_mz_obs.dense_xic,
-            &median_profile_filtered,
-            &correlations,
-            &precursor.fragment_intensity,
-        );
-
-        let (fragment_features, ion_evidence) = calculate_fragment_features(
+        let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
             &precursor.fragment_intensity,
             observation_intensities.as_slice().unwrap(),
             &correlations,
             &precursor.fragment_type,
             &precursor.fragment_number,
             &precursor.fragment_charge,
+            precursor.naa,
             self.params.top_k_fragments,
+        );
+
+        let library_agreement = calculate_library_agreement_features(
+            &dense_xic_mz_obs.dense_xic,
+            &median_profile_filtered,
+            &precursor.fragment_intensity,
+            observation_intensities.as_slice().unwrap(),
+            &correlations,
+            &precursor.fragment_type,
         );
 
         // Calculate fragment m/z and mass errors
@@ -397,30 +381,8 @@ impl PeakGroupScoring {
             num_profiles_filtered as f32,
             num_over_0_top6_idf as f32,
             num_over_50_top6_idf as f32,
-            ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
-            long_ion_intensity_share,
-            lib_explained,
-            log_ratio_std,
-            y_intensity_correlation,
-            lib_cosine_coherent,
-            fragment_features.xic_libweighted,
-            fragment_features.xic_obsweighted,
-            0.0,
-            0.0,
-            fragment_features.ion_coherent_2plus,
-            fragment_features.ion_coherent_b_short,
-            fragment_features.ion_coherent_b_mid,
-            fragment_features.ion_coherent_b_long,
-            fragment_features.ion_coherent_y_short,
-            fragment_features.ion_coherent_y_mid,
-            fragment_features.ion_coherent_y_long,
-            fragment_features.ent_sim,
-            fragment_features.ent_sim_coherent,
-            fragment_features.z2_libw_corr,
-            fragment_features.z2_explained,
-            fragment_features.z2_n_over_50,
+            ion_coverage,
+            library_agreement,
         );
         Some((feature, ion_evidence))
     }

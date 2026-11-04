@@ -2,6 +2,9 @@ use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
+use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
+use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
+
 // Single source of truth for feature names (f32 features)
 pub const FEATURE_NAMES: &[&str] = &[
     "score",
@@ -48,27 +51,26 @@ pub const FEATURE_NAMES: &[&str] = &[
     "ion_position_mean",
     "num_over_50_long_ions",
     "num_over_50_short_ions",
-    "long_ion_intensity_share",
-    "lib_explained",
-    "log_ratio_std",
-    "y_intensity_correlation",
-    "lib_cosine_coherent",
+    "short_ion_intensity_share",
+    "num_over_50_b_short",
+    "num_over_50_b_mid",
+    "num_over_50_b_long",
+    "num_over_50_y_short",
+    "num_over_50_y_mid",
+    "num_over_50_y_long",
+    "num_over_50_z2",
+    "lib_share_over_50",
+    "lib_share_over_50_z2",
     "xic_libweighted",
     "xic_obsweighted",
+    "xic_libweighted_z2",
     "ion_fisher",
     "ion_fisher_lib",
-    "ion_coherent_2plus",
-    "ion_coherent_b_short",
-    "ion_coherent_b_mid",
-    "ion_coherent_b_long",
-    "ion_coherent_y_short",
-    "ion_coherent_y_mid",
-    "ion_coherent_y_long",
+    "log_ratio_std",
+    "y_intensity_correlation",
+    "lib_cosine_over_50",
     "ent_sim",
-    "ent_sim_coherent",
-    "z2_libw_corr",
-    "z2_explained",
-    "z2_n_over_50",
+    "ent_sim_corrweighted",
 ];
 
 #[derive(Debug, Clone)]
@@ -116,30 +118,10 @@ pub struct CandidateFeature {
     pub num_profiles_filtered: f32,
     pub num_over_0_top6_idf: f32,
     pub num_over_50_top6_idf: f32,
-    pub ion_position_mean: f32,
-    pub num_over_50_long_ions: f32,
-    pub num_over_50_short_ions: f32,
-    pub long_ion_intensity_share: f32,
-    pub lib_explained: f32,
-    pub log_ratio_std: f32,
-    pub y_intensity_correlation: f32,
-    pub lib_cosine_coherent: f32,
-    pub xic_libweighted: f32,
-    pub xic_obsweighted: f32,
+    pub ion_coverage: IonCoverageFeatures,
     pub ion_fisher: f32,
     pub ion_fisher_lib: f32,
-    pub ion_coherent_2plus: f32,
-    pub ion_coherent_b_short: f32,
-    pub ion_coherent_b_mid: f32,
-    pub ion_coherent_b_long: f32,
-    pub ion_coherent_y_short: f32,
-    pub ion_coherent_y_mid: f32,
-    pub ion_coherent_y_long: f32,
-    pub ent_sim: f32,
-    pub ent_sim_coherent: f32,
-    pub z2_libw_corr: f32,
-    pub z2_explained: f32,
-    pub z2_n_over_50: f32,
+    pub library_agreement: LibraryAgreementFeatures,
 }
 
 impl CandidateFeature {
@@ -188,30 +170,8 @@ impl CandidateFeature {
         num_profiles_filtered: f32,
         num_over_0_top6_idf: f32,
         num_over_50_top6_idf: f32,
-        ion_position_mean: f32,
-        num_over_50_long_ions: f32,
-        num_over_50_short_ions: f32,
-        long_ion_intensity_share: f32,
-        lib_explained: f32,
-        log_ratio_std: f32,
-        y_intensity_correlation: f32,
-        lib_cosine_coherent: f32,
-        xic_libweighted: f32,
-        xic_obsweighted: f32,
-        ion_fisher: f32,
-        ion_fisher_lib: f32,
-        ion_coherent_2plus: f32,
-        ion_coherent_b_short: f32,
-        ion_coherent_b_mid: f32,
-        ion_coherent_b_long: f32,
-        ion_coherent_y_short: f32,
-        ion_coherent_y_mid: f32,
-        ion_coherent_y_long: f32,
-        ent_sim: f32,
-        ent_sim_coherent: f32,
-        z2_libw_corr: f32,
-        z2_explained: f32,
-        z2_n_over_50: f32,
+        ion_coverage: IonCoverageFeatures,
+        library_agreement: LibraryAgreementFeatures,
     ) -> Self {
         Self {
             precursor_idx,
@@ -257,30 +217,10 @@ impl CandidateFeature {
             num_profiles_filtered,
             num_over_0_top6_idf,
             num_over_50_top6_idf,
-            ion_position_mean,
-            num_over_50_long_ions,
-            num_over_50_short_ions,
-            long_ion_intensity_share,
-            lib_explained,
-            log_ratio_std,
-            y_intensity_correlation,
-            lib_cosine_coherent,
-            xic_libweighted,
-            xic_obsweighted,
-            ion_fisher,
-            ion_fisher_lib,
-            ion_coherent_2plus,
-            ion_coherent_b_short,
-            ion_coherent_b_mid,
-            ion_coherent_b_long,
-            ion_coherent_y_short,
-            ion_coherent_y_mid,
-            ion_coherent_y_long,
-            ent_sim,
-            ent_sim_coherent,
-            z2_libw_corr,
-            z2_explained,
-            z2_n_over_50,
+            ion_coverage,
+            ion_fisher: 0.0,
+            ion_fisher_lib: 0.0,
+            library_agreement,
         }
     }
 }
@@ -362,27 +302,26 @@ impl CandidateFeatureCollection {
         let mut ion_position_mean = Array1::<f32>::zeros(n);
         let mut num_over_50_long_ions = Array1::<f32>::zeros(n);
         let mut num_over_50_short_ions = Array1::<f32>::zeros(n);
-        let mut long_ion_intensity_share = Array1::<f32>::zeros(n);
-        let mut lib_explained = Array1::<f32>::zeros(n);
-        let mut log_ratio_std = Array1::<f32>::zeros(n);
-        let mut y_intensity_correlation = Array1::<f32>::zeros(n);
-        let mut lib_cosine_coherent = Array1::<f32>::zeros(n);
+        let mut short_ion_intensity_share = Array1::<f32>::zeros(n);
+        let mut num_over_50_b_short = Array1::<f32>::zeros(n);
+        let mut num_over_50_b_mid = Array1::<f32>::zeros(n);
+        let mut num_over_50_b_long = Array1::<f32>::zeros(n);
+        let mut num_over_50_y_short = Array1::<f32>::zeros(n);
+        let mut num_over_50_y_mid = Array1::<f32>::zeros(n);
+        let mut num_over_50_y_long = Array1::<f32>::zeros(n);
+        let mut num_over_50_z2 = Array1::<f32>::zeros(n);
+        let mut lib_share_over_50 = Array1::<f32>::zeros(n);
+        let mut lib_share_over_50_z2 = Array1::<f32>::zeros(n);
         let mut xic_libweighted = Array1::<f32>::zeros(n);
         let mut xic_obsweighted = Array1::<f32>::zeros(n);
+        let mut xic_libweighted_z2 = Array1::<f32>::zeros(n);
         let mut ion_fisher = Array1::<f32>::zeros(n);
         let mut ion_fisher_lib = Array1::<f32>::zeros(n);
-        let mut ion_coherent_2plus = Array1::<f32>::zeros(n);
-        let mut ion_coherent_b_short = Array1::<f32>::zeros(n);
-        let mut ion_coherent_b_mid = Array1::<f32>::zeros(n);
-        let mut ion_coherent_b_long = Array1::<f32>::zeros(n);
-        let mut ion_coherent_y_short = Array1::<f32>::zeros(n);
-        let mut ion_coherent_y_mid = Array1::<f32>::zeros(n);
-        let mut ion_coherent_y_long = Array1::<f32>::zeros(n);
+        let mut log_ratio_std = Array1::<f32>::zeros(n);
+        let mut y_intensity_correlation = Array1::<f32>::zeros(n);
+        let mut lib_cosine_over_50 = Array1::<f32>::zeros(n);
         let mut ent_sim = Array1::<f32>::zeros(n);
-        let mut ent_sim_coherent = Array1::<f32>::zeros(n);
-        let mut z2_libw_corr = Array1::<f32>::zeros(n);
-        let mut z2_explained = Array1::<f32>::zeros(n);
-        let mut z2_n_over_50 = Array1::<f32>::zeros(n);
+        let mut ent_sim_corrweighted = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -428,30 +367,29 @@ impl CandidateFeatureCollection {
             num_profiles_filtered[i] = feature.num_profiles_filtered;
             num_over_0_top6_idf[i] = feature.num_over_0_top6_idf;
             num_over_50_top6_idf[i] = feature.num_over_50_top6_idf;
-            ion_position_mean[i] = feature.ion_position_mean;
-            num_over_50_long_ions[i] = feature.num_over_50_long_ions;
-            num_over_50_short_ions[i] = feature.num_over_50_short_ions;
-            long_ion_intensity_share[i] = feature.long_ion_intensity_share;
-            lib_explained[i] = feature.lib_explained;
-            log_ratio_std[i] = feature.log_ratio_std;
-            y_intensity_correlation[i] = feature.y_intensity_correlation;
-            lib_cosine_coherent[i] = feature.lib_cosine_coherent;
-            xic_libweighted[i] = feature.xic_libweighted;
-            xic_obsweighted[i] = feature.xic_obsweighted;
+            ion_position_mean[i] = feature.ion_coverage.ion_position_mean;
+            num_over_50_long_ions[i] = feature.ion_coverage.num_over_50_long_ions;
+            num_over_50_short_ions[i] = feature.ion_coverage.num_over_50_short_ions;
+            short_ion_intensity_share[i] = feature.ion_coverage.short_ion_intensity_share;
+            num_over_50_b_short[i] = feature.ion_coverage.num_over_50_b_short;
+            num_over_50_b_mid[i] = feature.ion_coverage.num_over_50_b_mid;
+            num_over_50_b_long[i] = feature.ion_coverage.num_over_50_b_long;
+            num_over_50_y_short[i] = feature.ion_coverage.num_over_50_y_short;
+            num_over_50_y_mid[i] = feature.ion_coverage.num_over_50_y_mid;
+            num_over_50_y_long[i] = feature.ion_coverage.num_over_50_y_long;
+            num_over_50_z2[i] = feature.ion_coverage.num_over_50_z2;
+            lib_share_over_50[i] = feature.ion_coverage.lib_share_over_50;
+            lib_share_over_50_z2[i] = feature.ion_coverage.lib_share_over_50_z2;
+            xic_libweighted[i] = feature.ion_coverage.xic_libweighted;
+            xic_obsweighted[i] = feature.ion_coverage.xic_obsweighted;
+            xic_libweighted_z2[i] = feature.ion_coverage.xic_libweighted_z2;
             ion_fisher[i] = feature.ion_fisher;
             ion_fisher_lib[i] = feature.ion_fisher_lib;
-            ion_coherent_2plus[i] = feature.ion_coherent_2plus;
-            ion_coherent_b_short[i] = feature.ion_coherent_b_short;
-            ion_coherent_b_mid[i] = feature.ion_coherent_b_mid;
-            ion_coherent_b_long[i] = feature.ion_coherent_b_long;
-            ion_coherent_y_short[i] = feature.ion_coherent_y_short;
-            ion_coherent_y_mid[i] = feature.ion_coherent_y_mid;
-            ion_coherent_y_long[i] = feature.ion_coherent_y_long;
-            ent_sim[i] = feature.ent_sim;
-            ent_sim_coherent[i] = feature.ent_sim_coherent;
-            z2_libw_corr[i] = feature.z2_libw_corr;
-            z2_explained[i] = feature.z2_explained;
-            z2_n_over_50[i] = feature.z2_n_over_50;
+            log_ratio_std[i] = feature.library_agreement.log_ratio_std;
+            y_intensity_correlation[i] = feature.library_agreement.y_intensity_correlation;
+            lib_cosine_over_50[i] = feature.library_agreement.lib_cosine_over_50;
+            ent_sim[i] = feature.library_agreement.ent_sim;
+            ent_sim_corrweighted[i] = feature.library_agreement.ent_sim_corrweighted;
         }
 
         let dict = PyDict::new(py);
@@ -559,39 +497,37 @@ impl CandidateFeatureCollection {
             num_over_50_short_ions.into_pyarray(py),
         )?;
         dict.set_item(
-            "long_ion_intensity_share",
-            long_ion_intensity_share.into_pyarray(py),
+            "short_ion_intensity_share",
+            short_ion_intensity_share.into_pyarray(py),
         )?;
-        dict.set_item("lib_explained", lib_explained.into_pyarray(py))?;
+        dict.set_item("num_over_50_b_short", num_over_50_b_short.into_pyarray(py))?;
+        dict.set_item("num_over_50_b_mid", num_over_50_b_mid.into_pyarray(py))?;
+        dict.set_item("num_over_50_b_long", num_over_50_b_long.into_pyarray(py))?;
+        dict.set_item("num_over_50_y_short", num_over_50_y_short.into_pyarray(py))?;
+        dict.set_item("num_over_50_y_mid", num_over_50_y_mid.into_pyarray(py))?;
+        dict.set_item("num_over_50_y_long", num_over_50_y_long.into_pyarray(py))?;
+        dict.set_item("num_over_50_z2", num_over_50_z2.into_pyarray(py))?;
+        dict.set_item("lib_share_over_50", lib_share_over_50.into_pyarray(py))?;
+        dict.set_item(
+            "lib_share_over_50_z2",
+            lib_share_over_50_z2.into_pyarray(py),
+        )?;
+        dict.set_item("xic_libweighted", xic_libweighted.into_pyarray(py))?;
+        dict.set_item("xic_obsweighted", xic_obsweighted.into_pyarray(py))?;
+        dict.set_item("xic_libweighted_z2", xic_libweighted_z2.into_pyarray(py))?;
+        dict.set_item("ion_fisher", ion_fisher.into_pyarray(py))?;
+        dict.set_item("ion_fisher_lib", ion_fisher_lib.into_pyarray(py))?;
         dict.set_item("log_ratio_std", log_ratio_std.into_pyarray(py))?;
         dict.set_item(
             "y_intensity_correlation",
             y_intensity_correlation.into_pyarray(py),
         )?;
-        dict.set_item("lib_cosine_coherent", lib_cosine_coherent.into_pyarray(py))?;
-        dict.set_item("xic_libweighted", xic_libweighted.into_pyarray(py))?;
-        dict.set_item("xic_obsweighted", xic_obsweighted.into_pyarray(py))?;
-        dict.set_item("ion_fisher", ion_fisher.into_pyarray(py))?;
-        dict.set_item("ion_fisher_lib", ion_fisher_lib.into_pyarray(py))?;
-        dict.set_item("ion_coherent_2plus", ion_coherent_2plus.into_pyarray(py))?;
-        dict.set_item(
-            "ion_coherent_b_short",
-            ion_coherent_b_short.into_pyarray(py),
-        )?;
-        dict.set_item("ion_coherent_b_mid", ion_coherent_b_mid.into_pyarray(py))?;
-        dict.set_item("ion_coherent_b_long", ion_coherent_b_long.into_pyarray(py))?;
-        dict.set_item(
-            "ion_coherent_y_short",
-            ion_coherent_y_short.into_pyarray(py),
-        )?;
-        dict.set_item("ion_coherent_y_mid", ion_coherent_y_mid.into_pyarray(py))?;
-        dict.set_item("ion_coherent_y_long", ion_coherent_y_long.into_pyarray(py))?;
+        dict.set_item("lib_cosine_over_50", lib_cosine_over_50.into_pyarray(py))?;
         dict.set_item("ent_sim", ent_sim.into_pyarray(py))?;
-        dict.set_item("ent_sim_coherent", ent_sim_coherent.into_pyarray(py))?;
-        dict.set_item("z2_libw_corr", z2_libw_corr.into_pyarray(py))?;
-        dict.set_item("z2_explained", z2_explained.into_pyarray(py))?;
-        dict.set_item("z2_n_over_50", z2_n_over_50.into_pyarray(py))?;
-
+        dict.set_item(
+            "ent_sim_corrweighted",
+            ent_sim_corrweighted.into_pyarray(py),
+        )?;
         Ok(dict.into())
     }
 

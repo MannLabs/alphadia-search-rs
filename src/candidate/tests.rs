@@ -1,4 +1,6 @@
 use super::*;
+use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
+use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -7,8 +9,8 @@ fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
     // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 65);
-    assert!(feature_names.contains(&"long_ion_intensity_share".to_string()));
+    assert_eq!(feature_names.len(), 64);
+    assert!(feature_names.contains(&"short_ion_intensity_share".to_string()));
     assert!(feature_names.contains(&"ion_fisher_lib".to_string()));
 
     // Verify some key feature names are present
@@ -205,30 +207,31 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         11.0,  // num_profiles_filtered
         5.0,   // num_over_0_top6_idf
         3.0,   // num_over_50_top6_idf
-        0.55,  // ion_position_mean
-        4.0,   // num_over_50_long_ions
-        2.0,   // num_over_50_short_ions
-        0.7,   // long_ion_intensity_share
-        0.8,   // lib_explained
-        1.2,   // log_ratio_std
-        0.9,   // y_intensity_correlation
-        0.95,  // lib_cosine_coherent
-        0.61,  // xic_libweighted
-        0.72,  // xic_obsweighted
-        7.5,   // ion_fisher
-        1.3,   // ion_fisher_lib
-        2.0,   // ion_coherent_2plus
-        1.0,   // ion_coherent_b_short
-        2.0,   // ion_coherent_b_mid
-        3.0,   // ion_coherent_b_long
-        1.0,   // ion_coherent_y_short
-        2.0,   // ion_coherent_y_mid
-        4.0,   // ion_coherent_y_long
-        0.81,  // ent_sim
-        0.86,  // ent_sim_coherent
-        0.66,  // z2_libw_corr
-        0.5,   // z2_explained
-        2.0,   // z2_n_over_50
+        IonCoverageFeatures {
+            ion_position_mean: 0.55,
+            num_over_50_long_ions: 4.0,
+            num_over_50_short_ions: 2.0,
+            short_ion_intensity_share: 0.3,
+            num_over_50_b_short: 1.0,
+            num_over_50_b_mid: 2.0,
+            num_over_50_b_long: 3.0,
+            num_over_50_y_short: 1.0,
+            num_over_50_y_mid: 2.0,
+            num_over_50_y_long: 4.0,
+            num_over_50_z2: 2.0,
+            lib_share_over_50: 0.8,
+            lib_share_over_50_z2: 0.5,
+            xic_libweighted: 0.61,
+            xic_obsweighted: 0.72,
+            xic_libweighted_z2: 0.66,
+        },
+        LibraryAgreementFeatures {
+            log_ratio_std: 1.2,
+            y_intensity_correlation: 0.9,
+            lib_cosine_over_50: 0.95,
+            ent_sim: 0.81,
+            ent_sim_corrweighted: 0.86,
+        },
     );
     let collection = CandidateFeatureCollection::from_vec(vec![feature]);
 

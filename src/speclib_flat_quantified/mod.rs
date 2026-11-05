@@ -42,6 +42,10 @@ pub struct SpecLibFlatQuantified {
     precursor_rank: Vec<usize>,
     /// Observed retention time, sorted according to precursor_idx order
     precursor_rt_observed: Vec<f32>,
+    /// MS1 M0 intensity, sorted according to precursor_idx order (0 without MS1 quantification)
+    precursor_ms1_intensity: Vec<f32>,
+    /// MS1 M0 trace correlation with the fragments' median profile, sorted according to precursor_idx order
+    precursor_ms1_correlation: Vec<f32>,
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     flat_frag_start_idx: Vec<usize>,
     /// Stop indices into fragment arrays for each precursor, sorted according to precursor_idx order
@@ -94,6 +98,8 @@ impl SpecLibFlatQuantified {
             precursor_naa: Vec::new(),
             precursor_rank: Vec::new(),
             precursor_rt_observed: Vec::new(),
+            precursor_ms1_intensity: Vec::new(),
+            precursor_ms1_correlation: Vec::new(),
             flat_frag_start_idx: Vec::new(),
             flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
@@ -147,6 +153,14 @@ impl SpecLibFlatQuantified {
         precursor_dict.set_item(
             "rt_observed",
             self.precursor_rt_observed.clone().into_pyarray(py),
+        )?;
+        precursor_dict.set_item(
+            "ms1_intensity",
+            self.precursor_ms1_intensity.clone().into_pyarray(py),
+        )?;
+        precursor_dict.set_item(
+            "ms1_correlation",
+            self.precursor_ms1_correlation.clone().into_pyarray(py),
         )?;
         precursor_dict.set_item(
             "flat_frag_start_idx",
@@ -223,6 +237,8 @@ impl SpecLibFlatQuantified {
         let mut precursor_naa = Vec::new();
         let mut precursor_rank = Vec::new();
         let mut precursor_rt_observed = Vec::new();
+        let mut precursor_ms1_intensity = Vec::new();
+        let mut precursor_ms1_correlation = Vec::new();
         let mut flat_frag_start_idx = Vec::new();
         let mut flat_frag_stop_idx = Vec::new();
         let mut fragment_mz_library = Vec::new();
@@ -251,6 +267,8 @@ impl SpecLibFlatQuantified {
             precursor_naa.push(precursor.naa);
             precursor_rank.push(precursor.rank);
             precursor_rt_observed.push(precursor.rt_observed);
+            precursor_ms1_intensity.push(precursor.ms1_intensity);
+            precursor_ms1_correlation.push(precursor.ms1_correlation);
 
             let start_idx = current_fragment_idx;
             current_fragment_idx += precursor.fragment_mz.len();
@@ -299,6 +317,14 @@ impl SpecLibFlatQuantified {
             indices.iter().map(|&i| precursor_rank[i]).collect();
         let sorted_precursor_rt_observed: Vec<f32> =
             indices.iter().map(|&i| precursor_rt_observed[i]).collect();
+        let sorted_precursor_ms1_intensity: Vec<f32> = indices
+            .iter()
+            .map(|&i| precursor_ms1_intensity[i])
+            .collect();
+        let sorted_precursor_ms1_correlation: Vec<f32> = indices
+            .iter()
+            .map(|&i| precursor_ms1_correlation[i])
+            .collect();
         let sorted_flat_frag_start_idx: Vec<usize> =
             indices.iter().map(|&i| flat_frag_start_idx[i]).collect();
         let sorted_flat_frag_stop_idx: Vec<usize> =
@@ -313,6 +339,8 @@ impl SpecLibFlatQuantified {
             precursor_naa: sorted_precursor_naa,
             precursor_rank: sorted_precursor_rank,
             precursor_rt_observed: sorted_precursor_rt_observed,
+            precursor_ms1_intensity: sorted_precursor_ms1_intensity,
+            precursor_ms1_correlation: sorted_precursor_ms1_correlation,
             flat_frag_start_idx: sorted_flat_frag_start_idx,
             flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library,

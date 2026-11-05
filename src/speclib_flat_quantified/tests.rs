@@ -11,6 +11,8 @@ fn test_precursor_quantified() -> PrecursorQuantified {
         naa: 10,
         rank: 1,
         rt_observed: 102.5,
+        ms1_intensity: 0.0,
+        ms1_correlation: 0.0,
         fragment_mz_library: vec![199.9, 299.8, 399.9],
         fragment_mz: vec![200.0, 300.0, 400.0],
         fragment_intensity: vec![10.0, 15.0, 20.0],

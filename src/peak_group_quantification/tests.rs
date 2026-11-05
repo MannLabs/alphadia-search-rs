@@ -1,5 +1,8 @@
 #[allow(unused_imports)]
-use super::{background_corrected_intensities, PeakGroupQuantification, QuantificationParameters};
+use super::{
+    background_corrected_intensities, profile_weighted_quantity, PeakGroupQuantification,
+    QuantificationParameters,
+};
 #[allow(unused_imports)]
 use numpy::ndarray::array;
 #[allow(unused_imports)]
@@ -196,4 +199,35 @@ fn test_weighted_empty_profile_falls_back_to_sum() {
         background_corrected_intensities(&xic, &profile, "weighted"),
         vec![9.0]
     );
+}
+
+#[test]
+fn test_profile_weighted_quantity_recovers_a_profile_shaped_trace() {
+    let profile = [0.1f32, 0.3, 1.0, 0.3, 0.1];
+    let trace: Vec<f32> = profile.iter().map(|p| 7.0 * p).collect();
+    let expected = 7.0 * profile.iter().sum::<f32>();
+    assert!((profile_weighted_quantity(&trace, &profile) - expected).abs() < 1e-4);
+}
+
+#[test]
+fn test_profile_weighted_quantity_empty_profile_is_the_sum() {
+    assert_eq!(
+        profile_weighted_quantity(&[1.0, 2.0, 3.0], &[0.0, 0.0, 0.0]),
+        6.0
+    );
+}
+
+#[test]
+fn test_update_ms1_quantification() {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
+        let mut params = QuantificationParameters::new();
+        assert!(!params.ms1_quantification);
+        let dict = PyDict::new(py);
+        dict.set_item("ms1_quantification", true).unwrap();
+        dict.set_item("ms1_tolerance_ppm", 3.0f32).unwrap();
+        params.update(&dict).unwrap();
+        assert!(params.ms1_quantification);
+        assert_eq!(params.ms1_tolerance_ppm, 3.0);
+    });
 }

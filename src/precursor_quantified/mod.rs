@@ -12,6 +12,10 @@ pub struct PrecursorQuantified {
     pub naa: u8,
     pub rank: usize,
     pub rt_observed: f32,
+    /// MS1 M0 trace on the fragment cycles, profile-weighted (0 when MS1 quantification is off or missing)
+    pub ms1_intensity: f32,
+    /// correlation of the MS1 M0 trace with the fragments' median profile
+    pub ms1_correlation: f32,
     pub fragment_mz_library: Vec<f32>,
     pub fragment_mz: Vec<f32>,
     pub fragment_intensity: Vec<f32>,
@@ -83,6 +87,8 @@ impl PrecursorQuantified {
             naa: self.naa,
             rank: self.rank,
             rt_observed: self.rt_observed,
+            ms1_intensity: self.ms1_intensity,
+            ms1_correlation: self.ms1_correlation,
             fragment_mz_library,
             fragment_mz,
             fragment_intensity,

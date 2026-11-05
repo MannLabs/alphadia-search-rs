@@ -101,6 +101,18 @@ pub fn background_corrected_intensities(
     corrected
 }
 
+/// Profile-weighted quantity of one trace: least-squares fit x = a * profile without an intercept, reported as
+/// a * sum(profile) (the plain sum when the profile is empty).
+pub fn profile_weighted_quantity(trace: &[f32], profile: &[f32]) -> f32 {
+    let profile_sum: f32 = profile.iter().sum();
+    let profile_square_sum: f32 = profile.iter().map(|p| p * p).sum();
+    if profile_square_sum <= f32::EPSILON || profile_sum <= 0.0 {
+        return trace.iter().sum();
+    }
+    let projection: f32 = trace.iter().zip(profile).map(|(x, p)| x * p).sum();
+    (projection / profile_square_sum * profile_sum).max(0.0)
+}
+
 #[pyclass]
 pub struct PeakGroupQuantification {
     params: QuantificationParameters,
@@ -131,6 +143,11 @@ impl PeakGroupQuantification {
         candidates: &CandidateCollection,
     ) -> SpecLibFlatQuantified {
         let start_time = Instant::now();
+        let ms1_observations = if self.params.ms1_quantification {
+            dia_data.ms1_observations()
+        } else {
+            Vec::new()
+        };
 
         let quantified_precursors: Vec<PrecursorQuantified> = candidates
             .par_iter()
@@ -141,7 +158,13 @@ impl PeakGroupQuantification {
                     true, // Filter Y1 ions by default
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => self.quantify_precursor(dia_data, &precursor, candidate),
+                    Some(precursor) => self.quantify_precursor(
+                        dia_data,
+                        lib,
+                        &ms1_observations,
+                        &precursor,
+                        candidate,
+                    ),
                     None => None,
                 }
             })
@@ -157,9 +180,45 @@ impl PeakGroupQuantification {
         SpecLibFlatQuantified::from_precursor_quantified_vec(quantified_precursors)
     }
 
+    /// MS1 M0 intensity (profile-weighted on the fragments' median profile) and the M0 trace's correlation with it;
+    /// (0, 0) without MS1 observations or library isotopes.
+    #[allow(clippy::too_many_arguments)]
+    fn ms1_m0<T: DIADataTrait>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        ms1_observations: &[usize],
+        precursor_idx: usize,
+        cycle_start: usize,
+        cycle_stop: usize,
+        median_profile: &[f32],
+    ) -> (f32, f32) {
+        if ms1_observations.is_empty() {
+            return (0.0, 0.0);
+        }
+        let Some((_, ms1_mz, _)) = lib.get_isotopes_by_idx(precursor_idx) else {
+            return (0.0, 0.0);
+        };
+        let xic = DenseXICMZObservation::from_observations(
+            dia_data,
+            ms1_observations.to_vec(),
+            cycle_start,
+            cycle_stop,
+            self.params.ms1_tolerance_ppm,
+            &[ms1_mz],
+        );
+        let trace = xic.dense_xic.row(0).to_vec();
+        (
+            profile_weighted_quantity(&trace, median_profile),
+            calculate_correlation_safe(&trace, median_profile),
+        )
+    }
+
     fn quantify_precursor<T: DIADataTrait>(
         &self,
         dia_data: &T,
+        lib: &SpecLibFlat,
+        ms1_observations: &[usize],
         precursor: &crate::precursor::Precursor,
         candidate: &Candidate,
     ) -> Option<PrecursorQuantified> {
@@ -216,6 +275,15 @@ impl PeakGroupQuantification {
         );
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
+        let (ms1_intensity, ms1_correlation) = self.ms1_m0(
+            dia_data,
+            lib,
+            ms1_observations,
+            precursor.precursor_idx,
+            cycle_start,
+            cycle_stop,
+            &median_profile,
+        );
 
         let precursor_quantified = PrecursorQuantified {
             precursor_idx: precursor.precursor_idx,
@@ -226,6 +294,8 @@ impl PeakGroupQuantification {
             naa: precursor.naa,
             rank: candidate.rank,
             rt_observed,
+            ms1_intensity,
+            ms1_correlation,
             // Clone is necessary because we only have a borrowed reference (&Precursor) to the precursor,
             // but PrecursorQuantified needs to own its Vec<T> data. Since Vec<T> contains heap-allocated
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.

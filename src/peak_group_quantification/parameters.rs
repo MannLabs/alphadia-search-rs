@@ -18,6 +18,14 @@ pub struct QuantificationParameters {
     /// "weighted" (profile-weighted sum: fit x = a * median profile without intercept, report a * sum(profile))
     #[pyo3(get, set)]
     pub background_subtraction: String,
+
+    /// Integrate each precursor's MS1 M0 trace on the fragment cycles (needs MS1 data and library isotopes)
+    #[pyo3(get, set)]
+    pub ms1_quantification: bool,
+
+    /// MS1 mass tolerance in ppm for the M0 trace
+    #[pyo3(get, set)]
+    pub ms1_tolerance_ppm: f32,
 }
 
 pub const BACKGROUND_NONE: &str = "none";
@@ -42,6 +50,8 @@ impl QuantificationParameters {
             // very large number to capture them all by default
             top_k_fragments: 10000,
             background_subtraction: BACKGROUND_NONE.to_string(),
+            ms1_quantification: false,
+            ms1_tolerance_ppm: 10.0,
         }
     }
 
@@ -51,6 +61,12 @@ impl QuantificationParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("ms1_quantification")? {
+            self.ms1_quantification = value.extract::<bool>()?;
+        }
+        if let Some(value) = config.get_item("ms1_tolerance_ppm")? {
+            self.ms1_tolerance_ppm = value.extract::<f32>()?;
         }
         if let Some(value) = config.get_item("background_subtraction")? {
             let mode = value.extract::<String>()?;

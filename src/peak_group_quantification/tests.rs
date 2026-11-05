@@ -136,12 +136,23 @@ fn test_background_removes_flat_offset() {
 #[test]
 fn test_background_pure_noise_is_clipped_at_zero() {
     let profile = [0.0f32, 0.25, 1.0, 0.25, 0.0];
-    // anti-correlated with the profile: no signal
+    // fragment 0 carries signal on a background, fragment 1 is anti-correlated with the profile: no signal
+    let xic = array![[5.0f32, 7.5, 15.0, 7.5, 5.0], [6.0, 5.0, 2.0, 5.0, 6.0]];
+    for mode in ["edges", "profile"] {
+        let got = background_corrected_intensities(&xic, &profile, mode);
+        assert!(got[0] > 0.0, "{mode}");
+        assert_eq!(got[1], 0.0, "{mode}");
+    }
+}
+
+#[test]
+fn test_background_all_clipped_falls_back_to_sum() {
+    let profile = [0.0f32, 0.25, 1.0, 0.25, 0.0];
     let xic = array![[6.0f32, 5.0, 2.0, 5.0, 6.0]];
     for mode in ["edges", "profile"] {
         assert_eq!(
-            background_corrected_intensities(&xic, &profile, mode)[0],
-            0.0
+            background_corrected_intensities(&xic, &profile, mode),
+            vec![24.0]
         );
     }
 }

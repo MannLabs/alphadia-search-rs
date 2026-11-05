@@ -34,6 +34,9 @@ use parameters::{BACKGROUND_EDGES, BACKGROUND_PROFILE};
 /// - profile: least-squares fit x = a * profile + b per fragment against the precursor's median profile; the signal
 ///   is a * sum(profile), clipped at 0. Uses every cycle for the background estimate, unlike edges. Falls back to the
 ///   plain sum when the profile is flat.
+///
+/// When every fragment clips at 0 the plain sums are returned: the quantified table is the base of the PSM output,
+/// so an all-zero precursor would lose its identification, not only its quantity.
 pub fn background_corrected_intensities(
     xic: &Array2<f32>,
     profile: &[f32],
@@ -44,7 +47,7 @@ pub fn background_corrected_intensities(
     if num_cycles == 0 {
         return sums;
     }
-    match mode {
+    let corrected: Vec<f32> = match mode {
         BACKGROUND_EDGES => (0..num_fragments)
             .map(|f| {
                 let row = xic.row(f);
@@ -73,8 +76,12 @@ pub fn background_corrected_intensities(
                 })
                 .collect()
         }
-        _ => sums,
+        _ => return sums,
+    };
+    if corrected.iter().all(|&x| x <= 0.0) {
+        return sums;
     }
+    corrected
 }
 
 #[pyclass]

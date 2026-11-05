@@ -8,7 +8,7 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
-use crate::peak_group_scoring::feature_set::FeatureSet;
+use crate::peak_group_scoring::feature_set::{Block, FeatureSet};
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 
@@ -20,16 +20,6 @@ mod tests;
 pub struct FullOnlyFeatures {
     pub ion_coverage: IonCoverageFeatures,
     pub library_agreement: LibraryAgreementFeatures,
-}
-
-impl FullOnlyFeatures {
-    fn names() -> Vec<&'static str> {
-        [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat()
-    }
-
-    fn values(&self) -> Vec<f32> {
-        [self.ion_coverage.values(), self.library_agreement.values()].concat()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -50,21 +40,27 @@ impl CandidateFeature {
         }
     }
 
-    pub fn feature_names(feature_set: FeatureSet) -> Vec<&'static str> {
-        let mut names = CoreFeatures::NAMES.to_vec();
-        if feature_set == FeatureSet::Full {
-            names.extend(FullOnlyFeatures::names());
-        }
-        names
+    /// Feature values in the order of `self.feature_set().feature_names()`
+    pub fn values(&self) -> Vec<f32> {
+        self.feature_set()
+            .blocks()
+            .iter()
+            .flat_map(|block| self.block_values(*block))
+            .collect()
     }
 
-    /// Feature values in the order of `feature_names(self.feature_set())`
-    pub fn values(&self) -> Vec<f32> {
-        let mut values = self.core.values();
-        if let Some(full_only) = &self.full_only {
-            values.extend(full_only.values());
+    fn block_values(&self, block: Block) -> Vec<f32> {
+        match block {
+            Block::Core => self.core.values(),
+            Block::IonCoverage => self.full_only().ion_coverage.values(),
+            Block::LibraryAgreement => self.full_only().library_agreement.values(),
         }
-        values
+    }
+
+    fn full_only(&self) -> &FullOnlyFeatures {
+        self.full_only
+            .as_ref()
+            .expect("only full-set candidates have the full-only blocks")
     }
 }
 
@@ -90,7 +86,7 @@ impl CandidateFeatureCollection {
     }
 
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let names = CandidateFeature::feature_names(self.feature_set);
+        let names = self.feature_set.feature_names();
         let n = self.features.len();
 
         let mut precursor_idxs = Array1::<u64>::zeros(n);
@@ -116,7 +112,8 @@ impl CandidateFeatureCollection {
 
     #[staticmethod]
     pub fn get_feature_names(feature_set: FeatureSet) -> Vec<String> {
-        CandidateFeature::feature_names(feature_set)
+        feature_set
+            .feature_names()
             .into_iter()
             .map(String::from)
             .collect()

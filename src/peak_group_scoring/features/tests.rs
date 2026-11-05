@@ -101,7 +101,7 @@ fn assert_every_column_at_its_position(
         assert_eq!(precursor_idx, vec![5]);
         assert_eq!(rank, vec![2]);
         assert_eq!(dict.len(), num_features + 2);
-        let names = CandidateFeature::feature_names(collection.feature_set());
+        let names = collection.feature_set().feature_names();
         for (position, name) in names.iter().enumerate() {
             let column: Vec<f32> = dict.get_item(*name).unwrap().unwrap().extract().unwrap();
             assert_eq!(column, vec![(position + 1) as f32], "{name}");
@@ -112,7 +112,7 @@ fn assert_every_column_at_its_position(
 #[test]
 fn test_calibration_feature_names_are_the_core_block() {
     // given / when
-    let names = CandidateFeature::feature_names(FeatureSet::Calibration);
+    let names = FeatureSet::Calibration.feature_names();
 
     // then
     assert_eq!(names, CoreFeatures::NAMES);
@@ -123,7 +123,7 @@ fn test_calibration_feature_names_are_the_core_block() {
 #[test]
 fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
     // given / when
-    let names = CandidateFeature::feature_names(FeatureSet::Full);
+    let names = FeatureSet::Full.feature_names();
 
     // then
     assert_eq!(
@@ -142,7 +142,7 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
 #[test]
 fn test_calibration_leaves_out_the_ion_coverage_and_library_agreement_features() {
     // given / when
-    let names = CandidateFeature::feature_names(FeatureSet::Calibration);
+    let names = FeatureSet::Calibration.feature_names();
 
     // then
     for name in [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat() {
@@ -156,7 +156,7 @@ fn test_block_column_names_are_the_field_names() {
     let feature = numbered_full_feature();
 
     // when
-    let names = CandidateFeature::feature_names(FeatureSet::Full);
+    let names = FeatureSet::Full.feature_names();
     let values = feature.values();
 
     // then

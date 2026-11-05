@@ -22,6 +22,16 @@ pub struct FullOnlyFeatures {
     pub library_agreement: LibraryAgreementFeatures,
 }
 
+impl FullOnlyFeatures {
+    fn names() -> Vec<&'static str> {
+        [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat()
+    }
+
+    fn values(&self) -> Vec<f32> {
+        [self.ion_coverage.values(), self.library_agreement.values()].concat()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CandidateFeature {
     pub precursor_idx: usize,
@@ -33,41 +43,27 @@ pub struct CandidateFeature {
 
 impl CandidateFeature {
     pub fn feature_set(&self) -> FeatureSet {
-        match self.full_only {
-            Some(_) => FeatureSet::Full,
-            None => FeatureSet::Calibration,
-        }
-    }
-
-    /// Visits the blocks in column order. This is the only place that defines the order, so that the column names
-    /// and the values of a candidate always line up.
-    fn for_each_block(&self, mut visit: impl FnMut(&'static [&'static str], Vec<f32>)) {
-        visit(CoreFeatures::NAMES, self.core.values());
-        if let Some(full_only) = &self.full_only {
-            visit(IonCoverageFeatures::NAMES, full_only.ion_coverage.values());
-            visit(
-                LibraryAgreementFeatures::NAMES,
-                full_only.library_agreement.values(),
-            );
+        if self.full_only.is_some() {
+            FeatureSet::Full
+        } else {
+            FeatureSet::Calibration
         }
     }
 
     pub fn feature_names(feature_set: FeatureSet) -> Vec<&'static str> {
-        let empty = Self {
-            precursor_idx: 0,
-            rank: 0,
-            core: CoreFeatures::default(),
-            full_only: (feature_set == FeatureSet::Full).then(FullOnlyFeatures::default),
-        };
-        let mut names = Vec::new();
-        empty.for_each_block(|block_names, _| names.extend_from_slice(block_names));
+        let mut names = CoreFeatures::NAMES.to_vec();
+        if feature_set == FeatureSet::Full {
+            names.extend(FullOnlyFeatures::names());
+        }
         names
     }
 
     /// Feature values in the order of `feature_names(self.feature_set())`
     pub fn values(&self) -> Vec<f32> {
-        let mut values = Vec::new();
-        self.for_each_block(|_, block_values| values.extend(block_values));
+        let mut values = self.core.values();
+        if let Some(full_only) = &self.full_only {
+            values.extend(full_only.values());
+        }
         values
     }
 }
@@ -121,8 +117,8 @@ impl CandidateFeatureCollection {
     #[staticmethod]
     pub fn get_feature_names(feature_set: FeatureSet) -> Vec<String> {
         CandidateFeature::feature_names(feature_set)
-            .iter()
-            .map(|s| s.to_string())
+            .into_iter()
+            .map(String::from)
             .collect()
     }
 }

@@ -1,6 +1,6 @@
 #[allow(unused_imports)]
 use super::utils::{
-    calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
+    calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
     calculate_longest_ion_series, correlation, correlation_axis_0, intensity_ion_series,
     median_axis_0, normalize_profiles,
 };
@@ -995,44 +995,6 @@ fn test_calculate_fwhm_rt_no_crossing_clamps_to_window() {
 
     // Then: both flanks clamp to the profile edges -> full window width (rt[4]-rt[2])
     assert!((fwhm - 2.0).abs() < 1e-6);
-}
-
-#[test]
-fn test_calculate_dot_product_basic() {
-    let a = vec![1.0, 2.0, 3.0];
-    let b = vec![4.0, 5.0, 6.0];
-
-    let result = calculate_dot_product(&a, &b);
-
-    // 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
-    assert_eq!(result, 32.0);
-}
-
-#[test]
-fn test_calculate_dot_product_empty() {
-    let a = vec![];
-    let b = vec![];
-
-    let result = calculate_dot_product(&a, &b);
-    assert_eq!(result, 0.0);
-}
-
-#[test]
-fn test_calculate_dot_product_mismatched_lengths() {
-    let a = vec![1.0, 2.0];
-    let b = vec![3.0, 4.0, 5.0];
-
-    let result = calculate_dot_product(&a, &b);
-    assert_eq!(result, 0.0);
-}
-
-#[test]
-fn test_calculate_dot_product_zeros() {
-    let a = vec![1.0, 2.0, 3.0];
-    let b = vec![0.0, 0.0, 0.0];
-
-    let result = calculate_dot_product(&a, &b);
-    assert_eq!(result, 0.0);
 }
 
 #[test]

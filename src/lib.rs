@@ -12,7 +12,6 @@ mod dense_xic_observation;
 pub mod dia_data;
 pub mod dia_data_builder;
 pub mod fragment_competition;
-pub mod idf;
 pub mod intensity_drift;
 mod kernel;
 mod mz_index;

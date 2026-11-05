@@ -1,4 +1,3 @@
-use crate::idf::InverseDocumentFrequency;
 use crate::precursor::Precursor;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
@@ -64,9 +63,6 @@ pub struct SpecLibFlat {
 
     /// Fragment type values
     fragment_type: Vec<u8>,
-
-    /// Fragment IDF calculator
-    pub idf: InverseDocumentFrequency,
 }
 
 #[pymethods]
@@ -91,7 +87,6 @@ impl SpecLibFlat {
             fragment_number: Vec::new(),
             fragment_position: Vec::new(),
             fragment_type: Vec::new(),
-            idf: InverseDocumentFrequency::new(&[]),
         }
     }
 
@@ -336,8 +331,6 @@ impl SpecLibFlat {
         let sorted_flat_frag_stop_idx: Vec<usize> =
             indices.iter().map(|&i| flat_frag_stop_idx[i]).collect();
 
-        let idf = InverseDocumentFrequency::new(&fragment_mz_library);
-
         Self {
             precursor_idx: sorted_precursor_idx,
             precursor_mz_library: sorted_precursor_mz_library,
@@ -356,7 +349,6 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
-            idf,
         }
     }
 

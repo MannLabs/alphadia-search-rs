@@ -13,7 +13,7 @@ use crate::peak_group_scoring::ion_coverage::{
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore,
+    calculate_correlation_safe, calculate_fwhm_rt, calculate_hyperscore,
     calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
     filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
@@ -78,7 +78,7 @@ impl PeakGroupScoring {
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {
-                        self.score_candidate_generic(dia_data, lib, &precursor, candidate)
+                        self.score_candidate_generic(dia_data, &precursor, candidate)
                     }
                     None => {
                         eprintln!(
@@ -129,7 +129,6 @@ impl PeakGroupScoring {
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
-        lib: &SpecLibFlat,
         precursor: &Precursor,
         candidate: &Candidate,
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
@@ -313,29 +312,6 @@ impl PeakGroupScoring {
         let log10_b_ion_intensity = (intensity_b_raw + EPSILON).log10();
         let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
 
-        // Calculate IDF values for this precursor's fragments
-        let idf_values = lib.idf.get_idf(&precursor.fragment_mz_library);
-
-        // Calculate IDF-based scores
-        let idf_hyperscore = calculate_hyperscore(
-            &precursor.fragment_type,
-            &idf_values,
-            &matched_mask_intensity,
-        );
-
-        let idf_xic_dot_product = calculate_dot_product(&idf_values, &correlations);
-        let idf_intensity_dot_product =
-            calculate_dot_product(&idf_values, observation_intensities.as_slice().unwrap());
-
-        let log_idf_intensity_dot_product = (idf_intensity_dot_product + EPSILON).log10();
-
-        // Create mask for top 6 IDF values
-        let mask_top6_idf = create_ranked_mask(&idf_values, 0, 6); // ranks 0-5 (top 6 by IDF)
-
-        // Calculate IDF-based correlation features
-        let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
-        let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
-
         // Create and return candidate feature; ion_fisher_lib follows from the noise model
         let feature = CandidateFeature::new(
             candidate.precursor_idx,
@@ -372,15 +348,10 @@ impl PeakGroupScoring {
             log10_b_ion_intensity,
             log10_y_ion_intensity,
             fwhm_rt,
-            idf_hyperscore,
-            idf_xic_dot_product,
-            log_idf_intensity_dot_product,
             median_profile_sum,
             median_profile_sum_filtered,
             num_profiles as f32,
             num_profiles_filtered as f32,
-            num_over_0_top6_idf as f32,
-            num_over_50_top6_idf as f32,
             ion_coverage,
             library_agreement,
         );

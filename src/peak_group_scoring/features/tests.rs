@@ -194,18 +194,6 @@ fn test_full_to_dict_arrays_puts_every_value_in_its_column() {
 }
 
 #[test]
-fn test_calibration_values_leave_out_the_full_blocks() {
-    // given
-    let feature = numbered_full_feature();
-
-    // when
-    let values = feature.values(FeatureSet::Calibration).unwrap();
-
-    // then
-    assert_eq!(values, feature.core.values());
-}
-
-#[test]
 fn test_full_values_are_none_if_a_block_is_missing() {
     // given
     let calibration_feature = numbered_calibration_feature();

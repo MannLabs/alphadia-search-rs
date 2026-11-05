@@ -1,5 +1,5 @@
-//! Which features `PeakGroupScoring` computes. A feature set is a list of feature blocks; the split follows the FDR
-//! rounds of alphaDIA (MannLabs/alphadia#910).
+//! Which features `PeakGroupScoring` computes: the calibration rounds score the core block only, the final round all
+//! blocks.
 
 use pyo3::prelude::*;
 
@@ -8,7 +8,6 @@ use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 
-/// The feature set of a scoring run.
 #[pyclass(eq, eq_int, from_py_object)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FeatureSet {
@@ -16,9 +15,9 @@ pub enum FeatureSet {
     Calibration,
 }
 
-/// A feature block, each a struct of f32 features in its own module.
+/// Identifies one `FeatureBlock` struct.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Block {
+pub enum FeatureBlockId {
     Core,
     IonCoverage,
     LibraryAgreement,
@@ -26,14 +25,18 @@ pub enum Block {
 
 impl FeatureSet {
     /// The blocks of each feature set, in column order.
-    pub fn blocks(self) -> &'static [Block] {
+    pub fn blocks(self) -> &'static [FeatureBlockId] {
         match self {
-            FeatureSet::Calibration => &[Block::Core],
-            FeatureSet::Full => &[Block::Core, Block::IonCoverage, Block::LibraryAgreement],
+            FeatureSet::Calibration => &[FeatureBlockId::Core],
+            FeatureSet::Full => &[
+                FeatureBlockId::Core,
+                FeatureBlockId::IonCoverage,
+                FeatureBlockId::LibraryAgreement,
+            ],
         }
     }
 
-    pub fn has(self, block: Block) -> bool {
+    pub fn has_block(self, block: FeatureBlockId) -> bool {
         self.blocks().contains(&block)
     }
 
@@ -45,12 +48,12 @@ impl FeatureSet {
     }
 }
 
-impl Block {
+impl FeatureBlockId {
     pub fn names(self) -> &'static [&'static str] {
         match self {
-            Block::Core => CoreFeatures::NAMES,
-            Block::IonCoverage => IonCoverageFeatures::NAMES,
-            Block::LibraryAgreement => LibraryAgreementFeatures::NAMES,
+            FeatureBlockId::Core => CoreFeatures::NAMES,
+            FeatureBlockId::IonCoverage => IonCoverageFeatures::NAMES,
+            FeatureBlockId::LibraryAgreement => LibraryAgreementFeatures::NAMES,
         }
     }
 }

@@ -8,7 +8,7 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
-use crate::peak_group_scoring::feature_set::{Block, FeatureSet};
+use crate::peak_group_scoring::feature_set::{FeatureBlockId, FeatureSet};
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 
@@ -36,11 +36,13 @@ impl CandidateFeature {
         blocks.map(|blocks| blocks.concat())
     }
 
-    fn block_values(&self, block: Block) -> Option<Vec<f32>> {
+    fn block_values(&self, block: FeatureBlockId) -> Option<Vec<f32>> {
         match block {
-            Block::Core => Some(self.core.values()),
-            Block::IonCoverage => self.ion_coverage.map(|features| features.values()),
-            Block::LibraryAgreement => self.library_agreement.map(|features| features.values()),
+            FeatureBlockId::Core => Some(self.core.values()),
+            FeatureBlockId::IonCoverage => self.ion_coverage.map(|features| features.values()),
+            FeatureBlockId::LibraryAgreement => {
+                self.library_agreement.map(|features| features.values())
+            }
         }
     }
 }

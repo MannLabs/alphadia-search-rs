@@ -5,7 +5,7 @@ use std::time::Instant;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
-use crate::peak_group_scoring::feature_set::Block;
+use crate::peak_group_scoring::feature_set::FeatureBlockId;
 use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
 use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
@@ -87,7 +87,11 @@ impl PeakGroupScoring {
             })
             .unzip();
 
-        if self.params.feature_set.has(Block::IonCoverage) {
+        if self
+            .params
+            .feature_set
+            .has_block(FeatureBlockId::IonCoverage)
+        {
             self.set_ion_fisher_lib(&mut scored_candidates, &ion_evidence);
         }
         drop(ion_evidence);
@@ -150,7 +154,7 @@ impl PeakGroupScoring {
 
         let feature_set = self.params.feature_set;
 
-        let (ion_coverage, ion_evidence) = if feature_set.has(Block::IonCoverage) {
+        let (ion_coverage, ion_evidence) = if feature_set.has_block(FeatureBlockId::IonCoverage) {
             let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
                 &precursor.fragment_intensity,
                 &observation.observation_intensities,
@@ -166,16 +170,18 @@ impl PeakGroupScoring {
             (None, Vec::new())
         };
 
-        let library_agreement = feature_set.has(Block::LibraryAgreement).then(|| {
-            calculate_library_agreement_features(
-                &observation.dense_xic,
-                &observation.median_profile_filtered,
-                &precursor.fragment_intensity,
-                &observation.observation_intensities,
-                &observation.correlations,
-                &precursor.fragment_type,
-            )
-        });
+        let library_agreement = feature_set
+            .has_block(FeatureBlockId::LibraryAgreement)
+            .then(|| {
+                calculate_library_agreement_features(
+                    &observation.dense_xic,
+                    &observation.median_profile_filtered,
+                    &precursor.fragment_intensity,
+                    &observation.observation_intensities,
+                    &observation.correlations,
+                    &precursor.fragment_type,
+                )
+            });
 
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,

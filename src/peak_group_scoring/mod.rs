@@ -6,7 +6,7 @@ use crate::candidate::{Candidate, CandidateCollection};
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::features::{
-    CandidateFeature, CandidateFeatureCollection, FullOnlyFeatures,
+    CandidateFeature, CandidateFeatureCollection, SetSpecificFeatures,
 };
 use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
@@ -129,8 +129,8 @@ impl PeakGroupScoring {
             .par_iter_mut()
             .zip(ion_evidence.par_iter())
             .for_each(|(feature, evidence)| {
-                if let Some(full_only) = &mut feature.full_only {
-                    full_only.ion_coverage.ion_fisher_lib = noise_model.fisher(evidence);
+                if let SetSpecificFeatures::Full { ion_coverage, .. } = &mut feature.set_specific {
+                    ion_coverage.ion_fisher_lib = noise_model.fisher(evidence);
                 }
             });
     }
@@ -149,8 +149,8 @@ impl PeakGroupScoring {
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
 
-        let (full_only, ion_evidence) = match self.params.feature_set {
-            FeatureSet::Calibration => (None, Vec::new()),
+        let (set_specific, ion_evidence) = match self.params.feature_set {
+            FeatureSet::Calibration => (SetSpecificFeatures::Calibration, Vec::new()),
             FeatureSet::Full => {
                 let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
                     &precursor.fragment_intensity,
@@ -170,11 +170,11 @@ impl PeakGroupScoring {
                     &observation.correlations,
                     &precursor.fragment_type,
                 );
-                let full_only = FullOnlyFeatures {
+                let full = SetSpecificFeatures::Full {
                     ion_coverage,
                     library_agreement,
                 };
-                (Some(full_only), ion_evidence)
+                (full, ion_evidence)
             }
         };
 
@@ -182,7 +182,7 @@ impl PeakGroupScoring {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
             core,
-            full_only,
+            set_specific,
         };
         Some((feature, ion_evidence))
     }

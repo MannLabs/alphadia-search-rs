@@ -91,7 +91,7 @@ impl PeakGroupScoring {
             .unzip();
 
         if self.params.feature_set == FeatureSet::Full {
-            self.add_ion_fisher(&mut scored_candidates, &ion_evidence);
+            self.set_ion_fisher_lib(&mut scored_candidates, &ion_evidence);
         }
         drop(ion_evidence);
 
@@ -114,7 +114,7 @@ impl PeakGroupScoring {
 
     /// The ion-class noise model needs all candidates: it is fitted on those that are not the best of their
     /// precursor, targets and decoys alike, and then scores every candidate's fragments.
-    fn add_ion_fisher(
+    fn set_ion_fisher_lib(
         &self,
         scored_candidates: &mut [CandidateFeature],
         ion_evidence: &[Vec<IonEvidence>],

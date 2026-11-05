@@ -1262,3 +1262,175 @@ fn test_calculate_library_agreement_features_entropy_similarity() {
     assert_eq!(no_signal.ent_sim, 0.0);
     assert_eq!(no_signal.ent_sim_corrweighted, 0.0);
 }
+
+#[cfg(test)]
+mod feature_sets {
+    use crate::candidate::{Candidate, CandidateCollection};
+    use crate::constants::{FragmentType, Loss};
+    use crate::dia_data::{AlphaRawView, DIAData};
+    use crate::dia_data_builder::DIADataBuilder;
+    use crate::peak_group_scoring::features::{CandidateFeatureCollection, SetSpecificFeatures};
+    use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
+    use crate::speclib_flat::SpecLibFlat;
+    use numpy::ndarray::{Array1, Array4};
+
+    const NUM_CYCLES: usize = 20;
+    const APEX_CYCLE: usize = 10;
+    const PRECURSOR_MZ: f32 = 500.0;
+    const FRAGMENTS: [(f32, f32); 6] = [
+        (300.0, 6.0),
+        (400.0, 5.0),
+        (500.0, 4.0),
+        (600.0, 3.0),
+        (700.0, 2.0),
+        (800.0, 1.0),
+    ];
+
+    /// One isolation window and one spectrum per cycle, in which the fragments of the library elute as a triangle
+    /// around APEX_CYCLE.
+    fn dia_data() -> DIAData {
+        let mut peak_mz = Vec::new();
+        let mut peak_intensity = Vec::new();
+        let mut peak_start = Vec::new();
+        let mut peak_stop = Vec::new();
+        for cycle in 0..NUM_CYCLES {
+            peak_start.push(peak_mz.len() as i64);
+            let elution = 5.0 - (cycle as f32 - APEX_CYCLE as f32).abs();
+            if elution > 0.0 {
+                for (mz, intensity) in FRAGMENTS {
+                    peak_mz.push(mz);
+                    peak_intensity.push(intensity * elution * 100.0);
+                }
+            }
+            peak_stop.push(peak_mz.len() as i64);
+        }
+        let delta_scan_idx = Array1::<i64>::zeros(NUM_CYCLES);
+        let lower = Array1::<f32>::from_elem(NUM_CYCLES, 400.0);
+        let upper = Array1::<f32>::from_elem(NUM_CYCLES, 600.0);
+        let peak_start = Array1::from(peak_start);
+        let peak_stop = Array1::from(peak_stop);
+        let cycle_idx = Array1::from_iter(0..NUM_CYCLES as i64);
+        let rt = Array1::from_iter((0..NUM_CYCLES).map(|c| c as f32 * 2.0));
+        let peak_mz = Array1::from(peak_mz);
+        let peak_intensity = Array1::from(peak_intensity);
+        let mut cycle = Array4::<f32>::zeros((1, 1, 1, 2));
+        cycle[[0, 0, 0, 0]] = 400.0;
+        cycle[[0, 0, 0, 1]] = 600.0;
+        let view = AlphaRawView::new(
+            delta_scan_idx.view(),
+            lower.view(),
+            upper.view(),
+            peak_start.view(),
+            peak_stop.view(),
+            cycle_idx.view(),
+            rt.view(),
+            peak_mz.view(),
+            peak_intensity.view(),
+            cycle.view(),
+        );
+        DIADataBuilder::from_alpha_raw(&view)
+    }
+
+    fn library() -> SpecLibFlat {
+        let n = FRAGMENTS.len();
+        let fragment_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
+        SpecLibFlat::from_vecs(
+            vec![0],
+            vec![PRECURSOR_MZ],
+            vec![PRECURSOR_MZ],
+            vec![20.0],
+            vec![20.0],
+            vec![10],
+            vec![0],
+            vec![n],
+            fragment_mz.clone(),
+            fragment_mz,
+            FRAGMENTS.iter().map(|&(_, intensity)| intensity).collect(),
+            vec![1; n],
+            vec![1; n],
+            vec![Loss::NONE; n],
+            (2..2 + n as u8).collect(),
+            (2..2 + n as u8).collect(),
+            vec![FragmentType::Y; n],
+        )
+    }
+
+    /// The precursor at its apex (rank 0) and off its apex (rank 1)
+    fn candidates() -> CandidateCollection {
+        CandidateCollection::from_vec(vec![
+            Candidate::new(0, 0, 2.0, APEX_CYCLE - 3, APEX_CYCLE, APEX_CYCLE + 3),
+            Candidate::new(0, 1, 1.0, 1, 3, 6),
+        ])
+    }
+
+    fn score(feature_set: FeatureSet) -> CandidateFeatureCollection {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        PeakGroupScoring::new(params)
+            .score(&dia_data(), &library(), &candidates())
+            .unwrap()
+    }
+
+    #[test]
+    fn test_scoring_parameters_default_to_the_full_feature_set() {
+        // given / when
+        let params = ScoringParameters::new();
+
+        // then
+        assert_eq!(params.feature_set, FeatureSet::Full);
+    }
+
+    #[test]
+    fn test_calibration_and_full_share_the_core_block() {
+        // given
+        let full = score(FeatureSet::Full);
+
+        // when
+        let calibration = score(FeatureSet::Calibration);
+
+        // then
+        assert_eq!(calibration.feature_set(), FeatureSet::Calibration);
+        assert_eq!(full.feature_set(), FeatureSet::Full);
+        assert_eq!(calibration.len(), full.len());
+        for (calibration_feature, full_feature) in calibration.iter().zip(full.iter()) {
+            assert_eq!(calibration_feature.feature_set(), FeatureSet::Calibration);
+            assert_eq!(full_feature.feature_set(), FeatureSet::Full);
+            assert_eq!(calibration_feature.core, full_feature.core);
+        }
+    }
+
+    #[test]
+    fn test_calibration_scores_the_calibration_only_block() {
+        // given / when
+        let calibration = score(FeatureSet::Calibration);
+
+        // then
+        let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
+        let SetSpecificFeatures::Calibration(calibration_only) = apex.set_specific else {
+            panic!("expected the calibration-only block");
+        };
+        assert_eq!(calibration_only.num_fragments, FRAGMENTS.len() as f32);
+        assert_eq!(calibration_only.num_over_50, FRAGMENTS.len() as f32);
+        assert!(calibration_only.intensity_correlation > 0.99);
+    }
+
+    #[test]
+    fn test_full_scores_the_apex_candidate_with_signal_in_every_block() {
+        // given / when
+        let full = score(FeatureSet::Full);
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let SetSpecificFeatures::Full {
+            ion_coverage,
+            library_agreement,
+        } = apex.set_specific
+        else {
+            panic!("expected the full blocks");
+        };
+        assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
+        assert!(ion_coverage.lib_share_over_50 > 0.99);
+        assert!(ion_coverage.ion_fisher_lib > 0.0);
+        assert!(library_agreement.ent_sim > 0.99);
+    }
+}

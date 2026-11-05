@@ -38,7 +38,7 @@ use crate::intensity_drift::IntensityDriftCorrection;
 pub use crate::kernel::GaussianKernel;
 use crate::peak_group_quantification::{PeakGroupQuantification, QuantificationParameters};
 use crate::peak_group_scoring::features::CandidateFeatureCollection;
-use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
+use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;
 use crate::speclib_flat_quantified::SpecLibFlatQuantified;
@@ -85,6 +85,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<SpecLibFlatQuantified>()?;
     m.add_class::<PeakGroupScoring>()?;
     m.add_class::<ScoringParameters>()?;
+    m.add_class::<FeatureSet>()?;
     m.add_class::<PeakGroupSelection>()?;
     m.add_class::<SelectionParameters>()?;
     m.add_class::<PeakGroupQuantification>()?;

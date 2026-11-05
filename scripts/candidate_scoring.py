@@ -10,6 +10,7 @@ from alphadia_search_rs import (
     PeakGroupQuantification,
     QuantificationParameters,
     CandidateFeatureCollection,
+    FeatureSet,
 )
 import os
 import pandas as pd
@@ -24,7 +25,7 @@ from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 
-FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names()
+FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names(FeatureSet.Full)
 
 # Configure logging
 logging.basicConfig(

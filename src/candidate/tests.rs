@@ -8,8 +8,16 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (23 base + 8 ranked + fwhm_rt)
-    assert_eq!(feature_names.len(), 58);
+    assert_eq!(feature_names.len(), 53);
+    for idf_name in [
+        "idf_hyperscore",
+        "idf_xic_dot_product",
+        "idf_intensity_dot_product",
+        "num_over_0_top6_idf",
+        "num_over_50_top6_idf",
+    ] {
+        assert!(!feature_names.contains(&idf_name.to_string()));
+    }
     assert!(feature_names.contains(&"short_ion_intensity_share".to_string()));
     assert!(feature_names.contains(&"ion_fisher_lib".to_string()));
 
@@ -198,15 +206,10 @@ fn test_candidate_feature_collection_to_dict_arrays_dtypes_and_values() {
         3.2,   // log10_b_ion_intensity
         3.8,   // log10_y_ion_intensity
         15.5,  // fwhm_rt
-        50.0,  // idf_hyperscore
-        10.5,  // idf_xic_dot_product
-        8.2,   // idf_intensity_dot_product
         100.0, // median_profile_sum
         95.0,  // median_profile_sum_filtered
         12.0,  // num_profiles
         11.0,  // num_profiles_filtered
-        5.0,   // num_over_0_top6_idf
-        3.0,   // num_over_50_top6_idf
         IonCoverageFeatures {
             ion_position_mean: 0.55,
             short_ion_intensity_share: 0.3,

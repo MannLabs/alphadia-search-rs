@@ -36,7 +36,8 @@ fn numbered_calibration_feature() -> CandidateFeature {
         precursor_idx: 5,
         rank: 2,
         core: numbered_core(),
-        full_only: None,
+        ion_coverage: None,
+        library_agreement: None,
     }
 }
 
@@ -46,28 +47,26 @@ fn numbered_full_feature() -> CandidateFeature {
         precursor_idx: 5,
         rank: 2,
         core: numbered_core(),
-        full_only: Some(FullOnlyFeatures {
-            ion_coverage: IonCoverageFeatures {
-                ion_position_mean: 21.0,
-                short_ion_intensity_share: 22.0,
-                num_over_50_b_short: 23.0,
-                num_over_50_b_long: 24.0,
-                num_over_50_y_short: 25.0,
-                num_over_50_y_mid: 26.0,
-                num_over_50_y_long: 27.0,
-                num_over_50_z2: 28.0,
-                lib_share_over_50: 29.0,
-                xic_libweighted: 30.0,
-                xic_obsweighted: 31.0,
-                ion_fisher_lib: 32.0,
-            },
-            library_agreement: LibraryAgreementFeatures {
-                log_ratio_std: 33.0,
-                y_intensity_correlation: 34.0,
-                lib_cosine_over_50: 35.0,
-                ent_sim: 36.0,
-                ent_sim_corrweighted: 37.0,
-            },
+        ion_coverage: Some(IonCoverageFeatures {
+            ion_position_mean: 21.0,
+            short_ion_intensity_share: 22.0,
+            num_over_50_b_short: 23.0,
+            num_over_50_b_long: 24.0,
+            num_over_50_y_short: 25.0,
+            num_over_50_y_mid: 26.0,
+            num_over_50_y_long: 27.0,
+            num_over_50_z2: 28.0,
+            lib_share_over_50: 29.0,
+            xic_libweighted: 30.0,
+            xic_obsweighted: 31.0,
+            ion_fisher_lib: 32.0,
+        }),
+        library_agreement: Some(LibraryAgreementFeatures {
+            log_ratio_std: 33.0,
+            y_intensity_correlation: 34.0,
+            lib_cosine_over_50: 35.0,
+            ent_sim: 36.0,
+            ent_sim_corrweighted: 37.0,
         }),
     }
 }
@@ -157,19 +156,18 @@ fn test_block_column_names_are_the_field_names() {
 
     // when
     let names = FeatureSet::Full.feature_names();
-    let values = feature.values();
+    let values = feature.values(FeatureSet::Full).unwrap();
 
     // then
     let value_of = |name: &str| values[names.iter().position(|n| *n == name).unwrap()];
-    let full_only = feature.full_only.unwrap();
     assert_eq!(value_of("fwhm_rt"), feature.core.fwhm_rt);
     assert_eq!(
         value_of("ion_fisher_lib"),
-        full_only.ion_coverage.ion_fisher_lib
+        feature.ion_coverage.unwrap().ion_fisher_lib
     );
     assert_eq!(
         value_of("ent_sim_corrweighted"),
-        full_only.library_agreement.ent_sim_corrweighted
+        feature.library_agreement.unwrap().ent_sim_corrweighted
     );
 }
 
@@ -179,8 +177,7 @@ fn test_calibration_to_dict_arrays_puts_every_value_in_its_column() {
     let collection = CandidateFeatureCollection::from_vec(
         FeatureSet::Calibration,
         vec![numbered_calibration_feature()],
-    )
-    .unwrap();
+    );
 
     // when / then
     assert_every_column_at_its_position(&collection, NUM_CALIBRATION_FEATURES);
@@ -190,23 +187,51 @@ fn test_calibration_to_dict_arrays_puts_every_value_in_its_column() {
 fn test_full_to_dict_arrays_puts_every_value_in_its_column() {
     // given
     let collection =
-        CandidateFeatureCollection::from_vec(FeatureSet::Full, vec![numbered_full_feature()])
-            .unwrap();
+        CandidateFeatureCollection::from_vec(FeatureSet::Full, vec![numbered_full_feature()]);
 
     // when / then
     assert_every_column_at_its_position(&collection, NUM_FULL_FEATURES);
 }
 
 #[test]
-fn test_from_vec_rejects_features_of_another_feature_set() {
-    pyo3::Python::initialize();
+fn test_calibration_values_leave_out_the_full_blocks() {
+    // given
+    let feature = numbered_full_feature();
 
+    // when
+    let values = feature.values(FeatureSet::Calibration).unwrap();
+
+    // then
+    assert_eq!(values, feature.core.values());
+}
+
+#[test]
+fn test_full_values_are_none_if_a_block_is_missing() {
     // given
     let calibration_feature = numbered_calibration_feature();
 
     // when
-    let result = CandidateFeatureCollection::from_vec(FeatureSet::Full, vec![calibration_feature]);
+    let values = calibration_feature.values(FeatureSet::Full);
 
     // then
-    assert!(result.is_err());
+    assert_eq!(values, None);
+}
+
+#[test]
+fn test_to_dict_arrays_rejects_a_candidate_missing_a_block_of_the_set() {
+    pyo3::Python::initialize();
+
+    // given
+    let collection = CandidateFeatureCollection::from_vec(
+        FeatureSet::Full,
+        vec![numbered_calibration_feature()],
+    );
+
+    Python::attach(|py| {
+        // when
+        let result = collection.to_dict_arrays(py);
+
+        // then
+        assert!(result.is_err());
+    });
 }

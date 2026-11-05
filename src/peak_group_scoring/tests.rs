@@ -1366,9 +1366,7 @@ mod feature_sets {
     fn score(feature_set: FeatureSet) -> CandidateFeatureCollection {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
-        PeakGroupScoring::new(params)
-            .score(&dia_data(), &library(), &candidates())
-            .unwrap()
+        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
     }
 
     #[test]
@@ -1393,8 +1391,6 @@ mod feature_sets {
         assert_eq!(full.feature_set(), FeatureSet::Full);
         assert_eq!(calibration.len(), full.len());
         for (calibration_feature, full_feature) in calibration.iter().zip(full.iter()) {
-            assert_eq!(calibration_feature.feature_set(), FeatureSet::Calibration);
-            assert_eq!(full_feature.feature_set(), FeatureSet::Full);
             assert_eq!(calibration_feature.core, full_feature.core);
         }
     }
@@ -1406,7 +1402,8 @@ mod feature_sets {
 
         // then
         let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
-        assert!(apex.full_only.is_none());
+        assert_eq!(apex.ion_coverage, None);
+        assert_eq!(apex.library_agreement, None);
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
@@ -1417,10 +1414,11 @@ mod feature_sets {
 
         // then
         let apex = full.iter().find(|f| f.rank == 0).unwrap();
-        let full_only = apex.full_only.unwrap();
+        let ion_coverage = apex.ion_coverage.unwrap();
+        let library_agreement = apex.library_agreement.unwrap();
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
-        assert!(full_only.ion_coverage.lib_share_over_50 > 0.99);
-        assert!(full_only.ion_coverage.ion_fisher_lib > 0.0);
-        assert!(full_only.library_agreement.ent_sim > 0.99);
+        assert!(ion_coverage.lib_share_over_50 > 0.99);
+        assert!(ion_coverage.ion_fisher_lib > 0.0);
+        assert!(library_agreement.ent_sim > 0.99);
     }
 }

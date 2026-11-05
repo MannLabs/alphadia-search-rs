@@ -15,52 +15,33 @@ use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 #[cfg(test)]
 mod tests;
 
-/// The blocks that only the full feature set scores.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct FullOnlyFeatures {
-    pub ion_coverage: IonCoverageFeatures,
-    pub library_agreement: LibraryAgreementFeatures,
-}
-
+/// The features of one candidate: one field per block, `None` unless the feature set has the block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CandidateFeature {
     pub precursor_idx: usize,
     pub rank: usize,
     pub core: CoreFeatures,
-    /// `None` with the calibration feature set
-    pub full_only: Option<FullOnlyFeatures>,
+    pub ion_coverage: Option<IonCoverageFeatures>,
+    pub library_agreement: Option<LibraryAgreementFeatures>,
 }
 
 impl CandidateFeature {
-    pub fn feature_set(&self) -> FeatureSet {
-        if self.full_only.is_some() {
-            FeatureSet::Full
-        } else {
-            FeatureSet::Calibration
-        }
-    }
-
-    /// Feature values in the order of `self.feature_set().feature_names()`
-    pub fn values(&self) -> Vec<f32> {
-        self.feature_set()
+    /// Feature values in the order of `feature_set.feature_names()`, or `None` if a block of the set is missing.
+    pub fn values(&self, feature_set: FeatureSet) -> Option<Vec<f32>> {
+        let blocks: Option<Vec<Vec<f32>>> = feature_set
             .blocks()
             .iter()
-            .flat_map(|block| self.block_values(*block))
-            .collect()
+            .map(|block| self.block_values(*block))
+            .collect();
+        blocks.map(|blocks| blocks.concat())
     }
 
-    fn block_values(&self, block: Block) -> Vec<f32> {
+    fn block_values(&self, block: Block) -> Option<Vec<f32>> {
         match block {
-            Block::Core => self.core.values(),
-            Block::IonCoverage => self.full_only().ion_coverage.values(),
-            Block::LibraryAgreement => self.full_only().library_agreement.values(),
+            Block::Core => Some(self.core.values()),
+            Block::IonCoverage => self.ion_coverage.map(|features| features.values()),
+            Block::LibraryAgreement => self.library_agreement.map(|features| features.values()),
         }
-    }
-
-    fn full_only(&self) -> &FullOnlyFeatures {
-        self.full_only
-            .as_ref()
-            .expect("only full-set candidates have the full-only blocks")
     }
 }
 
@@ -96,7 +77,13 @@ impl CandidateFeatureCollection {
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
             ranks[i] = feature.rank as u64;
-            for (column, value) in columns.iter_mut().zip(feature.values()) {
+            let values = feature.values(self.feature_set).ok_or_else(|| {
+                PyValueError::new_err(format!(
+                    "Candidate with precursor_idx {} and rank {} misses a block of the {:?} feature set",
+                    feature.precursor_idx, feature.rank, self.feature_set
+                ))
+            })?;
+            for (column, value) in columns.iter_mut().zip(values) {
                 column[i] = value;
             }
         }
@@ -121,21 +108,11 @@ impl CandidateFeatureCollection {
 }
 
 impl CandidateFeatureCollection {
-    /// Every feature must be of `feature_set`, so that it fills every column.
-    pub fn from_vec(feature_set: FeatureSet, features: Vec<CandidateFeature>) -> PyResult<Self> {
-        if let Some(feature) = features.iter().find(|f| f.feature_set() != feature_set) {
-            return Err(PyValueError::new_err(format!(
-                "Candidate with precursor_idx {} and rank {} is scored with {:?}, not with {:?}",
-                feature.precursor_idx,
-                feature.rank,
-                feature.feature_set(),
-                feature_set
-            )));
-        }
-        Ok(Self {
+    pub fn from_vec(feature_set: FeatureSet, features: Vec<CandidateFeature>) -> Self {
+        Self {
             feature_set,
             features,
-        })
+        }
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, CandidateFeature> {

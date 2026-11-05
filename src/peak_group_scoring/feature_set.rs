@@ -33,6 +33,10 @@ impl FeatureSet {
         }
     }
 
+    pub fn has(self, block: Block) -> bool {
+        self.blocks().contains(&block)
+    }
+
     pub fn feature_names(self) -> Vec<&'static str> {
         self.blocks()
             .iter()

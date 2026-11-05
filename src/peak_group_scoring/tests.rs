@@ -1269,7 +1269,7 @@ mod feature_sets {
     use crate::constants::{FragmentType, Loss};
     use crate::dia_data::{AlphaRawView, DIAData};
     use crate::dia_data_builder::DIADataBuilder;
-    use crate::peak_group_scoring::features::{CandidateFeatureCollection, SetSpecificFeatures};
+    use crate::peak_group_scoring::features::CandidateFeatureCollection;
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
     use numpy::ndarray::{Array1, Array4};
@@ -1400,18 +1400,14 @@ mod feature_sets {
     }
 
     #[test]
-    fn test_calibration_scores_the_calibration_only_block() {
+    fn test_calibration_scores_the_core_block_only() {
         // given / when
         let calibration = score(FeatureSet::Calibration);
 
         // then
         let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
-        let SetSpecificFeatures::Calibration(calibration_only) = apex.set_specific else {
-            panic!("expected the calibration-only block");
-        };
-        assert_eq!(calibration_only.num_fragments, FRAGMENTS.len() as f32);
-        assert_eq!(calibration_only.num_over_50, FRAGMENTS.len() as f32);
-        assert!(calibration_only.intensity_correlation > 0.99);
+        assert!(apex.full_only.is_none());
+        assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
     #[test]
@@ -1421,16 +1417,10 @@ mod feature_sets {
 
         // then
         let apex = full.iter().find(|f| f.rank == 0).unwrap();
-        let SetSpecificFeatures::Full {
-            ion_coverage,
-            library_agreement,
-        } = apex.set_specific
-        else {
-            panic!("expected the full blocks");
-        };
+        let full_only = apex.full_only.unwrap();
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
-        assert!(ion_coverage.lib_share_over_50 > 0.99);
-        assert!(ion_coverage.ion_fisher_lib > 0.0);
-        assert!(library_agreement.ent_sim > 0.99);
+        assert!(full_only.ion_coverage.lib_share_over_50 > 0.99);
+        assert!(full_only.ion_coverage.ion_fisher_lib > 0.0);
+        assert!(full_only.library_agreement.ent_sim > 0.99);
     }
 }

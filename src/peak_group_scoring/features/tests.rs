@@ -1,7 +1,7 @@
 use super::*;
 use pyo3::types::PyDict;
 
-const NUM_CALIBRATION_FEATURES: usize = 36;
+const NUM_CALIBRATION_FEATURES: usize = 20;
 const NUM_FULL_FEATURES: usize = 37;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
@@ -36,24 +36,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         precursor_idx: 5,
         rank: 2,
         core: numbered_core(),
-        set_specific: SetSpecificFeatures::Calibration(CalibrationOnlyFeatures {
-            intensity_correlation: 21.0,
-            num_fragments: 22.0,
-            num_scans: 23.0,
-            num_over_95: 24.0,
-            num_over_90: 25.0,
-            num_over_50: 26.0,
-            num_over_0: 27.0,
-            num_over_0_rank_6_11: 28.0,
-            num_over_0_rank_12_17: 29.0,
-            num_over_0_rank_18_23: 30.0,
-            num_over_50_rank_0_5: 31.0,
-            num_over_50_rank_6_11: 32.0,
-            num_over_50_rank_12_17: 33.0,
-            num_over_50_rank_18_23: 34.0,
-            median_profile_sum_filtered: 35.0,
-            num_profiles: 36.0,
-        }),
+        full_only: None,
     }
 }
 
@@ -63,7 +46,7 @@ fn numbered_full_feature() -> CandidateFeature {
         precursor_idx: 5,
         rank: 2,
         core: numbered_core(),
-        set_specific: SetSpecificFeatures::Full {
+        full_only: Some(FullOnlyFeatures {
             ion_coverage: IonCoverageFeatures {
                 ion_position_mean: 21.0,
                 short_ion_intensity_share: 22.0,
@@ -85,7 +68,7 @@ fn numbered_full_feature() -> CandidateFeature {
                 ent_sim: 36.0,
                 ent_sim_corrweighted: 37.0,
             },
-        },
+        }),
     }
 }
 
@@ -127,15 +110,12 @@ fn assert_every_column_at_its_position(
 }
 
 #[test]
-fn test_calibration_feature_names_are_core_and_calibration_only() {
+fn test_calibration_feature_names_are_the_core_block() {
     // given / when
     let names = CandidateFeature::feature_names(FeatureSet::Calibration);
 
     // then
-    assert_eq!(
-        names,
-        [CoreFeatures::NAMES, CalibrationOnlyFeatures::NAMES].concat()
-    );
+    assert_eq!(names, CoreFeatures::NAMES);
     assert_eq!(names.len(), NUM_CALIBRATION_FEATURES);
     assert_unique_without_candidate_keys(&names);
 }
@@ -181,18 +161,15 @@ fn test_block_column_names_are_the_field_names() {
 
     // then
     let value_of = |name: &str| values[names.iter().position(|n| *n == name).unwrap()];
-    let SetSpecificFeatures::Full {
-        ion_coverage,
-        library_agreement,
-    } = feature.set_specific
-    else {
-        panic!("expected the full blocks");
-    };
+    let full_only = feature.full_only.unwrap();
     assert_eq!(value_of("fwhm_rt"), feature.core.fwhm_rt);
-    assert_eq!(value_of("ion_fisher_lib"), ion_coverage.ion_fisher_lib);
+    assert_eq!(
+        value_of("ion_fisher_lib"),
+        full_only.ion_coverage.ion_fisher_lib
+    );
     assert_eq!(
         value_of("ent_sim_corrweighted"),
-        library_agreement.ent_sim_corrweighted
+        full_only.library_agreement.ent_sim_corrweighted
     );
 }
 

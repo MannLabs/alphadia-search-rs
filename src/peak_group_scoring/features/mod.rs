@@ -6,7 +6,6 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
-use crate::peak_group_scoring::calibration_only::CalibrationOnlyFeatures;
 use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::feature_set::FeatureSet;
@@ -16,26 +15,11 @@ use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 #[cfg(test)]
 mod tests;
 
-/// The blocks that only one feature set scores.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SetSpecificFeatures {
-    Calibration(CalibrationOnlyFeatures),
-    Full {
-        ion_coverage: IonCoverageFeatures,
-        library_agreement: LibraryAgreementFeatures,
-    },
-}
-
-impl SetSpecificFeatures {
-    fn default_for(feature_set: FeatureSet) -> Self {
-        match feature_set {
-            FeatureSet::Calibration => Self::Calibration(CalibrationOnlyFeatures::default()),
-            FeatureSet::Full => Self::Full {
-                ion_coverage: IonCoverageFeatures::default(),
-                library_agreement: LibraryAgreementFeatures::default(),
-            },
-        }
-    }
+/// The blocks that only the full feature set scores.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FullOnlyFeatures {
+    pub ion_coverage: IonCoverageFeatures,
+    pub library_agreement: LibraryAgreementFeatures,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,14 +27,15 @@ pub struct CandidateFeature {
     pub precursor_idx: usize,
     pub rank: usize,
     pub core: CoreFeatures,
-    pub set_specific: SetSpecificFeatures,
+    /// `None` with the calibration feature set
+    pub full_only: Option<FullOnlyFeatures>,
 }
 
 impl CandidateFeature {
     pub fn feature_set(&self) -> FeatureSet {
-        match self.set_specific {
-            SetSpecificFeatures::Calibration(_) => FeatureSet::Calibration,
-            SetSpecificFeatures::Full { .. } => FeatureSet::Full,
+        match self.full_only {
+            Some(_) => FeatureSet::Full,
+            None => FeatureSet::Calibration,
         }
     }
 
@@ -58,17 +43,12 @@ impl CandidateFeature {
     /// and the values of a candidate always line up.
     fn for_each_block(&self, mut visit: impl FnMut(&'static [&'static str], Vec<f32>)) {
         visit(CoreFeatures::NAMES, self.core.values());
-        match &self.set_specific {
-            SetSpecificFeatures::Calibration(calibration_only) => {
-                visit(CalibrationOnlyFeatures::NAMES, calibration_only.values());
-            }
-            SetSpecificFeatures::Full {
-                ion_coverage,
-                library_agreement,
-            } => {
-                visit(IonCoverageFeatures::NAMES, ion_coverage.values());
-                visit(LibraryAgreementFeatures::NAMES, library_agreement.values());
-            }
+        if let Some(full_only) = &self.full_only {
+            visit(IonCoverageFeatures::NAMES, full_only.ion_coverage.values());
+            visit(
+                LibraryAgreementFeatures::NAMES,
+                full_only.library_agreement.values(),
+            );
         }
     }
 
@@ -77,7 +57,7 @@ impl CandidateFeature {
             precursor_idx: 0,
             rank: 0,
             core: CoreFeatures::default(),
-            set_specific: SetSpecificFeatures::default_for(feature_set),
+            full_only: (feature_set == FeatureSet::Full).then(FullOnlyFeatures::default),
         };
         let mut names = Vec::new();
         empty.for_each_block(|block_names, _| names.extend_from_slice(block_names));

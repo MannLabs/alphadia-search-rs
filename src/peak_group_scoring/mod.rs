@@ -2,32 +2,25 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
-use crate::candidate::{
-    Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
-};
-use crate::constants::FragmentType;
-use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::candidate::{Candidate, CandidateCollection};
 use crate::dia_data::DIAData;
+use crate::peak_group_scoring::core::calculate_core_features;
+use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
 use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
-use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, calculate_fwhm_rt, calculate_hyperscore,
-    calculate_hyperscore_inverse_mass_error, calculate_longest_ion_series, correlation_axis_0,
-    filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
-};
+use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
-use crate::utils::{
-    calculate_fragment_mz_and_errors, calculate_median, calculate_std,
-    calculate_weighted_mean_absolute_error, count_values_above, create_ranked_mask,
-};
 use crate::SpecLibFlat;
-use numpy::ndarray::Axis;
 
+pub mod core;
+pub mod feature_block;
+pub mod features;
 pub mod ion_coverage;
 pub mod library_agreement;
+pub mod observation;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
@@ -105,7 +98,7 @@ impl PeakGroupScoring {
             .par_iter_mut()
             .zip(ion_evidence.par_iter())
             .for_each(|(feature, evidence)| {
-                feature.ion_fisher_lib = noise_model.fisher(evidence);
+                feature.ion_coverage.ion_fisher_lib = noise_model.fisher(evidence);
             });
         drop(ion_evidence);
 
@@ -125,131 +118,23 @@ impl PeakGroupScoring {
         feature_collection
     }
 
-    /// Generic candidate scoring function that works with any type implementing DIADataTrait
+    /// Scores one candidate. The ion evidence feeds the noise model of `ion_fisher_lib`.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
-        // Scoring implementation for individual candidate will be added here
-        // For now, return the original score
+        let observation =
+            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
 
-        let cycle_start_idx = candidate.cycle_start;
-        let cycle_stop_idx = candidate.cycle_stop;
-        let mass_tolerance = self.params.mass_tolerance;
-
-        // Create dense XIC and m/z observation using the filtered precursor fragments
-        let dense_xic_mz_obs = DenseXICMZObservation::new(
-            dia_data,
-            precursor.mz,
-            cycle_start_idx,
-            cycle_stop_idx,
-            mass_tolerance,
-            &precursor.fragment_mz,
-        );
-
-        // Normalize the profiles before calculating median
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
-
-        // Filter to only non-zero profiles for median calculation
-        let filtered_xic = filter_non_zero(&normalized_xic);
-
-        let median_profile = median_axis_0(&normalized_xic);
-        let median_profile_filtered = median_axis_0(&filtered_xic);
-
-        let num_profiles = normalized_xic.shape()[0];
-        let num_profiles_filtered = filtered_xic.shape()[0];
-
-        // Calculate sum of median profile
-        let median_profile_sum = median_profile.iter().sum::<f32>();
-        let median_profile_sum_filtered = median_profile_filtered.iter().sum::<f32>();
-
-        let fwhm_rt = calculate_fwhm_rt(
-            &median_profile_filtered,
-            cycle_start_idx,
-            &dia_data.rt_index().rt,
-        );
-
-        // Calculate correlations of each profile with the median profile
-        let correlations: Vec<f32> = correlation_axis_0(&median_profile_filtered, &normalized_xic);
-
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
-
-        let intensity_correlations = calculate_correlation_safe(
-            observation_intensities.as_slice().unwrap(),
-            &precursor.fragment_intensity,
-        );
-
-        // all of this part is highly experimental and needs to be refined
-
-        // Calculate feature values (using score as proxy for now)
-        let mean_correlation = if !correlations.is_empty() {
-            correlations.iter().sum::<f32>() / correlations.len() as f32
-        } else {
-            0.0
-        };
-
-        let median_correlation = calculate_median(&correlations);
-
-        let correlation_std = calculate_std(&correlations);
-
-        let num_over_95 = count_values_above(&correlations, 0.95, None);
-        let num_over_90 = count_values_above(&correlations, 0.90, None);
-        let num_over_80 = count_values_above(&correlations, 0.80, None);
-        let num_over_50 = count_values_above(&correlations, 0.50, None);
-        let num_over_0 = count_values_above(&correlations, 0.0, None);
-
-        // Calculate ranked features using masks based on library intensities
-        // Create masks selecting specific rank ranges
-        let mask_0_5 = create_ranked_mask(&precursor.fragment_intensity, 0, 6); // ranks 0-5 (top 6)
-        let mask_6_11 = create_ranked_mask(&precursor.fragment_intensity, 6, 12); // ranks 6-11 (next 6)
-        let mask_12_17 = create_ranked_mask(&precursor.fragment_intensity, 12, 18); // ranks 12-17 (next 6)
-        let mask_18_23 = create_ranked_mask(&precursor.fragment_intensity, 18, 24); // ranks 18-23 (next 6)
-
-        // Calculate num_over_0 for each rank range
-        let num_over_0_rank_0_5 = count_values_above(&correlations, 0.0, Some(&mask_0_5));
-        let num_over_0_rank_6_11 = count_values_above(&correlations, 0.0, Some(&mask_6_11));
-        let num_over_0_rank_12_17 = count_values_above(&correlations, 0.0, Some(&mask_12_17));
-        let num_over_0_rank_18_23 = count_values_above(&correlations, 0.0, Some(&mask_18_23));
-
-        // Calculate num_over_50 for each rank range
-        let num_over_50_rank_0_5 = count_values_above(&correlations, 0.50, Some(&mask_0_5));
-        let num_over_50_rank_6_11 = count_values_above(&correlations, 0.50, Some(&mask_6_11));
-        let num_over_50_rank_12_17 = count_values_above(&correlations, 0.50, Some(&mask_12_17));
-        let num_over_50_rank_18_23 = count_values_above(&correlations, 0.50, Some(&mask_18_23));
-
-        let intensity_correlation = intensity_correlations;
-        let num_fragments = precursor.fragment_mz.len();
-        let num_scans = cycle_stop_idx - cycle_start_idx;
-
-        let matched_mask_intensity: Vec<bool> =
-            observation_intensities.iter().map(|&x| x > 0.0).collect();
-        let observation_intensities_slice = observation_intensities.as_slice().unwrap();
-
-        let hyperscore_intensity_observation = calculate_hyperscore(
-            &precursor.fragment_type,
-            observation_intensities_slice,
-            &matched_mask_intensity,
-        );
-
-        let hyperscore_intensity_library = calculate_hyperscore(
-            &precursor.fragment_type,
-            &precursor.fragment_intensity,
-            &matched_mask_intensity,
-        );
-
-        // Calculate longest continuous ion series
-        let (longest_b_series, longest_y_series) = calculate_longest_ion_series(
-            &precursor.fragment_type,
-            &precursor.fragment_number,
-            &matched_mask_intensity,
-        );
+        let core =
+            calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
 
         let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
             &precursor.fragment_intensity,
-            observation_intensities.as_slice().unwrap(),
-            &correlations,
+            &observation.observation_intensities,
+            &observation.correlations,
             &precursor.fragment_type,
             &precursor.fragment_number,
             &precursor.fragment_charge,
@@ -258,103 +143,21 @@ impl PeakGroupScoring {
         );
 
         let library_agreement = calculate_library_agreement_features(
-            &dense_xic_mz_obs.dense_xic,
-            &median_profile_filtered,
+            &observation.dense_xic,
+            &observation.median_profile_filtered,
             &precursor.fragment_intensity,
-            observation_intensities.as_slice().unwrap(),
-            &correlations,
+            &observation.observation_intensities,
+            &observation.correlations,
             &precursor.fragment_type,
         );
 
-        // Calculate fragment m/z and mass errors
-        let (_fragment_mz_observed, fragment_mass_errors) = calculate_fragment_mz_and_errors(
-            &dense_xic_mz_obs.dense_mz,
-            &dense_xic_mz_obs.dense_xic,
-            &precursor.fragment_mz,
-        );
-
-        // Calculate weighted mean absolute mass error using library intensities
-        let weighted_mass_error = calculate_weighted_mean_absolute_error(
-            &fragment_mass_errors,
-            &precursor.fragment_intensity,
-        );
-
-        // Calculate hyperscore with inverse mass error weighting
-        // Use observed intensities (sum across cycles) and exclude zero intensity fragments
-        let hyperscore_inverse_mass_error = calculate_hyperscore_inverse_mass_error(
-            &precursor.fragment_type,
-            observation_intensities.as_slice().unwrap(),
-            &matched_mask_intensity,
-            &fragment_mass_errors,
-        );
-
-        // Calculate retention time features
-        let rt_observed = dia_data.rt_index().rt[candidate.cycle_center];
-        let delta_rt = rt_observed - precursor.rt;
-
-        // Calculate intensity scores for b and y series
-        let intensity_b_raw = intensity_ion_series(
-            &precursor.fragment_type,
-            observation_intensities.as_slice().unwrap(),
-            &matched_mask_intensity,
-            FragmentType::B,
-        );
-
-        let intensity_y_raw = intensity_ion_series(
-            &precursor.fragment_type,
-            observation_intensities.as_slice().unwrap(),
-            &matched_mask_intensity,
-            FragmentType::Y,
-        );
-
-        // Apply log10 transformation (add epsilon to avoid log(0))
-        const EPSILON: f32 = 1e-8;
-        let log10_b_ion_intensity = (intensity_b_raw + EPSILON).log10();
-        let log10_y_ion_intensity = (intensity_y_raw + EPSILON).log10();
-
-        // Create and return candidate feature; ion_fisher_lib follows from the noise model
-        let feature = CandidateFeature::new(
-            candidate.precursor_idx,
-            candidate.rank,
-            candidate.score,
-            mean_correlation,
-            median_correlation,
-            correlation_std,
-            intensity_correlation,
-            num_fragments as f32,
-            num_scans as f32,
-            num_over_95 as f32,
-            num_over_90 as f32,
-            num_over_80 as f32,
-            num_over_50 as f32,
-            num_over_0 as f32,
-            num_over_0_rank_0_5 as f32,
-            num_over_0_rank_6_11 as f32,
-            num_over_0_rank_12_17 as f32,
-            num_over_0_rank_18_23 as f32,
-            num_over_50_rank_0_5 as f32,
-            num_over_50_rank_6_11 as f32,
-            num_over_50_rank_12_17 as f32,
-            num_over_50_rank_18_23 as f32,
-            hyperscore_intensity_observation,
-            hyperscore_intensity_library,
-            hyperscore_inverse_mass_error,
-            rt_observed,
-            delta_rt,
-            longest_b_series as f32,
-            longest_y_series as f32,
-            precursor.naa as f32,
-            weighted_mass_error,
-            log10_b_ion_intensity,
-            log10_y_ion_intensity,
-            fwhm_rt,
-            median_profile_sum,
-            median_profile_sum_filtered,
-            num_profiles as f32,
-            num_profiles_filtered as f32,
+        let feature = CandidateFeature {
+            precursor_idx: candidate.precursor_idx,
+            rank: candidate.rank,
+            core,
             ion_coverage,
             library_agreement,
-        );
+        };
         Some((feature, ion_evidence))
     }
 }

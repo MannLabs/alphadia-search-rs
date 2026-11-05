@@ -8,6 +8,7 @@
 use numpy::ndarray::Array2;
 
 use crate::constants::FragmentType;
+use crate::peak_group_scoring::feature_block::feature_block;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, shares, COELUTION_MIN_CORRELATION,
 };
@@ -19,20 +20,21 @@ pub const LIB_COSINE_APEX_HALF_WIDTH: usize = 1;
 /// Minimum number of co-eluting fragments for the library cosine over the co-eluting fragments
 pub const LIB_COSINE_MIN_FRAGMENTS: usize = 3;
 
-/// The library-agreement features of one candidate.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct LibraryAgreementFeatures {
-    /// standard deviation of log2(observed share / library share) over the observed fragments
-    pub log_ratio_std: f32,
-    /// observed vs library intensity correlation over the y ions, 0 with fewer than MIN_Y_IONS_FOR_CORRELATION
-    pub y_intensity_correlation: f32,
-    /// cosine of the apex spectrum with the library over the co-eluting fragments, 0 with fewer than
-    /// LIB_COSINE_MIN_FRAGMENTS of them
-    pub lib_cosine_over_50: f32,
-    /// spectral entropy similarity (Li et al. 2021) of observed and library intensities
-    pub ent_sim: f32,
-    /// the same with each observed intensity weighted by its (non-negative) correlation
-    pub ent_sim_corrweighted: f32,
+feature_block! {
+    /// The library-agreement features of one candidate.
+    pub struct LibraryAgreementFeatures {
+        /// standard deviation of log2(observed share / library share) over the observed fragments
+        pub log_ratio_std: f32,
+        /// observed vs library intensity correlation over the y ions, 0 with fewer than MIN_Y_IONS_FOR_CORRELATION
+        pub y_intensity_correlation: f32,
+        /// cosine of the apex spectrum with the library over the co-eluting fragments, 0 with fewer than
+        /// LIB_COSINE_MIN_FRAGMENTS of them
+        pub lib_cosine_over_50: f32,
+        /// spectral entropy similarity (Li et al. 2021) of observed and library intensities
+        pub ent_sim: f32,
+        /// the same with each observed intensity weighted by its (non-negative) correlation
+        pub ent_sim_corrweighted: f32,
+    }
 }
 
 /// The library-agreement features of one candidate.

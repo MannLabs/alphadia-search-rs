@@ -192,6 +192,7 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
         {
             "top_k_fragments": 99,
             "mass_tolerance": 7.0,
+            "feature_set": FeatureSet.Full,
         }
     )
 

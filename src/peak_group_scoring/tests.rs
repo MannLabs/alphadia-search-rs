@@ -1273,6 +1273,8 @@ mod feature_sets {
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
     use numpy::ndarray::{Array1, Array4};
+    use pyo3::prelude::*;
+    use pyo3::types::PyDict;
 
     const NUM_CYCLES: usize = 20;
     const APEX_CYCLE: usize = 10;
@@ -1369,6 +1371,60 @@ mod feature_sets {
         PeakGroupScoring::new(params)
             .score(&dia_data(), &library(), &candidates())
             .unwrap()
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_sets_the_feature_set() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config
+                .set_item("feature_set", FeatureSet::Calibration)
+                .unwrap();
+
+            // when
+            params.update(&config).unwrap();
+
+            // then
+            assert_eq!(params.feature_set, FeatureSet::Calibration);
+        });
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_rejects_a_feature_set_name() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config.set_item("feature_set", "calibration").unwrap();
+
+            // when
+            let result = params.update(&config);
+
+            // then
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_feature_set_is_hashable_in_python() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let full = Bound::new(py, FeatureSet::Full).unwrap();
+            let other_full = Bound::new(py, FeatureSet::Full).unwrap();
+            let calibration = Bound::new(py, FeatureSet::Calibration).unwrap();
+
+            // when
+            let full_hash = full.as_any().hash().unwrap();
+
+            // then
+            assert_eq!(full_hash, other_full.as_any().hash().unwrap());
+            assert_ne!(full_hash, calibration.as_any().hash().unwrap());
+        });
     }
 
     #[test]

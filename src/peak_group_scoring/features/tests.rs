@@ -36,7 +36,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         precursor_idx: 5,
         rank: 2,
         core: numbered_core(),
-        set_specific: SetSpecificFeatures::Calibration,
+        full_only: None,
     }
 }
 
@@ -46,7 +46,7 @@ fn numbered_full_feature() -> CandidateFeature {
         precursor_idx: 5,
         rank: 2,
         core: numbered_core(),
-        set_specific: SetSpecificFeatures::Full {
+        full_only: Some(FullOnlyFeatures {
             ion_coverage: IonCoverageFeatures {
                 ion_position_mean: 21.0,
                 short_ion_intensity_share: 22.0,
@@ -68,7 +68,7 @@ fn numbered_full_feature() -> CandidateFeature {
                 ent_sim: 36.0,
                 ent_sim_corrweighted: 37.0,
             },
-        },
+        }),
     }
 }
 
@@ -161,18 +161,15 @@ fn test_block_column_names_are_the_field_names() {
 
     // then
     let value_of = |name: &str| values[names.iter().position(|n| *n == name).unwrap()];
-    let SetSpecificFeatures::Full {
-        ion_coverage,
-        library_agreement,
-    } = feature.set_specific
-    else {
-        panic!("expected the full blocks");
-    };
+    let full_only = feature.full_only.unwrap();
     assert_eq!(value_of("fwhm_rt"), feature.core.fwhm_rt);
-    assert_eq!(value_of("ion_fisher_lib"), ion_coverage.ion_fisher_lib);
+    assert_eq!(
+        value_of("ion_fisher_lib"),
+        full_only.ion_coverage.ion_fisher_lib
+    );
     assert_eq!(
         value_of("ent_sim_corrweighted"),
-        library_agreement.ent_sim_corrweighted
+        full_only.library_agreement.ent_sim_corrweighted
     );
 }
 

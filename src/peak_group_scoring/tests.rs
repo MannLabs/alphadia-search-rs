@@ -612,7 +612,7 @@ fn test_longest_ion_series_mz_sorted_fragments() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_basic() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Fragment data with mass errors
@@ -641,7 +641,7 @@ fn test_hyperscore_inverse_mass_error_basic() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_zero_intensity() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Some fragments with zero intensity
@@ -670,7 +670,7 @@ fn test_hyperscore_inverse_mass_error_zero_intensity() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_all_zero_intensity() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: All fragments have zero intensity
@@ -693,7 +693,7 @@ fn test_hyperscore_inverse_mass_error_all_zero_intensity() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_large_errors() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Fragments with very large mass errors
@@ -718,7 +718,7 @@ fn test_hyperscore_inverse_mass_error_large_errors() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_small_errors() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Fragments with very small mass errors

@@ -12,6 +12,7 @@
 use rayon::prelude::*;
 
 use crate::constants::FragmentType;
+use crate::peak_group_scoring::feature_block::feature_block;
 use crate::peak_group_scoring::utils::{shares, COELUTION_MIN_CORRELATION};
 
 /// Fragments with at most this ion number are short ions
@@ -53,27 +54,31 @@ fn ion_length(number: u8) -> IonLength {
     }
 }
 
-/// The ion-coverage features of one candidate that depend on the candidate alone.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct IonCoverageFeatures {
-    /// mean ion number relative to the peptide length over the co-eluting fragments
-    pub ion_position_mean: f32,
-    /// share of the observed fragment intensity in short ions
-    pub short_ion_intensity_share: f32,
-    /// co-eluting b and y ions, short, mid and long; mid b ions are left out
-    pub num_over_50_b_short: f32,
-    pub num_over_50_b_long: f32,
-    pub num_over_50_y_short: f32,
-    pub num_over_50_y_mid: f32,
-    pub num_over_50_y_long: f32,
-    /// co-eluting doubly charged fragments
-    pub num_over_50_z2: f32,
-    /// share of the library intensity in co-eluting fragments
-    pub lib_share_over_50: f32,
-    /// fragment correlations averaged with the library intensity shares as weights
-    pub xic_libweighted: f32,
-    /// fragment correlations averaged with the observed intensity shares as weights
-    pub xic_obsweighted: f32,
+feature_block! {
+    /// The ion-coverage features of one candidate.
+    pub struct IonCoverageFeatures {
+        /// mean ion number relative to the peptide length over the co-eluting fragments
+        pub ion_position_mean: f32,
+        /// share of the observed fragment intensity in short ions
+        pub short_ion_intensity_share: f32,
+        /// co-eluting b and y ions, short, mid and long; mid b ions are left out
+        pub num_over_50_b_short: f32,
+        pub num_over_50_b_long: f32,
+        pub num_over_50_y_short: f32,
+        pub num_over_50_y_mid: f32,
+        pub num_over_50_y_long: f32,
+        /// co-eluting doubly charged fragments
+        pub num_over_50_z2: f32,
+        /// share of the library intensity in co-eluting fragments
+        pub lib_share_over_50: f32,
+        /// fragment correlations averaged with the library intensity shares as weights
+        pub xic_libweighted: f32,
+        /// fragment correlations averaged with the observed intensity shares as weights
+        pub xic_obsweighted: f32,
+        /// surprise of the co-eluting fragments under the noise model, see `IonNoiseModel::fisher`. It needs all
+        /// scored candidates, so it is 0 until the noise model is fitted.
+        pub ion_fisher_lib: f32,
+    }
 }
 
 /// What the noise model needs of one scored fragment.

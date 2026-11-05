@@ -31,12 +31,13 @@ pub mod utils;
 pub mod varmodel_quantification;
 
 use crate::calibration::CalibrationEstimator;
-use crate::candidate::{CandidateCollection, CandidateFeatureCollection};
+use crate::candidate::CandidateCollection;
 use crate::dia_data::DIAData;
 use crate::fragment_competition::FragmentCompetition;
 use crate::intensity_drift::IntensityDriftCorrection;
 pub use crate::kernel::GaussianKernel;
 use crate::peak_group_quantification::{PeakGroupQuantification, QuantificationParameters};
+use crate::peak_group_scoring::features::CandidateFeatureCollection;
 use crate::peak_group_scoring::{PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;

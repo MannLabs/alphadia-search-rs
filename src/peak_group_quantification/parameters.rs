@@ -14,7 +14,8 @@ pub struct QuantificationParameters {
 
     /// How a flat background under the peak is removed from the summed fragment XIC:
     /// "none" (plain sum), "edges" (subtract the mean of the window's first and last cycle) or
-    /// "profile" (fit each XIC as a * median profile + b and report a * sum(profile))
+    /// "profile" (fit each XIC as a * median profile + b and report a * sum(profile)) or
+    /// "weighted" (profile-weighted sum: fit x = a * median profile without intercept, report a * sum(profile))
     #[pyo3(get, set)]
     pub background_subtraction: String,
 }
@@ -22,7 +23,13 @@ pub struct QuantificationParameters {
 pub const BACKGROUND_NONE: &str = "none";
 pub const BACKGROUND_EDGES: &str = "edges";
 pub const BACKGROUND_PROFILE: &str = "profile";
-const BACKGROUND_MODES: [&str; 3] = [BACKGROUND_NONE, BACKGROUND_EDGES, BACKGROUND_PROFILE];
+pub const BACKGROUND_WEIGHTED: &str = "weighted";
+const BACKGROUND_MODES: [&str; 4] = [
+    BACKGROUND_NONE,
+    BACKGROUND_EDGES,
+    BACKGROUND_PROFILE,
+    BACKGROUND_WEIGHTED,
+];
 
 #[pymethods]
 impl QuantificationParameters {

@@ -166,3 +166,34 @@ fn test_background_flat_profile_falls_back_to_sum() {
         vec![9.0]
     );
 }
+
+#[test]
+fn test_weighted_recovers_a_profile_shaped_signal() {
+    let profile = [0.1f32, 0.3, 1.0, 0.3, 0.1];
+    let xic = numpy::ndarray::Array2::from_shape_fn((1, 5), |(_, c)| 10.0 * profile[c]);
+    let got = background_corrected_intensities(&xic, &profile, "weighted")[0];
+    let expected = 10.0 * profile.iter().sum::<f32>();
+    assert!((got - expected).abs() < 1e-4, "{got} vs {expected}");
+}
+
+#[test]
+fn test_weighted_keeps_less_flat_background_than_the_sum() {
+    // a flat background of 5 alone: the plain sum keeps 5 per cycle, the weighted fit (sum p)^2 / sum p^2 cycles
+    let profile = [0.0f32, 0.25, 1.0, 0.25, 0.0];
+    let xic = array![[5.0f32, 5.0, 5.0, 5.0, 5.0]];
+    let got = background_corrected_intensities(&xic, &profile, "weighted")[0];
+    let sum: f32 = profile.iter().sum();
+    let square_sum: f32 = profile.iter().map(|p| p * p).sum();
+    assert!((got - 5.0 * sum * sum / square_sum).abs() < 1e-4);
+    assert!(got < 25.0);
+}
+
+#[test]
+fn test_weighted_empty_profile_falls_back_to_sum() {
+    let profile = [0.0f32; 5];
+    let xic = array![[1.0f32, 2.0, 3.0, 2.0, 1.0]];
+    assert_eq!(
+        background_corrected_intensities(&xic, &profile, "weighted"),
+        vec![9.0]
+    );
+}

@@ -23,7 +23,7 @@ use numpy::ndarray::{Array2, Axis};
 pub mod parameters;
 pub mod tests;
 pub use parameters::QuantificationParameters;
-use parameters::{BACKGROUND_EDGES, BACKGROUND_PROFILE};
+use parameters::{BACKGROUND_EDGES, BACKGROUND_PROFILE, BACKGROUND_WEIGHTED};
 
 /// Summed fragment intensities over the quantification window with a flat per-fragment background removed.
 ///
@@ -34,6 +34,10 @@ use parameters::{BACKGROUND_EDGES, BACKGROUND_PROFILE};
 /// - profile: least-squares fit x = a * profile + b per fragment against the precursor's median profile; the signal
 ///   is a * sum(profile), clipped at 0. Uses every cycle for the background estimate, unlike edges. Falls back to the
 ///   plain sum when the profile is flat.
+/// - weighted: least-squares fit x = a * profile per fragment without an intercept (a matched filter); the signal is
+///   a * sum(profile). Nothing is subtracted, so no estimated background adds noise; cycles far from the apex get
+///   little weight, so of a flat background only (sum p)^2 / sum p^2 cycles' worth is kept instead of the whole
+///   window. Falls back to the plain sum when the profile is empty.
 ///
 /// When every fragment clips at 0 the plain sums are returned: the quantified table is the base of the PSM output,
 /// so an all-zero precursor would lose its identification, not only its quantity.
@@ -73,6 +77,19 @@ pub fn background_corrected_intensities(
                         .map(|(x, p)| (x - mean) * (p - profile_mean))
                         .sum();
                     (covariance / profile_ss * profile_sum).max(0.0)
+                })
+                .collect()
+        }
+        BACKGROUND_WEIGHTED => {
+            let profile_sum: f32 = profile.iter().sum();
+            let profile_square_sum: f32 = profile.iter().map(|p| p * p).sum();
+            if profile_square_sum <= f32::EPSILON || profile_sum <= 0.0 {
+                return sums;
+            }
+            (0..num_fragments)
+                .map(|f| {
+                    let projection: f32 = xic.row(f).iter().zip(profile).map(|(x, p)| x * p).sum();
+                    (projection / profile_square_sum * profile_sum).max(0.0)
                 })
                 .collect()
         }

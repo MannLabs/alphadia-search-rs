@@ -1,5 +1,7 @@
 #[allow(unused_imports)]
-use super::{PeakGroupQuantification, QuantificationParameters};
+use super::{background_corrected_intensities, PeakGroupQuantification, QuantificationParameters};
+#[allow(unused_imports)]
+use numpy::ndarray::array;
 #[allow(unused_imports)]
 use pyo3::{
     types::{PyDict, PyDictMethods},
@@ -20,6 +22,7 @@ fn test_parameter_defaults() {
     // Verify all default values
     assert_eq!(params.tolerance_ppm, 7.0);
     assert_eq!(params.top_k_fragments, 10000);
+    assert_eq!(params.background_subtraction, "none");
 }
 
 #[test]
@@ -88,4 +91,67 @@ fn test_update_method_empty_dict() {
         assert_eq!(params.tolerance_ppm, original_tolerance);
         assert_eq!(params.top_k_fragments, original_fragments);
     });
+}
+
+#[test]
+fn test_update_background_subtraction() {
+    pyo3::Python::initialize();
+    Python::attach(|py| {
+        let mut params = QuantificationParameters::new();
+        let dict = PyDict::new(py);
+        dict.set_item("background_subtraction", "profile").unwrap();
+        params.update(&dict).unwrap();
+        assert_eq!(params.background_subtraction, "profile");
+
+        let bad = PyDict::new(py);
+        bad.set_item("background_subtraction", "median").unwrap();
+        assert!(params.update(&bad).is_err());
+        assert_eq!(params.background_subtraction, "profile");
+    });
+}
+
+#[test]
+fn test_background_none_is_plain_sum() {
+    let xic = array![[1.0f32, 3.0, 9.0, 3.0, 1.0], [2.0, 2.0, 2.0, 2.0, 2.0]];
+    let profile = [0.1f32, 0.3, 1.0, 0.3, 0.1];
+    assert_eq!(
+        background_corrected_intensities(&xic, &profile, "none"),
+        vec![17.0, 10.0]
+    );
+}
+
+#[test]
+fn test_background_removes_flat_offset() {
+    // signal 10 * profile on top of a flat background of 5 in every cycle
+    let profile = [0.0f32, 0.25, 1.0, 0.25, 0.0];
+    let signal: Vec<f32> = profile.iter().map(|p| 10.0 * p).collect();
+    let xic = numpy::ndarray::Array2::from_shape_fn((1, 5), |(_, c)| signal[c] + 5.0);
+    let expected = 10.0 * profile.iter().sum::<f32>();
+    for mode in ["edges", "profile"] {
+        let got = background_corrected_intensities(&xic, &profile, mode)[0];
+        assert!((got - expected).abs() < 1e-4, "{mode}: {got} vs {expected}");
+    }
+}
+
+#[test]
+fn test_background_pure_noise_is_clipped_at_zero() {
+    let profile = [0.0f32, 0.25, 1.0, 0.25, 0.0];
+    // anti-correlated with the profile: no signal
+    let xic = array![[6.0f32, 5.0, 2.0, 5.0, 6.0]];
+    for mode in ["edges", "profile"] {
+        assert_eq!(
+            background_corrected_intensities(&xic, &profile, mode)[0],
+            0.0
+        );
+    }
+}
+
+#[test]
+fn test_background_flat_profile_falls_back_to_sum() {
+    let profile = [1.0f32; 5];
+    let xic = array![[1.0f32, 2.0, 3.0, 2.0, 1.0]];
+    assert_eq!(
+        background_corrected_intensities(&xic, &profile, "profile"),
+        vec![9.0]
+    );
 }

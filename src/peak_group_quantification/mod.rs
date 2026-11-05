@@ -18,11 +18,64 @@ use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
 use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
-use numpy::ndarray::Axis;
+use numpy::ndarray::{Array2, Axis};
 
 pub mod parameters;
 pub mod tests;
 pub use parameters::QuantificationParameters;
+use parameters::{BACKGROUND_EDGES, BACKGROUND_PROFILE};
+
+/// Summed fragment intensities over the quantification window with a flat per-fragment background removed.
+///
+/// The window spans several peak widths, so a plain sum adds the background of every cycle; at low abundance that
+/// background dominates and ratios between runs are compressed towards 1.
+/// - edges: the background is the mean of the first and last cycle, where the peak has decayed; the sum of the
+///   background-corrected cycles, clipped at 0.
+/// - profile: least-squares fit x = a * profile + b per fragment against the precursor's median profile; the signal
+///   is a * sum(profile), clipped at 0. Uses every cycle for the background estimate, unlike edges. Falls back to the
+///   plain sum when the profile is flat.
+pub fn background_corrected_intensities(
+    xic: &Array2<f32>,
+    profile: &[f32],
+    mode: &str,
+) -> Vec<f32> {
+    let (num_fragments, num_cycles) = xic.dim();
+    let sums: Vec<f32> = xic.sum_axis(Axis(1)).to_vec();
+    if num_cycles == 0 {
+        return sums;
+    }
+    match mode {
+        BACKGROUND_EDGES => (0..num_fragments)
+            .map(|f| {
+                let row = xic.row(f);
+                let background = 0.5 * (row[0] + row[num_cycles - 1]);
+                row.iter().map(|x| x - background).sum::<f32>().max(0.0)
+            })
+            .collect(),
+        BACKGROUND_PROFILE => {
+            let n = num_cycles as f32;
+            let profile_sum: f32 = profile.iter().sum();
+            let profile_mean = profile_sum / n;
+            let profile_ss: f32 = profile.iter().map(|p| (p - profile_mean).powi(2)).sum();
+            if profile_ss <= f32::EPSILON || profile_sum <= 0.0 {
+                return sums;
+            }
+            (0..num_fragments)
+                .map(|f| {
+                    let row = xic.row(f);
+                    let mean = sums[f] / n;
+                    let covariance: f32 = row
+                        .iter()
+                        .zip(profile)
+                        .map(|(x, p)| (x - mean) * (p - profile_mean))
+                        .sum();
+                    (covariance / profile_ss * profile_sum).max(0.0)
+                })
+                .collect()
+        }
+        _ => sums,
+    }
+}
 
 #[pyclass]
 pub struct PeakGroupQuantification {
@@ -132,8 +185,11 @@ impl PeakGroupQuantification {
             fragment_correlation_observed[fragment_idx] = correlation;
         }
 
-        // Calculate observed intensities from the dense XIC observation (sum across cycles)
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
+        let observation_intensities = background_corrected_intensities(
+            &dense_xic_mz_obs.dense_xic,
+            &median_profile,
+            &self.params.background_subtraction,
+        );
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
@@ -151,7 +207,7 @@ impl PeakGroupQuantification {
             // data, we must clone to create new owned copies rather than trying to move from a borrowed value.
             fragment_mz_library: precursor.fragment_mz_library.clone(),
             fragment_mz: precursor.fragment_mz.clone(),
-            fragment_intensity: observation_intensities.to_vec(),
+            fragment_intensity: observation_intensities,
             fragment_cardinality: precursor.fragment_cardinality.clone(),
             fragment_charge: precursor.fragment_charge.clone(),
             fragment_loss_type: precursor.fragment_loss_type.clone(),

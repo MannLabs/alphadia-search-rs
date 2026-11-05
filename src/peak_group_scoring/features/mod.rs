@@ -2,45 +2,89 @@
 //! that `PeakGroupScoring::score` returns to Python.
 
 use numpy::{ndarray::Array1, IntoPyArray};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
+use crate::peak_group_scoring::calibration_only::CalibrationOnlyFeatures;
 use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
+use crate::peak_group_scoring::feature_set::FeatureSet;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 
 #[cfg(test)]
 mod tests;
 
-#[derive(Debug, Clone, Default, PartialEq)]
+/// The blocks that only one feature set scores.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SetSpecificFeatures {
+    Calibration(CalibrationOnlyFeatures),
+    Full {
+        ion_coverage: IonCoverageFeatures,
+        library_agreement: LibraryAgreementFeatures,
+    },
+}
+
+impl SetSpecificFeatures {
+    fn default_for(feature_set: FeatureSet) -> Self {
+        match feature_set {
+            FeatureSet::Calibration => Self::Calibration(CalibrationOnlyFeatures::default()),
+            FeatureSet::Full => Self::Full {
+                ion_coverage: IonCoverageFeatures::default(),
+                library_agreement: LibraryAgreementFeatures::default(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CandidateFeature {
     pub precursor_idx: usize,
     pub rank: usize,
     pub core: CoreFeatures,
-    pub ion_coverage: IonCoverageFeatures,
-    pub library_agreement: LibraryAgreementFeatures,
+    pub set_specific: SetSpecificFeatures,
 }
 
 impl CandidateFeature {
+    pub fn feature_set(&self) -> FeatureSet {
+        match self.set_specific {
+            SetSpecificFeatures::Calibration(_) => FeatureSet::Calibration,
+            SetSpecificFeatures::Full { .. } => FeatureSet::Full,
+        }
+    }
+
     /// Visits the blocks in column order. This is the only place that defines the order, so that the column names
     /// and the values of a candidate always line up.
     fn for_each_block(&self, mut visit: impl FnMut(&'static [&'static str], Vec<f32>)) {
         visit(CoreFeatures::NAMES, self.core.values());
-        visit(IonCoverageFeatures::NAMES, self.ion_coverage.values());
-        visit(
-            LibraryAgreementFeatures::NAMES,
-            self.library_agreement.values(),
-        );
+        match &self.set_specific {
+            SetSpecificFeatures::Calibration(calibration_only) => {
+                visit(CalibrationOnlyFeatures::NAMES, calibration_only.values());
+            }
+            SetSpecificFeatures::Full {
+                ion_coverage,
+                library_agreement,
+            } => {
+                visit(IonCoverageFeatures::NAMES, ion_coverage.values());
+                visit(LibraryAgreementFeatures::NAMES, library_agreement.values());
+            }
+        }
     }
 
-    pub fn feature_names() -> Vec<&'static str> {
+    pub fn feature_names(feature_set: FeatureSet) -> Vec<&'static str> {
+        let empty = Self {
+            precursor_idx: 0,
+            rank: 0,
+            core: CoreFeatures::default(),
+            set_specific: SetSpecificFeatures::default_for(feature_set),
+        };
         let mut names = Vec::new();
-        Self::default().for_each_block(|block_names, _| names.extend_from_slice(block_names));
+        empty.for_each_block(|block_names, _| names.extend_from_slice(block_names));
         names
     }
 
-    /// Feature values in the order of `feature_names`
+    /// Feature values in the order of `feature_names(self.feature_set())`
     pub fn values(&self) -> Vec<f32> {
         let mut values = Vec::new();
         self.for_each_block(|_, block_values| values.extend(block_values));
@@ -50,24 +94,12 @@ impl CandidateFeature {
 
 #[pyclass]
 pub struct CandidateFeatureCollection {
+    feature_set: FeatureSet,
     features: Vec<CandidateFeature>,
-}
-
-impl Default for CandidateFeatureCollection {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 #[pymethods]
 impl CandidateFeatureCollection {
-    #[new]
-    pub fn new() -> Self {
-        Self {
-            features: Vec::new(),
-        }
-    }
-
     pub fn len(&self) -> usize {
         self.features.len()
     }
@@ -76,8 +108,13 @@ impl CandidateFeatureCollection {
         self.features.is_empty()
     }
 
+    #[getter]
+    pub fn feature_set(&self) -> FeatureSet {
+        self.feature_set
+    }
+
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let names = CandidateFeature::feature_names();
+        let names = CandidateFeature::feature_names(self.feature_set);
         let n = self.features.len();
 
         let mut precursor_idxs = Array1::<u64>::zeros(n);
@@ -102,8 +139,8 @@ impl CandidateFeatureCollection {
     }
 
     #[staticmethod]
-    pub fn get_feature_names() -> Vec<String> {
-        CandidateFeature::feature_names()
+    pub fn get_feature_names(feature_set: FeatureSet) -> Vec<String> {
+        CandidateFeature::feature_names(feature_set)
             .iter()
             .map(|s| s.to_string())
             .collect()
@@ -111,8 +148,21 @@ impl CandidateFeatureCollection {
 }
 
 impl CandidateFeatureCollection {
-    pub fn from_vec(features: Vec<CandidateFeature>) -> Self {
-        Self { features }
+    /// Every feature must be of `feature_set`, so that it fills every column.
+    pub fn from_vec(feature_set: FeatureSet, features: Vec<CandidateFeature>) -> PyResult<Self> {
+        if let Some(feature) = features.iter().find(|f| f.feature_set() != feature_set) {
+            return Err(PyValueError::new_err(format!(
+                "Candidate with precursor_idx {} and rank {} is scored with {:?}, not with {:?}",
+                feature.precursor_idx,
+                feature.rank,
+                feature.feature_set(),
+                feature_set
+            )));
+        }
+        Ok(Self {
+            feature_set,
+            features,
+        })
     }
 
     pub fn iter(&self) -> std::slice::Iter<'_, CandidateFeature> {

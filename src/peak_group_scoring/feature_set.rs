@@ -8,8 +8,8 @@ use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 
-#[pyclass(eq, eq_int, from_py_object)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[pyclass(eq, eq_int, hash, frozen, from_py_object)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FeatureSet {
     Full,
     Calibration,

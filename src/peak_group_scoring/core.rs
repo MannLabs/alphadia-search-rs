@@ -42,7 +42,7 @@ feature_block! {
         pub weighted_mass_error: f32,
         pub log10_b_ion_intensity: f32,
         pub log10_y_ion_intensity: f32,
-        /// not used by the final-round classifier of alphaDIA, but reported as the peak width of the precursor
+        /// reported as the peak width of the precursor
         pub fwhm_rt: f32,
         /// sum of the median of the normalized XICs
         pub median_profile_sum: f32,

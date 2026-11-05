@@ -23,7 +23,6 @@ impl ScoringParameters {
             mass_tolerance: 7.0,
             // maximum number of fragments to use for scoring per precursor. depends on the number of fragments in the precursor.
             top_k_fragments: 100,
-            // the features scored for each candidate; see `FeatureSet`
             feature_set: FeatureSet::Full,
         }
     }

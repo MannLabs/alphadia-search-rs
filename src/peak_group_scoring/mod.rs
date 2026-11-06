@@ -6,7 +6,7 @@ use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
 use crate::constants::FragmentType;
-use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
@@ -25,6 +25,7 @@ use numpy::ndarray::Axis;
 
 pub mod ms1;
 pub mod parameters;
+pub mod shadow;
 pub mod tests;
 pub mod utils;
 pub use parameters::ScoringParameters;
@@ -356,6 +357,23 @@ impl PeakGroupScoring {
             _ => ms1::Ms1Features::missing(),
         };
 
+        let shadow_xic = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            &shadow::shadow_mz(&precursor.fragment_mz),
+        );
+        let shadow_features = shadow::shadow_features(
+            &dense_xic_mz_obs.dense_xic,
+            &shadow_xic.dense_xic,
+            &median_profile_filtered,
+            &correlations,
+            &precursor.fragment_intensity,
+            &precursor.fragment_mz,
+        );
+
         // Create and return candidate feature
         Some(
             CandidateFeature::new(
@@ -413,7 +431,8 @@ impl PeakGroupScoring {
                 complementary_pairs,
                 lib_cosine_coherent,
             )
-            .with_ms1(&ms1_features),
+            .with_ms1(&ms1_features)
+            .with_shadow(&shadow_features),
         )
     }
 }

@@ -63,6 +63,9 @@ pub const FEATURE_NAMES: &[&str] = &[
     "ms1_frag_corr",
     "ms1_iso_m1_err",
     "ms1_ppm_signed",
+    "shadow_lib_share",
+    "shadow_clean_libw_corr",
+    "shadow_corr_sum6",
 ];
 
 #[derive(Debug, Clone)]
@@ -128,6 +131,9 @@ pub struct CandidateFeature {
     pub ms1_frag_corr: f32,
     pub ms1_iso_m1_err: f32,
     pub ms1_ppm_signed: f32,
+    pub shadow_lib_share: f32,
+    pub shadow_clean_libw_corr: f32,
+    pub shadow_corr_sum6: f32,
 }
 
 impl CandidateFeature {
@@ -249,6 +255,9 @@ impl CandidateFeature {
             ms1_frag_corr: 0.0,
             ms1_iso_m1_err: 0.0,
             ms1_ppm_signed: 0.0,
+            shadow_lib_share: 0.0,
+            shadow_clean_libw_corr: 0.0,
+            shadow_corr_sum6: 0.0,
         }
     }
 
@@ -262,6 +271,17 @@ impl CandidateFeature {
         self.ms1_frag_corr = ms1.ms1_frag_corr;
         self.ms1_iso_m1_err = ms1.ms1_iso_m1_err;
         self.ms1_ppm_signed = ms1.ms1_ppm_signed;
+        self
+    }
+
+    /// The candidate with its fragment M-1 shadow features set.
+    pub fn with_shadow(
+        mut self,
+        shadow: &crate::peak_group_scoring::shadow::ShadowFeatures,
+    ) -> Self {
+        self.shadow_lib_share = shadow.shadow_lib_share;
+        self.shadow_clean_libw_corr = shadow.shadow_clean_libw_corr;
+        self.shadow_corr_sum6 = shadow.shadow_corr_sum6;
         self
     }
 }
@@ -358,6 +378,9 @@ impl CandidateFeatureCollection {
         let mut ms1_frag_corr = Array1::<f32>::zeros(n);
         let mut ms1_iso_m1_err = Array1::<f32>::zeros(n);
         let mut ms1_ppm_signed = Array1::<f32>::zeros(n);
+        let mut shadow_lib_share = Array1::<f32>::zeros(n);
+        let mut shadow_clean_libw_corr = Array1::<f32>::zeros(n);
+        let mut shadow_corr_sum6 = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -421,6 +444,9 @@ impl CandidateFeatureCollection {
             ms1_frag_corr[i] = feature.ms1_frag_corr;
             ms1_iso_m1_err[i] = feature.ms1_iso_m1_err;
             ms1_ppm_signed[i] = feature.ms1_ppm_signed;
+            shadow_lib_share[i] = feature.shadow_lib_share;
+            shadow_clean_libw_corr[i] = feature.shadow_clean_libw_corr;
+            shadow_corr_sum6[i] = feature.shadow_corr_sum6;
         }
 
         let dict = PyDict::new(py);
@@ -549,6 +575,12 @@ impl CandidateFeatureCollection {
         dict.set_item("ms1_frag_corr", ms1_frag_corr.into_pyarray(py))?;
         dict.set_item("ms1_iso_m1_err", ms1_iso_m1_err.into_pyarray(py))?;
         dict.set_item("ms1_ppm_signed", ms1_ppm_signed.into_pyarray(py))?;
+        dict.set_item("shadow_lib_share", shadow_lib_share.into_pyarray(py))?;
+        dict.set_item(
+            "shadow_clean_libw_corr",
+            shadow_clean_libw_corr.into_pyarray(py),
+        )?;
+        dict.set_item("shadow_corr_sum6", shadow_corr_sum6.into_pyarray(py))?;
 
         Ok(dict.into())
     }

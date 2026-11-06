@@ -15,7 +15,7 @@ use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::utils::{
     calculate_fragment_mz_and_errors, calculate_median, calculate_std,
     calculate_weighted_mean_absolute_error, count_values_above, create_ranked_mask,
@@ -24,6 +24,7 @@ use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
 pub mod ms1;
+pub mod nf;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
@@ -334,7 +335,8 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
-        let ms1_features = match lib.get_isotopes_by_idx(candidate.precursor_idx) {
+        let isotopes = lib.get_isotopes_by_idx(candidate.precursor_idx);
+        let ms1_features = match isotopes {
             Some((charge, ms1_mz, isotope_intensity)) if !ms1_observations.is_empty() => {
                 let isotope_mz = ms1::isotope_mz(ms1_mz, charge, isotope_intensity.len());
                 let ms1_xic = DenseXICMZObservation::from_observations(
@@ -355,6 +357,52 @@ impl PeakGroupScoring {
             }
             _ => ms1::Ms1Features::missing(),
         };
+
+        // The NF traces are read in the observations the fragments came from, which hold the precursor's own m/z
+        let nf_mz = nf::ms2_calibrated_mz(
+            precursor.mz_library,
+            &precursor.fragment_mz,
+            &precursor.fragment_mz_library,
+        );
+        let nf_observations = &dense_xic_mz_obs.contributing_obs_indices;
+        let nf_xic = DenseXICMZObservation::from_observations(
+            dia_data,
+            nf_observations.clone(),
+            cycle_start_idx,
+            cycle_stop_idx,
+            mass_tolerance,
+            &[nf_mz],
+        );
+        // The charge is only known once the isotopes are set (final round); M+1 counts only where it was co-isolated
+        let nf1_xic = isotopes.and_then(|(charge, _, _)| {
+            let window_mz = nf::m1_mz(precursor.mz, charge);
+            let observations: Vec<usize> = nf_observations
+                .iter()
+                .copied()
+                .filter(|&obs_idx| {
+                    let window = dia_data.quadrupole_observations()[obs_idx].isolation_window();
+                    window[0] <= window_mz && window[1] >= window_mz
+                })
+                .collect();
+            (!observations.is_empty()).then(|| {
+                DenseXICMZObservation::from_observations(
+                    dia_data,
+                    observations,
+                    cycle_start_idx,
+                    cycle_stop_idx,
+                    mass_tolerance,
+                    &[nf::m1_mz(nf_mz, charge)],
+                )
+            })
+        });
+        let nf_trace = nf_xic.dense_xic.row(0).to_vec();
+        let nf1_trace = nf1_xic.map(|xic| xic.dense_xic.row(0).to_vec());
+        let nf_features = nf::nf_features(
+            &nf_trace,
+            nf1_trace.as_deref(),
+            &dense_xic_mz_obs.dense_xic,
+            &median_profile_filtered,
+        );
 
         // Create and return candidate feature
         Some(
@@ -413,7 +461,8 @@ impl PeakGroupScoring {
                 complementary_pairs,
                 lib_cosine_coherent,
             )
-            .with_ms1(&ms1_features),
+            .with_ms1(&ms1_features)
+            .with_nf(&nf_features),
         )
     }
 }

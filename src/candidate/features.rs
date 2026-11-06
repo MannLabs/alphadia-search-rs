@@ -63,6 +63,10 @@ pub const FEATURE_NAMES: &[&str] = &[
     "ms1_frag_corr",
     "ms1_iso_m1_err",
     "ms1_ppm_signed",
+    "nf_corr",
+    "nf_log_ratio",
+    "nf_present",
+    "nf_iso_corr",
 ];
 
 #[derive(Debug, Clone)]
@@ -128,6 +132,10 @@ pub struct CandidateFeature {
     pub ms1_frag_corr: f32,
     pub ms1_iso_m1_err: f32,
     pub ms1_ppm_signed: f32,
+    pub nf_corr: f32,
+    pub nf_log_ratio: f32,
+    pub nf_present: f32,
+    pub nf_iso_corr: f32,
 }
 
 impl CandidateFeature {
@@ -249,6 +257,10 @@ impl CandidateFeature {
             ms1_frag_corr: 0.0,
             ms1_iso_m1_err: 0.0,
             ms1_ppm_signed: 0.0,
+            nf_corr: 0.0,
+            nf_log_ratio: 0.0,
+            nf_present: 0.0,
+            nf_iso_corr: 0.0,
         }
     }
 
@@ -262,6 +274,15 @@ impl CandidateFeature {
         self.ms1_frag_corr = ms1.ms1_frag_corr;
         self.ms1_iso_m1_err = ms1.ms1_iso_m1_err;
         self.ms1_ppm_signed = ms1.ms1_ppm_signed;
+        self
+    }
+
+    /// The candidate with its unfragmented-precursor features set.
+    pub fn with_nf(mut self, nf: &crate::peak_group_scoring::nf::NfFeatures) -> Self {
+        self.nf_corr = nf.nf_corr;
+        self.nf_log_ratio = nf.nf_log_ratio;
+        self.nf_present = nf.nf_present;
+        self.nf_iso_corr = nf.nf_iso_corr;
         self
     }
 }
@@ -358,6 +379,10 @@ impl CandidateFeatureCollection {
         let mut ms1_frag_corr = Array1::<f32>::zeros(n);
         let mut ms1_iso_m1_err = Array1::<f32>::zeros(n);
         let mut ms1_ppm_signed = Array1::<f32>::zeros(n);
+        let mut nf_corr = Array1::<f32>::zeros(n);
+        let mut nf_log_ratio = Array1::<f32>::zeros(n);
+        let mut nf_present = Array1::<f32>::zeros(n);
+        let mut nf_iso_corr = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -421,6 +446,10 @@ impl CandidateFeatureCollection {
             ms1_frag_corr[i] = feature.ms1_frag_corr;
             ms1_iso_m1_err[i] = feature.ms1_iso_m1_err;
             ms1_ppm_signed[i] = feature.ms1_ppm_signed;
+            nf_corr[i] = feature.nf_corr;
+            nf_log_ratio[i] = feature.nf_log_ratio;
+            nf_present[i] = feature.nf_present;
+            nf_iso_corr[i] = feature.nf_iso_corr;
         }
 
         let dict = PyDict::new(py);
@@ -549,6 +578,10 @@ impl CandidateFeatureCollection {
         dict.set_item("ms1_frag_corr", ms1_frag_corr.into_pyarray(py))?;
         dict.set_item("ms1_iso_m1_err", ms1_iso_m1_err.into_pyarray(py))?;
         dict.set_item("ms1_ppm_signed", ms1_ppm_signed.into_pyarray(py))?;
+        dict.set_item("nf_corr", nf_corr.into_pyarray(py))?;
+        dict.set_item("nf_log_ratio", nf_log_ratio.into_pyarray(py))?;
+        dict.set_item("nf_present", nf_present.into_pyarray(py))?;
+        dict.set_item("nf_iso_corr", nf_iso_corr.into_pyarray(py))?;
 
         Ok(dict.into())
     }

@@ -6,7 +6,7 @@ use crate::candidate::{
     Candidate, CandidateCollection, CandidateFeature, CandidateFeatureCollection,
 };
 use crate::constants::FragmentType;
-use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
@@ -23,11 +23,15 @@ use crate::utils::{
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
+pub mod detection;
 pub mod ms1;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
 pub use parameters::ScoringParameters;
+
+/// Candidates sampled to estimate the run-wide flank hit rate of the detection features.
+const DETECTION_PRIOR_SAMPLE: usize = 20_000;
 
 #[pyclass]
 #[allow(dead_code)]
@@ -62,6 +66,7 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
         let ms1_observations = dia_data.ms1_observations();
+        let detection_prior = self.detection_prior(dia_data, lib, candidates);
 
         // Parallel iteration over candidates to score each one
         let scored_candidates: Vec<CandidateFeature> = candidates
@@ -80,6 +85,7 @@ impl PeakGroupScoring {
                         &precursor,
                         candidate,
                         &ms1_observations,
+                        detection_prior,
                     ),
                     None => {
                         eprintln!(
@@ -108,6 +114,49 @@ impl PeakGroupScoring {
         feature_collection
     }
 
+    /// The run's mean flank hit rate of a fragment channel, over a sample of the candidates (targets and decoys alike).
+    fn detection_prior<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> f32 {
+        let num_cycles = dia_data.rt_index().rt.len();
+        let step = (candidates.len() / DETECTION_PRIOR_SAMPLE).max(1);
+        let sample: Vec<&Candidate> = candidates.iter().step_by(step).collect();
+        let (hits, scans) = sample
+            .par_iter()
+            .filter_map(|candidate| {
+                let precursor = lib.get_precursor_by_idx_filtered(
+                    candidate.precursor_idx,
+                    true,
+                    true,
+                    self.params.top_k_fragments,
+                )?;
+                let (start, stop) = detection::window(candidate.cycle_center, num_cycles);
+                let xic = DenseXICObservation::new(
+                    dia_data,
+                    precursor.mz,
+                    start,
+                    stop,
+                    self.params.mass_tolerance,
+                    &precursor.fragment_mz,
+                );
+                let (flank_hits, flank_scans) =
+                    detection::flank_counts(&xic.dense_xic, candidate.cycle_center - start);
+                Some((
+                    flank_hits.iter().map(|&h| h as u64).sum::<u64>(),
+                    flank_scans as u64 * flank_hits.len() as u64,
+                ))
+            })
+            .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
+        if scans == 0 {
+            0.0
+        } else {
+            hits as f32 / scans as f32
+        }
+    }
+
     /// Generic candidate scoring function that works with any type implementing DIADataTrait
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
@@ -116,6 +165,7 @@ impl PeakGroupScoring {
         precursor: &Precursor,
         candidate: &Candidate,
         ms1_observations: &[usize],
+        detection_prior: f32,
     ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
@@ -356,6 +406,24 @@ impl PeakGroupScoring {
             _ => ms1::Ms1Features::missing(),
         };
 
+        let num_cycles = dia_data.rt_index().rt.len();
+        let (detection_start, detection_stop) =
+            detection::window(candidate.cycle_center, num_cycles);
+        let detection_xic = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            detection_start,
+            detection_stop,
+            mass_tolerance,
+            &precursor.fragment_mz,
+        );
+        let detection_features = detection::detection_features(
+            &detection_xic.dense_xic,
+            candidate.cycle_center - detection_start,
+            &precursor.fragment_intensity,
+            detection_prior,
+        );
+
         // Create and return candidate feature
         Some(
             CandidateFeature::new(
@@ -413,7 +481,8 @@ impl PeakGroupScoring {
                 complementary_pairs,
                 lib_cosine_coherent,
             )
-            .with_ms1(&ms1_features),
+            .with_ms1(&ms1_features)
+            .with_detection(&detection_features),
         )
     }
 }

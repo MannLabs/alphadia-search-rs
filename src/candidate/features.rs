@@ -63,6 +63,11 @@ pub const FEATURE_NAMES: &[&str] = &[
     "ms1_frag_corr",
     "ms1_iso_m1_err",
     "ms1_ppm_signed",
+    "ms1_fine_frag_corr",
+    "ms1_fine_shape",
+    "ms1_fine_apex_shift",
+    "ms1_fine_iso_corr",
+    "ms1_fine_n_points",
 ];
 
 #[derive(Debug, Clone)]
@@ -128,6 +133,11 @@ pub struct CandidateFeature {
     pub ms1_frag_corr: f32,
     pub ms1_iso_m1_err: f32,
     pub ms1_ppm_signed: f32,
+    pub ms1_fine_frag_corr: f32,
+    pub ms1_fine_shape: f32,
+    pub ms1_fine_apex_shift: f32,
+    pub ms1_fine_iso_corr: f32,
+    pub ms1_fine_n_points: f32,
 }
 
 impl CandidateFeature {
@@ -249,6 +259,11 @@ impl CandidateFeature {
             ms1_frag_corr: 0.0,
             ms1_iso_m1_err: 0.0,
             ms1_ppm_signed: 0.0,
+            ms1_fine_frag_corr: 0.0,
+            ms1_fine_shape: 0.0,
+            ms1_fine_apex_shift: 0.0,
+            ms1_fine_iso_corr: 0.0,
+            ms1_fine_n_points: 0.0,
         }
     }
 
@@ -262,6 +277,19 @@ impl CandidateFeature {
         self.ms1_frag_corr = ms1.ms1_frag_corr;
         self.ms1_iso_m1_err = ms1.ms1_iso_m1_err;
         self.ms1_ppm_signed = ms1.ms1_ppm_signed;
+        self
+    }
+
+    /// The candidate with its MS1 features at the MS1 scans' own times set.
+    pub fn with_ms1_fine(
+        mut self,
+        fine: &crate::peak_group_scoring::ms1_fine::Ms1FineFeatures,
+    ) -> Self {
+        self.ms1_fine_frag_corr = fine.ms1_fine_frag_corr;
+        self.ms1_fine_shape = fine.ms1_fine_shape;
+        self.ms1_fine_apex_shift = fine.ms1_fine_apex_shift;
+        self.ms1_fine_iso_corr = fine.ms1_fine_iso_corr;
+        self.ms1_fine_n_points = fine.ms1_fine_n_points;
         self
     }
 }
@@ -358,6 +386,11 @@ impl CandidateFeatureCollection {
         let mut ms1_frag_corr = Array1::<f32>::zeros(n);
         let mut ms1_iso_m1_err = Array1::<f32>::zeros(n);
         let mut ms1_ppm_signed = Array1::<f32>::zeros(n);
+        let mut ms1_fine_frag_corr = Array1::<f32>::zeros(n);
+        let mut ms1_fine_shape = Array1::<f32>::zeros(n);
+        let mut ms1_fine_apex_shift = Array1::<f32>::zeros(n);
+        let mut ms1_fine_iso_corr = Array1::<f32>::zeros(n);
+        let mut ms1_fine_n_points = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -421,6 +454,11 @@ impl CandidateFeatureCollection {
             ms1_frag_corr[i] = feature.ms1_frag_corr;
             ms1_iso_m1_err[i] = feature.ms1_iso_m1_err;
             ms1_ppm_signed[i] = feature.ms1_ppm_signed;
+            ms1_fine_frag_corr[i] = feature.ms1_fine_frag_corr;
+            ms1_fine_shape[i] = feature.ms1_fine_shape;
+            ms1_fine_apex_shift[i] = feature.ms1_fine_apex_shift;
+            ms1_fine_iso_corr[i] = feature.ms1_fine_iso_corr;
+            ms1_fine_n_points[i] = feature.ms1_fine_n_points;
         }
 
         let dict = PyDict::new(py);
@@ -549,6 +587,11 @@ impl CandidateFeatureCollection {
         dict.set_item("ms1_frag_corr", ms1_frag_corr.into_pyarray(py))?;
         dict.set_item("ms1_iso_m1_err", ms1_iso_m1_err.into_pyarray(py))?;
         dict.set_item("ms1_ppm_signed", ms1_ppm_signed.into_pyarray(py))?;
+        dict.set_item("ms1_fine_frag_corr", ms1_fine_frag_corr.into_pyarray(py))?;
+        dict.set_item("ms1_fine_shape", ms1_fine_shape.into_pyarray(py))?;
+        dict.set_item("ms1_fine_apex_shift", ms1_fine_apex_shift.into_pyarray(py))?;
+        dict.set_item("ms1_fine_iso_corr", ms1_fine_iso_corr.into_pyarray(py))?;
+        dict.set_item("ms1_fine_n_points", ms1_fine_n_points.into_pyarray(py))?;
 
         Ok(dict.into())
     }

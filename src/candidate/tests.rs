@@ -6,8 +6,8 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (51 MS2 + 8 MS1)
-    assert_eq!(feature_names.len(), 59);
+    // Verify we have the expected number of f32 features (51 MS2 + 8 MS1 + 5 MS1 at the scans' own times)
+    assert_eq!(feature_names.len(), 64);
     assert!(feature_names.contains(&"long_ion_intensity_share".to_string()));
     for name in [
         "ms1_iso_cosine",
@@ -18,6 +18,11 @@ fn test_get_feature_names() {
         "ms1_frag_corr",
         "ms1_iso_m1_err",
         "ms1_ppm_signed",
+        "ms1_fine_frag_corr",
+        "ms1_fine_shape",
+        "ms1_fine_apex_shift",
+        "ms1_fine_iso_corr",
+        "ms1_fine_n_points",
     ] {
         assert!(feature_names.contains(&name.to_string()));
     }

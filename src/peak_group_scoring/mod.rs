@@ -24,6 +24,7 @@ use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
 pub mod ms1;
+pub mod ms1_fine;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
@@ -62,6 +63,8 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
         let ms1_observations = dia_data.ms1_observations();
+        // observations are built per position in the DIA cycle, so an observation's index is its position
+        let cycle_length = dia_data.quadrupole_observations().len().max(1) as f32;
 
         // Parallel iteration over candidates to score each one
         let scored_candidates: Vec<CandidateFeature> = candidates
@@ -80,6 +83,7 @@ impl PeakGroupScoring {
                         &precursor,
                         candidate,
                         &ms1_observations,
+                        cycle_length,
                     ),
                     None => {
                         eprintln!(
@@ -116,6 +120,7 @@ impl PeakGroupScoring {
         precursor: &Precursor,
         candidate: &Candidate,
         ms1_observations: &[usize],
+        cycle_length: f32,
     ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
@@ -334,7 +339,57 @@ impl PeakGroupScoring {
         let num_over_0_top6_idf = count_values_above(&correlations, 0.0, Some(&mask_top6_idf));
         let num_over_50_top6_idf = count_values_above(&correlations, 0.50, Some(&mask_top6_idf));
 
-        let ms1_features = match lib.get_isotopes_by_idx(candidate.precursor_idx) {
+        let isotopes = lib.get_isotopes_by_idx(candidate.precursor_idx);
+        let ms1_fine_features = match isotopes {
+            Some((charge, ms1_mz, isotope_intensity))
+                if !ms1_observations.is_empty() && !isotope_intensity.is_empty() =>
+            {
+                let traces = [ms1_mz, ms1_mz + ms1::C13_MASS_DELTA / charge.max(1) as f32];
+                let n_cycles = cycle_stop_idx - cycle_start_idx;
+                let mut m0 =
+                    numpy::ndarray::Array2::<f32>::zeros((ms1_observations.len(), n_cycles));
+                let mut m1 = m0.clone();
+                for (j, &obs) in ms1_observations.iter().enumerate() {
+                    let xic = DenseXICMZObservation::from_observations(
+                        dia_data,
+                        vec![obs],
+                        cycle_start_idx,
+                        cycle_stop_idx,
+                        self.params.ms1_mass_tolerance,
+                        &traces,
+                    );
+                    m0.row_mut(j).assign(&xic.dense_xic.row(0));
+                    m1.row_mut(j).assign(&xic.dense_xic.row(1));
+                }
+                let ms1_position: Vec<f32> = ms1_observations
+                    .iter()
+                    .map(|&obs| obs as f32 / cycle_length)
+                    .collect();
+                let windows = &dense_xic_mz_obs.contributing_obs_indices;
+                let fragment_position = if windows.is_empty() {
+                    0.0
+                } else {
+                    windows.iter().sum::<usize>() as f32 / windows.len() as f32 / cycle_length
+                };
+                let cycle_rt = dia_data
+                    .rt_index()
+                    .rt
+                    .slice(numpy::ndarray::s![cycle_start_idx..cycle_stop_idx])
+                    .to_vec();
+                ms1_fine::ms1_fine_features(
+                    &m0,
+                    &m1,
+                    &ms1_position,
+                    &cycle_rt,
+                    fragment_position,
+                    &median_profile_filtered,
+                    fwhm_rt,
+                )
+            }
+            _ => ms1_fine::Ms1FineFeatures::missing(),
+        };
+
+        let ms1_features = match isotopes {
             Some((charge, ms1_mz, isotope_intensity)) if !ms1_observations.is_empty() => {
                 let isotope_mz = ms1::isotope_mz(ms1_mz, charge, isotope_intensity.len());
                 let ms1_xic = DenseXICMZObservation::from_observations(
@@ -413,7 +468,8 @@ impl PeakGroupScoring {
                 complementary_pairs,
                 lib_cosine_coherent,
             )
-            .with_ms1(&ms1_features),
+            .with_ms1(&ms1_features)
+            .with_ms1_fine(&ms1_fine_features),
         )
     }
 }

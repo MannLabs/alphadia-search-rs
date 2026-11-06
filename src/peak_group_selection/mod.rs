@@ -35,6 +35,29 @@ fn candidate_cycle_limits(
 /// Finds local maxima in a 1D array.
 /// A local maximum is a point strictly higher than its direct neighbours on both sides.
 /// Returns a tuple of two vectors: (indices, values) sorted by value in descending order.
+/// Library-intensity share and number of the fragments with raw signal within one cycle of `apex_col`.
+///
+/// Unlike the selection score, it does not scale with intensity: a faint peptide with most of its fragments present at
+/// the apex scores like a bright one.
+pub fn detection_at_apex(
+    xic: &numpy::ndarray::Array2<f32>,
+    apex_col: usize,
+    library_intensity: &[f32],
+) -> (f32, f32) {
+    let start = apex_col.saturating_sub(1);
+    let stop = (apex_col + 2).min(xic.ncols());
+    let total: f32 = library_intensity.iter().sum();
+    let mut share = 0.0f32;
+    let mut count = 0.0f32;
+    for (f, &intensity) in library_intensity.iter().enumerate().take(xic.nrows()) {
+        if (start..stop).any(|c| xic[[f, c]] > 0.0) {
+            share += intensity;
+            count += 1.0;
+        }
+    }
+    (if total > 0.0 { share / total } else { 0.0 }, count)
+}
+
 fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32>) {
     let mut indices = Vec::new();
     let mut values = Vec::new();
@@ -190,6 +213,11 @@ impl PeakGroupSelection {
                 dia_data.rt_index().len(),
             );
 
+            let (det_share, n_detected) = detection_at_apex(
+                &dense_xic_obs.dense_xic,
+                cycle_center_idx - dense_xic_obs.cycle_start_idx,
+                &precursor.fragment_intensity,
+            );
             let candidate = Candidate::new(
                 precursor.precursor_idx,
                 i,
@@ -197,7 +225,8 @@ impl PeakGroupSelection {
                 cycle_start_idx,
                 cycle_center_idx,
                 cycle_stop_idx,
-            );
+            )
+            .with_selection_features(det_share, n_detected);
 
             candidates.push(candidate);
         }

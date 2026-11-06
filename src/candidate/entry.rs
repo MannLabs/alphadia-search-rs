@@ -1,5 +1,6 @@
 use numpy::{ndarray::Array1, IntoPyArray};
 use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyDictMethods};
 use rayon::prelude::*;
 
 #[derive(Debug)]
@@ -13,6 +14,10 @@ pub struct Candidate {
     pub cycle_center: usize,
     pub cycle_start: usize,
     pub cycle_stop: usize,
+    /// Library-intensity share of the fragments with raw signal at the apex cycle or its neighbours (selection)
+    pub det_share: f32,
+    /// Number of fragments with raw signal at the apex cycle or its neighbours (selection)
+    pub n_detected: f32,
 }
 
 impl Candidate {
@@ -34,7 +39,16 @@ impl Candidate {
             cycle_start,
             cycle_center,
             cycle_stop,
+            det_share: 0.0,
+            n_detected: 0.0,
         }
+    }
+
+    /// The candidate with the detection features of its selection set.
+    pub fn with_selection_features(mut self, det_share: f32, n_detected: f32) -> Self {
+        self.det_share = det_share;
+        self.n_detected = n_detected;
+        self
     }
 }
 
@@ -113,10 +127,22 @@ impl CandidateCollection {
                 cycle_center: cycle_center[i] as usize,
                 cycle_start: cycle_start[i] as usize,
                 cycle_stop: cycle_stop[i] as usize,
+                det_share: 0.0,
+                n_detected: 0.0,
             });
         }
 
         Ok(Self { candidates })
+    }
+
+    /// The detection features computed at selection, by name, in the order of `to_arrays`.
+    pub fn selection_feature_arrays(&self, py: Python) -> PyResult<Py<PyDict>> {
+        let det_share: Array1<f32> = self.candidates.iter().map(|c| c.det_share).collect();
+        let n_detected: Array1<f32> = self.candidates.iter().map(|c| c.n_detected).collect();
+        let dict = PyDict::new(py);
+        dict.set_item("selection_det_share", det_share.into_pyarray(py))?;
+        dict.set_item("selection_n_detected", n_detected.into_pyarray(py))?;
+        Ok(dict.into())
     }
 
     /// Convert the collection to separate arrays for all fields

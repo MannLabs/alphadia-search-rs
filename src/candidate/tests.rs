@@ -76,6 +76,8 @@ fn test_candidate_collection_to_arrays_dtypes_and_order() {
         cycle_center: 201,
         cycle_start: 200,
         cycle_stop: 202,
+        det_share: 0.0,
+        n_detected: 0.0,
     };
     let collection = CandidateCollection::from_vec(vec![candidate]);
 

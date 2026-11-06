@@ -126,3 +126,21 @@ fn test_candidate_cycle_limits_apex_near_run_end() {
 fn test_candidate_cycle_limits_interior() {
     assert_eq!(candidate_cycle_limits(50, 5, 100), (45, 56));
 }
+
+#[test]
+fn detection_at_apex_counts_fragments_with_signal_next_to_the_apex() {
+    use super::detection_at_apex;
+    use numpy::ndarray::arr2;
+    let xic = arr2(&[
+        [0.0, 0.0, 5.0, 0.0, 0.0],
+        [0.0, 3.0, 0.0, 0.0, 0.0],
+        [9.0, 0.0, 0.0, 0.0, 9.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0],
+    ]);
+    let (share, count) = detection_at_apex(&xic, 2, &[4.0, 3.0, 2.0, 1.0]);
+    assert_eq!(count, 2.0);
+    assert!((share - 0.7).abs() < 1e-6);
+    let (share_edge, count_edge) = detection_at_apex(&xic, 0, &[4.0, 3.0, 2.0, 1.0]);
+    assert_eq!(count_edge, 2.0);
+    assert!((share_edge - 0.5).abs() < 1e-6);
+}

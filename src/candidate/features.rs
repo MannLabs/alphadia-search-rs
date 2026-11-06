@@ -66,6 +66,9 @@ pub const FEATURE_NAMES: &[&str] = &[
     "shadow_lib_share",
     "shadow_clean_libw_corr",
     "shadow_corr_sum6",
+    "det_llr",
+    "det_llr_hits",
+    "det_bg_surprise",
 ];
 
 #[derive(Debug, Clone)]
@@ -134,6 +137,9 @@ pub struct CandidateFeature {
     pub shadow_lib_share: f32,
     pub shadow_clean_libw_corr: f32,
     pub shadow_corr_sum6: f32,
+    pub det_llr: f32,
+    pub det_llr_hits: f32,
+    pub det_bg_surprise: f32,
 }
 
 impl CandidateFeature {
@@ -258,6 +264,9 @@ impl CandidateFeature {
             shadow_lib_share: 0.0,
             shadow_clean_libw_corr: 0.0,
             shadow_corr_sum6: 0.0,
+            det_llr: 0.0,
+            det_llr_hits: 0.0,
+            det_bg_surprise: 0.0,
         }
     }
 
@@ -282,6 +291,17 @@ impl CandidateFeature {
         self.shadow_lib_share = shadow.shadow_lib_share;
         self.shadow_clean_libw_corr = shadow.shadow_clean_libw_corr;
         self.shadow_corr_sum6 = shadow.shadow_corr_sum6;
+        self
+    }
+
+    /// The candidate with its fragment detection features set.
+    pub fn with_detection(
+        mut self,
+        detection: &crate::peak_group_scoring::detection::DetectionFeatures,
+    ) -> Self {
+        self.det_llr = detection.det_llr;
+        self.det_llr_hits = detection.det_llr_hits;
+        self.det_bg_surprise = detection.det_bg_surprise;
         self
     }
 }
@@ -381,6 +401,9 @@ impl CandidateFeatureCollection {
         let mut shadow_lib_share = Array1::<f32>::zeros(n);
         let mut shadow_clean_libw_corr = Array1::<f32>::zeros(n);
         let mut shadow_corr_sum6 = Array1::<f32>::zeros(n);
+        let mut det_llr = Array1::<f32>::zeros(n);
+        let mut det_llr_hits = Array1::<f32>::zeros(n);
+        let mut det_bg_surprise = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -447,6 +470,9 @@ impl CandidateFeatureCollection {
             shadow_lib_share[i] = feature.shadow_lib_share;
             shadow_clean_libw_corr[i] = feature.shadow_clean_libw_corr;
             shadow_corr_sum6[i] = feature.shadow_corr_sum6;
+            det_llr[i] = feature.det_llr;
+            det_llr_hits[i] = feature.det_llr_hits;
+            det_bg_surprise[i] = feature.det_bg_surprise;
         }
 
         let dict = PyDict::new(py);
@@ -581,6 +607,9 @@ impl CandidateFeatureCollection {
             shadow_clean_libw_corr.into_pyarray(py),
         )?;
         dict.set_item("shadow_corr_sum6", shadow_corr_sum6.into_pyarray(py))?;
+        dict.set_item("det_llr", det_llr.into_pyarray(py))?;
+        dict.set_item("det_llr_hits", det_llr_hits.into_pyarray(py))?;
+        dict.set_item("det_bg_surprise", det_bg_surprise.into_pyarray(py))?;
 
         Ok(dict.into())
     }

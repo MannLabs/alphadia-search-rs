@@ -27,6 +27,8 @@ pub struct PeakGroupObservation {
     pub observation_intensities: Vec<f32>,
     /// observed intensity > 0 per fragment
     pub matched_mask: Vec<bool>,
+    /// the isolation windows (quadrupole observations) the XICs were extracted from
+    pub contributing_obs_indices: Vec<usize>,
 }
 
 impl PeakGroupObservation {
@@ -64,6 +66,7 @@ impl PeakGroupObservation {
             correlations,
             observation_intensities,
             matched_mask,
+            contributing_obs_indices: dense_xic_mz_obs.contributing_obs_indices,
         }
     }
 }

@@ -62,11 +62,16 @@ pub fn fdr_quantile_fit<'py>(
 }
 
 /// Applies fitted quantiles (from `fdr_quantile_fit`) to `x`; returns float32 normal scores.
+///
+/// `mid_rank_bounds` maps ties at the lowest / highest quantile to the middle of their tie group
+/// instead of clamping them to the clip value as sklearn does (see `quantile::transform`).
 #[pyfunction]
+#[pyo3(signature = (x, quantiles, mid_rank_bounds = false))]
 pub fn fdr_quantile_transform<'py>(
     py: Python<'py>,
     x: PyReadonlyArray2<'py, f32>,
     quantiles: PyReadonlyArray2<'py, f64>,
+    mid_rank_bounds: bool,
 ) -> PyResult<Bound<'py, PyArray2<f32>>> {
     let (values, n_rows, n_features) = matrix(&x, "x")?;
     require_c_contiguous(&*quantiles, "quantiles")?;
@@ -79,7 +84,16 @@ pub fn fdr_quantile_transform<'py>(
     let n_quantiles = quantiles.shape()[1];
     let quantiles = quantiles.as_slice()?;
     let out = py
-        .detach(|| quantile::transform(values, n_rows, n_features, quantiles, n_quantiles))
+        .detach(|| {
+            quantile::transform(
+                values,
+                n_rows,
+                n_features,
+                quantiles,
+                n_quantiles,
+                mid_rank_bounds,
+            )
+        })
         .map_err(PyValueError::new_err)?;
     let out = Array2::from_shape_vec((n_rows, n_features), out)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -105,6 +119,7 @@ pub fn fdr_quantile_transform<'py>(
     backend = None,
     cosine_schedule = false,
     average_last_epoch = false,
+    input_batch_norm = false,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn fdr_mlp_fit<'py>(
@@ -121,6 +136,7 @@ pub fn fdr_mlp_fit<'py>(
     backend: Option<&str>,
     cosine_schedule: bool,
     average_last_epoch: bool,
+    input_batch_norm: bool,
 ) -> PyResult<Bound<'py, PyArray1<f32>>> {
     let (values, n_rows, n_features) = matrix(&x, "x")?;
     let labels = y.as_slice()?;
@@ -137,6 +153,7 @@ pub fn fdr_mlp_fit<'py>(
         backend: self::backend(backend)?,
         cosine_schedule,
         average_last_epoch,
+        input_batch_norm,
     };
     let trained = py
         .detach(|| network::train(values, n_rows, n_features, labels, &config, init))
@@ -146,19 +163,30 @@ pub fn fdr_mlp_fit<'py>(
 
 /// Output logits (float32) of the network with `params` for every row of `x`.
 #[pyfunction]
-#[pyo3(signature = (x, hidden_layers, params, backend = None))]
+#[pyo3(signature = (x, hidden_layers, params, backend = None, input_batch_norm = false))]
 pub fn fdr_mlp_predict<'py>(
     py: Python<'py>,
     x: PyReadonlyArray2<'py, f32>,
     hidden_layers: Vec<usize>,
     params: PyReadonlyArray1<'py, f32>,
     backend: Option<&str>,
+    input_batch_norm: bool,
 ) -> PyResult<Bound<'py, PyArray1<f32>>> {
     let (values, n_rows, n_features) = matrix(&x, "x")?;
     let params = params.as_slice()?;
     let backend = self::backend(backend)?;
     let logits = py
-        .detach(|| network::predict(values, n_rows, n_features, &hidden_layers, params, backend))
+        .detach(|| {
+            network::predict(
+                values,
+                n_rows,
+                n_features,
+                &hidden_layers,
+                params,
+                backend,
+                input_batch_norm,
+            )
+        })
         .map_err(PyValueError::new_err)?;
     Ok(logits.into_pyarray(py))
 }

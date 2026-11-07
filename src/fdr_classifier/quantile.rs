@@ -60,12 +60,19 @@ pub fn fit(
 }
 
 /// Normal scores of `x` under the fitted `quantiles`.
+///
+/// `mid_rank_bounds` maps values at the lowest or highest quantile to the middle of their tie
+/// group, as every other tie group is mapped. sklearn instead clamps values within
+/// `BOUNDS_THRESHOLD` of the outer quantiles to the clip value (about -5.2 / +5.2), which puts a
+/// feature that is 0 in most rows almost entirely at -5.2; and in float32 the threshold vanishes
+/// for values of magnitude above about 1, so whether a tie group is clamped depends on its value.
 pub fn transform(
     x: &[f32],
     n_rows: usize,
     n_features: usize,
     quantiles: &[f64],
     n_quantiles: usize,
+    mid_rank_bounds: bool,
 ) -> Result<Vec<f32>, String> {
     if quantiles.len() != n_features * n_quantiles {
         return Err(format!(
@@ -82,7 +89,7 @@ pub fn transform(
     let clip = clip_bounds();
     let maps: Vec<FeatureMap> = quantiles
         .chunks_exact(n_quantiles)
-        .map(|q| FeatureMap::new(q.to_vec(), clip))
+        .map(|q| FeatureMap::new(q.to_vec(), clip, mid_rank_bounds))
         .collect();
     let mut out = vec![0.0f32; x.len()];
     out.par_chunks_mut(TRANSFORM_CHUNK_ROWS * n_features)
@@ -241,10 +248,11 @@ struct FeatureMap {
     bucket_start: Vec<u32>,
     bucket_scale: f64,
     clip: (f64, f64),
+    mid_rank_bounds: bool,
 }
 
 impl FeatureMap {
-    fn new(quantiles: Vec<f64>, clip: (f64, f64)) -> Self {
+    fn new(quantiles: Vec<f64>, clip: (f64, f64), mid_rank_bounds: bool) -> Self {
         let (lo, hi) = (quantiles[0], quantiles[quantiles.len() - 1]);
         let bucket_scale = if hi > lo {
             LOOKUP_BUCKETS as f64 / (hi - lo)
@@ -268,6 +276,7 @@ impl FeatureMap {
             bucket_start,
             bucket_scale,
             clip,
+            mid_rank_bounds,
         };
         map.knot_scores = (0..map.quantiles.len())
             .map(|i| map.exact(map.quantiles[i]))
@@ -275,10 +284,13 @@ impl FeatureMap {
         map
     }
 
-    /// sklearn `_transform_col` for output_distribution="normal".
+    /// sklearn `_transform_col` for output_distribution="normal" (with `mid_rank_bounds`, without
+    /// its clamp at the outer quantiles: a value below all quantiles still gets rank 0).
     fn exact(&self, x: f64) -> f64 {
         let n = self.quantiles.len() - 1;
-        let p = if x - BOUNDS_THRESHOLD < self.quantiles[0] {
+        let p = if self.mid_rank_bounds {
+            0.5 * (self.forward_rank(x) + self.backward_rank(x)) / n as f64
+        } else if x - BOUNDS_THRESHOLD < self.quantiles[0] {
             0.0
         } else if x + BOUNDS_THRESHOLD > self.quantiles[n] {
             1.0
@@ -291,6 +303,11 @@ impl FeatureMap {
     /// np.interp(x, quantiles, 0..n): rank through the rightmost knot at or below x.
     fn forward_rank(&self, x: f64) -> f64 {
         let last_segment = self.quantiles.len() - 2;
+        if x >= self.quantiles[last_segment + 1] {
+            // at or above the highest knot, as np.interp: the last rank, also for a tie group that
+            // ends at the highest knot (otherwise the segment clamp gives the rank before it)
+            return (last_segment + 1) as f64;
+        }
         let j = self
             .quantiles
             .partition_point(|&q| q <= x)
@@ -340,7 +357,7 @@ fn segment_fraction(q0: f64, q1: f64, x: f64) -> f64 {
 #[cfg(test)]
 pub(crate) mod test_access {
     pub fn exact_scores(x: &[f32], quantiles: &[f64]) -> Vec<f32> {
-        let map = super::FeatureMap::new(quantiles.to_vec(), super::clip_bounds());
+        let map = super::FeatureMap::new(quantiles.to_vec(), super::clip_bounds(), false);
         x.iter().map(|&v| map.exact(v as f64) as f32).collect()
     }
 }

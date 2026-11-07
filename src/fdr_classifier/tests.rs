@@ -51,7 +51,7 @@ fn test_quantile_transform_matches_exact_scores() {
 
     // When transforming with the lookup and with sklearn's exact formula
     let q = quantile::fit(&x, n_rows, n_features, n_quantiles, None, 0).unwrap();
-    let fast = quantile::transform(&x, n_rows, n_features, &q, n_quantiles).unwrap();
+    let fast = quantile::transform(&x, n_rows, n_features, &q, n_quantiles, false).unwrap();
 
     // Then the scores agree closely, and the extremes hit sklearn's clip values
     for f in 0..n_features {
@@ -81,8 +81,8 @@ fn test_quantile_transform_keeps_nan_and_rejects_shape_mismatch() {
     let q = quantile::fit(&x, 1000, 1, 11, None, 0).unwrap();
 
     // When transforming a NaN and a matrix of the wrong width
-    let out = quantile::transform(&[f32::NAN], 1, 1, &q, 11).unwrap();
-    let wrong = quantile::transform(&[0.0, 0.0], 1, 2, &q, 11);
+    let out = quantile::transform(&[f32::NAN], 1, 1, &q, 11, false).unwrap();
+    let wrong = quantile::transform(&[0.0, 0.0], 1, 2, &q, 11, false);
 
     // Then the NaN stays NaN and the mismatch is an error
     assert!(out[0].is_nan());
@@ -131,6 +131,7 @@ fn config(backend: Backend) -> TrainConfig {
         backend,
         cosine_schedule: false,
         average_last_epoch: false,
+        input_batch_norm: false,
     }
 }
 
@@ -151,7 +152,8 @@ fn test_network_learns_a_separable_problem_on_every_backend() {
     for backend in backends() {
         // When training and predicting
         let params = network::train(&x, n_rows, n_features, &y, &config(backend), None).unwrap();
-        let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params, backend).unwrap();
+        let logits =
+            network::predict(&x, n_rows, n_features, &[32, 16], &params, backend, false).unwrap();
 
         // Then nearly every row is classified correctly
         let correct = logits
@@ -175,10 +177,19 @@ fn test_backends_predict_the_same_logits() {
     let params = network::train(&x, n_rows, n_features, &y, &config(Backend::Simd), None).unwrap();
 
     // When predicting with every backend
-    let reference =
-        network::predict(&x, n_rows, n_features, &[32, 16], &params, Backend::Simd).unwrap();
+    let reference = network::predict(
+        &x,
+        n_rows,
+        n_features,
+        &[32, 16],
+        &params,
+        Backend::Simd,
+        false,
+    )
+    .unwrap();
     for backend in backends() {
-        let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params, backend).unwrap();
+        let logits =
+            network::predict(&x, n_rows, n_features, &[32, 16], &params, backend, false).unwrap();
 
         // Then the logits agree
         for (a, b) in logits.iter().zip(&reference) {
@@ -252,8 +263,16 @@ fn test_cosine_schedule_and_averaging_change_the_fit_and_still_learn() {
             ..config(Backend::Simd)
         };
         let params = network::train(&x, n_rows, n_features, &y, &smoothed_config, None).unwrap();
-        let logits =
-            network::predict(&x, n_rows, n_features, &[32, 16], &params, Backend::Simd).unwrap();
+        let logits = network::predict(
+            &x,
+            n_rows,
+            n_features,
+            &[32, 16],
+            &params,
+            Backend::Simd,
+            false,
+        )
+        .unwrap();
 
         // Then the parameters differ from the plain fit and the classes still separate
         assert_ne!(params, plain);
@@ -294,4 +313,152 @@ fn test_average_of_one_minibatch_is_the_last_parameters() {
 
     // Then the mean of a single step is that step
     assert_eq!(plain, averaged);
+}
+
+fn batch_norm_config() -> TrainConfig {
+    TrainConfig {
+        input_batch_norm: true,
+        ..config(Backend::Simd)
+    }
+}
+
+fn accuracy(logits: &[f32], y: &[f32]) -> f64 {
+    let correct = logits
+        .iter()
+        .zip(y)
+        .filter(|(l, y)| (**l > 0.0) == (**y > 0.5))
+        .count();
+    correct as f64 / y.len() as f64
+}
+
+#[test]
+fn test_input_batch_norm_learns_badly_scaled_features() {
+    // Given separable features moved far off zero and scaled up, as tied quantile scores can be
+    let mut rng = StdRng::seed_from_u64(10);
+    let (n_rows, n_features) = (4096, 12);
+    let (mut x, y) = separable(&mut rng, n_rows, n_features);
+    for (i, v) in x.iter_mut().enumerate() {
+        if i % n_features < 6 {
+            *v = *v * 3.0 - 5.0;
+        }
+    }
+
+    // When training with the input batch norm and predicting with its running statistics
+    let params = network::train(&x, n_rows, n_features, &y, &batch_norm_config(), None).unwrap();
+    let logits = network::predict(
+        &x,
+        n_rows,
+        n_features,
+        &[32, 16],
+        &params,
+        Backend::Simd,
+        true,
+    )
+    .unwrap();
+
+    // Then the classes separate
+    assert!(accuracy(&logits, &y) > 0.95, "{}", accuracy(&logits, &y));
+}
+
+#[test]
+fn test_input_batch_norm_running_statistics_follow_the_data() {
+    // Given features with mean -5 and variance 9 (uniform(-1, 1) * 3 has variance 3)
+    let mut rng = StdRng::seed_from_u64(11);
+    let (n_rows, n_features) = (4096, 3);
+    let x: Vec<f32> = (0..n_rows * n_features)
+        .map(|_| rng.random_range(-1.0f32..1.0) * 3.0 - 5.0)
+        .collect();
+    let y: Vec<f32> = (0..n_rows).map(|r| (r % 2) as f32).collect();
+
+    // When training
+    let params = network::train(&x, n_rows, n_features, &y, &batch_norm_config(), None).unwrap();
+
+    // Then the last 4 * n_features parameters are scale, shift, running mean and running variance,
+    // and the running statistics are close to the data's
+    let size_without = network::Layout::new(n_features, &[32, 16], false)
+        .unwrap()
+        .size;
+    assert_eq!(params.len(), size_without + 4 * n_features);
+    let running_mean = &params[size_without + 2 * n_features..size_without + 3 * n_features];
+    let running_var = &params[size_without + 3 * n_features..];
+    for p in 0..n_features {
+        assert!(
+            (running_mean[p] + 5.0).abs() < 0.3,
+            "mean {}",
+            running_mean[p]
+        );
+        assert!((running_var[p] - 3.0).abs() < 0.5, "var {}", running_var[p]);
+    }
+}
+
+#[test]
+fn test_predict_rejects_parameters_without_the_batch_norm_block() {
+    // Given parameters trained without the input batch norm
+    let mut rng = StdRng::seed_from_u64(12);
+    let (x, y) = separable(&mut rng, 512, 12);
+    let params = network::train(&x, 512, 12, &y, &config(Backend::Simd), None).unwrap();
+
+    // When predicting with the batch norm
+    let result = network::predict(&x, 512, 12, &[32, 16], &params, Backend::Simd, true);
+
+    // Then the parameter count does not match
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mid_rank_bounds_maps_ties_at_the_lowest_quantile_to_their_middle() {
+    // Given a feature that is 0 in 90 % of rows, then rising values
+    let n_rows = 1000;
+    let x: Vec<f32> = (0..n_rows)
+        .map(|r| if r < 900 { 0.0 } else { (r - 899) as f32 })
+        .collect();
+    let q = quantile::fit(&x, n_rows, 1, 101, None, 0).unwrap();
+
+    // When transforming with and without mid-ranked bounds
+    let clamped = quantile::transform(&x, n_rows, 1, &q, 101, false).unwrap();
+    let mid = quantile::transform(&x, n_rows, 1, &q, 101, true).unwrap();
+
+    // Then sklearn's rule clamps the zeros to the clip value, the mid rank puts them at the
+    // middle of their group (quantile 0.45, normal score about -0.13)
+    assert!(clamped[0] < -5.0, "{}", clamped[0]);
+    assert!((mid[0] - norm_ppf(0.45) as f32).abs() < 0.02, "{}", mid[0]);
+    // and values above the tie group are unchanged
+    for r in 905..995 {
+        assert!(
+            (clamped[r] - mid[r]).abs() < 1e-6,
+            "row {r}: {} vs {}",
+            clamped[r],
+            mid[r]
+        );
+    }
+}
+
+#[test]
+fn test_mid_rank_bounds_clips_values_beyond_the_fitted_range() {
+    // Given quantiles of distinct values 1..=100
+    let x: Vec<f32> = (1..=100).map(|v| v as f32).collect();
+    let q = quantile::fit(&x, 100, 1, 101, None, 0).unwrap();
+
+    // When transforming values below and above the training range
+    let out = quantile::transform(&[-50.0, 500.0], 2, 1, &q, 101, true).unwrap();
+
+    // Then they map to the clip values
+    assert!(out[0] < -5.0 && out[1] > 5.0, "{out:?}");
+}
+
+#[test]
+fn test_mid_rank_bounds_maps_ties_at_the_highest_quantile_to_their_middle() {
+    // Given a feature at its maximum 6 in the top 20 % of rows
+    let n_rows = 1000;
+    let x: Vec<f32> = (0..n_rows)
+        .map(|r| if r >= 800 { 6.0 } else { r as f32 / 200.0 })
+        .collect();
+    let q = quantile::fit(&x, n_rows, 1, 101, None, 0).unwrap();
+
+    // When transforming with mid-ranked bounds
+    let mid = quantile::transform(&[6.0], 1, 1, &q, 101, true).unwrap();
+
+    // Then the maximum maps to the middle of its group as np.interp ranks it: the group starts
+    // between knots 80 and 81 (rank 0.81 forward-backward mean with 1.0 gives 0.905)
+    assert!((mid[0] - norm_ppf(0.905) as f32).abs() < 1e-4, "{}", mid[0]);
 }

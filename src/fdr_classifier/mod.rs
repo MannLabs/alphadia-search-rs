@@ -103,6 +103,8 @@ pub fn fdr_quantile_transform<'py>(
     seed = 0,
     params = None,
     backend = None,
+    cosine_schedule = false,
+    average_last_epoch = false,
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn fdr_mlp_fit<'py>(
@@ -117,6 +119,8 @@ pub fn fdr_mlp_fit<'py>(
     seed: u64,
     params: Option<PyReadonlyArray1<'py, f32>>,
     backend: Option<&str>,
+    cosine_schedule: bool,
+    average_last_epoch: bool,
 ) -> PyResult<Bound<'py, PyArray1<f32>>> {
     let (values, n_rows, n_features) = matrix(&x, "x")?;
     let labels = y.as_slice()?;
@@ -131,6 +135,8 @@ pub fn fdr_mlp_fit<'py>(
         weight_decay,
         seed,
         backend: self::backend(backend)?,
+        cosine_schedule,
+        average_last_epoch,
     };
     let trained = py
         .detach(|| network::train(values, n_rows, n_features, labels, &config, init))

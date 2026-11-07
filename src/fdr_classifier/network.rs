@@ -28,6 +28,11 @@ pub struct TrainConfig {
     pub weight_decay: f32,
     pub seed: u64,
     pub backend: Backend,
+    /// Decay the learning rate along a half cosine from `learning_rate` to zero over all minibatches of the fit
+    /// (as torch `CosineAnnealingLR(T_max = steps, eta_min = 0)`, stepped once per minibatch).
+    pub cosine_schedule: bool,
+    /// Return the mean of the parameters over the minibatches of the last epoch instead of the last parameters.
+    pub average_last_epoch: bool,
 }
 
 pub struct Layout {
@@ -274,8 +279,11 @@ pub fn train(
     let loss_scale = 1.0 / batch_size as f32;
     let mut batch_starts: Vec<usize> = (0..n_batches).map(|b| b * batch_size).collect();
     let mut step = 0i32;
+    let total_steps = (n_batches * config.epochs) as f64;
+    let mut averaged: Option<Vec<f32>> = None;
+    let mut n_averaged = 0usize;
 
-    for _ in 0..config.epochs {
+    for epoch in 0..config.epochs {
         batch_starts.shuffle(&mut rng);
         for &batch_start in &batch_starts {
             for l in 1..n_hidden {
@@ -311,8 +319,16 @@ pub fn train(
                 }
             }
 
+            let learning_rate = if config.cosine_schedule {
+                let progress = f64::from(step) / total_steps;
+                (f64::from(config.learning_rate)
+                    * 0.5
+                    * (1.0 + (std::f64::consts::PI * progress).cos())) as f32
+            } else {
+                config.learning_rate
+            };
             step += 1;
-            let step_size = config.learning_rate / (1.0 - ADAM_BETA_1.powi(step));
+            let step_size = learning_rate / (1.0 - ADAM_BETA_1.powi(step));
             let inv_bias_c2_sqrt = 1.0 / (1.0 - ADAM_BETA_2.powi(step)).sqrt();
             for (((p, m), v), &g) in params
                 .iter_mut()
@@ -325,9 +341,22 @@ pub fn train(
                 *v = ADAM_BETA_2 * *v + (1.0 - ADAM_BETA_2) * g * g;
                 *p -= step_size * *m / (v.sqrt() * inv_bias_c2_sqrt + ADAM_EPS);
             }
+
+            if config.average_last_epoch && epoch + 1 == config.epochs {
+                n_averaged += 1;
+                match averaged.as_mut() {
+                    None => averaged = Some(params.clone()),
+                    Some(mean) => {
+                        let weight = 1.0 / n_averaged as f32;
+                        for (a, &p) in mean.iter_mut().zip(&params) {
+                            *a += (p - *a) * weight;
+                        }
+                    }
+                }
+            }
         }
     }
-    Ok(params)
+    Ok(averaged.unwrap_or(params))
 }
 
 /// Output logit of every row of `x`.

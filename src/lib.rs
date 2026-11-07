@@ -13,6 +13,7 @@ pub mod dia_data_builder;
 pub mod fragment_competition;
 pub mod intensity_drift;
 mod kernel;
+pub mod mlp;
 mod mz_index;
 pub mod peak_group_quantification;
 pub mod peak_group_scoring;

@@ -130,6 +130,16 @@ impl QuadrupoleObservation {
 
 // Implement the QuadrupoleObservationTrait for QuadrupoleObservation
 impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
+    fn cycle_intensity_sums(&self) -> Vec<f32> {
+        let mut sums = vec![0.0; self.num_cycles];
+        for (&cycle, &intensity) in self.cycle_indices.iter().zip(&self.intensities) {
+            if let Some(sum) = sums.get_mut(cycle as usize) {
+                *sum += intensity;
+            }
+        }
+        sums
+    }
+
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,

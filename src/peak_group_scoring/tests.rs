@@ -1264,6 +1264,302 @@ fn test_calculate_library_agreement_features_entropy_similarity() {
 }
 
 #[cfg(test)]
+fn assert_close(actual: f32, expected: f32) {
+    assert!(
+        (actual - expected).abs() < 1e-5,
+        "expected {expected}, got {actual}"
+    );
+}
+
+#[test]
+fn test_fit_to_profile_explains_a_scaled_profile() {
+    use super::library_agreement::fit_to_profile;
+    let profile = [1.0, 2.0, 1.0];
+    let xic = arr2(&[[2.0, 4.0, 2.0], [0.0, 0.0, 0.0]]);
+
+    let fitted = fit_to_profile(&xic, &profile);
+
+    assert_close(fitted[0], 8.0);
+    assert_close(fitted[1], 0.0);
+}
+
+#[test]
+fn test_fit_to_profile_ignores_signal_off_the_profile() {
+    use super::library_agreement::fit_to_profile;
+    // the first cycle carries an interfering peak the profile does not have
+    let profile = [0.0, 1.0, 0.0];
+    let xic = arr2(&[[5.0, 2.0, 0.0]]);
+
+    assert_close(fit_to_profile(&xic, &profile)[0], 2.0);
+}
+
+#[test]
+fn test_fit_to_profile_without_profile_is_zero() {
+    use super::library_agreement::fit_to_profile;
+    let xic = arr2(&[[1.0, 3.0]]);
+
+    assert_eq!(fit_to_profile(&xic, &[0.0, 0.0]), vec![0.0]);
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_is_zero_for_a_perfect_match() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    let (mean, std, max) = intensity_abs_diff_stats(&[2.0, 4.0, 6.0], &[1.0, 2.0, 3.0], None);
+
+    assert_close(mean, 0.0);
+    assert_close(std, 0.0);
+    assert_close(max, 0.0);
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_uses_the_per_fragment_library_value() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    use crate::utils::calculate_std;
+    // observed (0.5, 0.5, 0) vs library (0.25, 0.25, 0.5): diffs 0.25, 0.25, 0.5
+    let (mean, std, max) = intensity_abs_diff_stats(&[1.0, 1.0, 0.0], &[1.0, 1.0, 2.0], None);
+
+    assert_close(mean, 1.0 / 3.0);
+    assert_close(max, 0.5);
+    assert_close(std, calculate_std(&[0.25, 0.25, 0.5]));
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_masks_after_normalizing_over_all_fragments() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    let mask = [true, false, true];
+
+    let (mean, _, max) = intensity_abs_diff_stats(&[1.0, 1.0, 0.0], &[1.0, 1.0, 2.0], Some(&mask));
+
+    assert_close(mean, 0.375);
+    assert_close(max, 0.5);
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_without_signal_compares_to_zero() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    let (mean, _, max) = intensity_abs_diff_stats(&[0.0, 0.0], &[1.0, 3.0], None);
+
+    assert_close(mean, 0.5);
+    assert_close(max, 0.75);
+}
+
+#[test]
+fn test_fitted_spread_is_zero_for_a_clean_candidate() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let profile = [1.0, 2.0, 1.0];
+    let xic = arr2(&[[3.0, 6.0, 3.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]);
+    let library = [3.0f32, 2.0, 1.0];
+    let observed: Vec<f32> = (0..3).map(|i| xic.row(i).sum()).collect();
+    let types = [FragmentType::Y, FragmentType::Y, FragmentType::B];
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[1.0, 1.0, 1.0],
+        &types,
+    );
+
+    assert_close(features.fit_intensity_abs_diff_mean, 0.0);
+    assert_close(features.fit_intensity_abs_diff_max, 0.0);
+    assert_close(features.fit_y_intensity_abs_diff_std, 0.0);
+}
+
+#[test]
+fn test_fitted_spread_drops_a_borrowed_peak() {
+    use super::library_agreement::calculate_library_agreement_features;
+    // fragment 1 sits on another precursor's peak two cycles earlier and has no co-eluting signal
+    let profile = [0.0, 0.0, 1.0, 2.0, 1.0];
+    let xic = arr2(&[
+        [0.0, 0.0, 2.0, 4.0, 2.0],
+        [9.0, 20.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 2.0, 4.0, 2.0],
+    ]);
+    let library = [1.0f32, 0.0, 1.0];
+    let observed: Vec<f32> = (0..3).map(|i| xic.row(i).sum()).collect();
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[1.0, -0.5, 1.0],
+        &[FragmentType::Y; 3],
+    );
+
+    assert_close(features.fit_intensity_abs_diff_max, 0.0);
+}
+
+#[test]
+fn test_fitted_spread_without_signal_is_finite() {
+    use super::feature_block::FeatureBlock;
+    use super::library_agreement::calculate_library_agreement_features;
+    let xic = Array2::<f32>::zeros((2, 2));
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &[0.0, 0.0],
+        &[1.0, 1.0],
+        &[0.0, 0.0],
+        &[0.0, 0.0],
+        &[FragmentType::Y, FragmentType::B],
+    );
+
+    for value in features.values() {
+        assert!(value.is_finite());
+    }
+    assert_close(features.fit_intensity_abs_diff_max, 0.5);
+}
+
+#[test]
+fn test_fitted_spread_is_zero_if_the_xic_rows_do_not_match_the_fragments() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let xic = arr2(&[[1.0, 1.0]]);
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &[1.0, 1.0],
+        &[1.0, 2.0],
+        &[1.0, 2.0],
+        &[1.0, 1.0],
+        &[FragmentType::Y; 2],
+    );
+
+    assert_eq!(features.fit_intensity_abs_diff_mean, 0.0);
+    assert_eq!(features.fit_intensity_abs_diff_max, 0.0);
+}
+
+#[cfg(test)]
+fn window_share_entry(
+    window: usize,
+    apex_cycle: usize,
+    frac: f32,
+) -> super::window_share::WindowShareEntry {
+    super::window_share::WindowShareEntry {
+        window,
+        apex_cycle,
+        frac,
+    }
+}
+
+#[test]
+fn test_window_share_feature_names() {
+    use super::feature_block::FeatureBlock;
+    use super::window_share::WindowShareFeatures;
+    assert_eq!(
+        WindowShareFeatures::NAMES,
+        [
+            "apex_window_signal_frac",
+            "apex_window_signal_frac_rank",
+            "apex_window_signal_frac_zscore",
+        ]
+    );
+}
+
+#[test]
+fn test_apex_column_takes_the_profile_maximum() {
+    use super::window_share::apex_column;
+    assert_eq!(apex_column(&[0.1, 0.5, 0.2], 0), 1);
+}
+
+#[test]
+fn test_apex_column_without_signal_falls_back() {
+    use super::window_share::apex_column;
+    assert_eq!(apex_column(&[0.0, 0.0, 0.0], 2), 2);
+    assert_eq!(apex_column(&[], 4), 4);
+}
+
+#[test]
+fn test_apex_window_signal_frac_uses_the_apex_column() {
+    use super::window_share::apex_window_signal_frac;
+    let xic = arr2(&[[1.0, 4.0], [0.0, 6.0]]);
+
+    assert_close(apex_window_signal_frac(&xic, 1, 40.0), 0.25);
+    assert_close(apex_window_signal_frac(&xic, 0, 0.0), 0.0);
+    assert_close(apex_window_signal_frac(&xic, 5, 40.0), 0.0);
+}
+
+#[test]
+fn test_calculate_window_share_features_reads_the_window_at_the_apex_cycle() {
+    use super::window_share::calculate_window_share_features;
+    // XIC columns are cycles 10..13, apex at cycle 11; windows 0 and 1 contribute
+    let profile = [0.2, 1.0, 0.3];
+    let xic = arr2(&[[1.0, 4.0, 1.0], [0.0, 6.0, 0.0]]);
+    let mut window_intensities = vec![vec![0.0; 20]; 3];
+    window_intensities[0][11] = 30.0;
+    window_intensities[1][11] = 10.0;
+    window_intensities[2][11] = 1000.0;
+
+    let (features, entry) =
+        calculate_window_share_features(&xic, &profile, 10, 12, &[0, 1], &window_intensities);
+
+    assert_close(features.apex_window_signal_frac, 0.25);
+    assert_eq!(features.apex_window_signal_frac_rank, 0.0);
+    assert_eq!(entry.window, 0);
+    assert_eq!(entry.apex_cycle, 11);
+    assert_close(entry.frac, 0.25);
+}
+
+#[test]
+fn test_calculate_window_share_features_without_signal_uses_the_cycle_center() {
+    use super::feature_block::FeatureBlock;
+    use super::window_share::calculate_window_share_features;
+    let xic = arr2(&[[0.0, 0.0, 0.0]]);
+
+    let (features, entry) =
+        calculate_window_share_features(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[]);
+
+    assert_eq!(entry.apex_cycle, 12);
+    assert_eq!(entry.window, usize::MAX);
+    for value in features.values() {
+        assert!(value.is_finite());
+    }
+}
+
+#[test]
+fn test_window_share_context_compares_within_window_and_cycle_radius() {
+    use super::window_share::window_share_context;
+    let entries = [
+        window_share_entry(0, 10, 0.1),
+        window_share_entry(0, 11, 0.3),
+        window_share_entry(0, 12, 0.2),
+        // too far in cycles from the first
+        window_share_entry(0, 20, 0.9),
+        // other window
+        window_share_entry(1, 10, 0.5),
+    ];
+
+    let context = window_share_context(&entries, 1);
+
+    // first: one neighbour (0.3 at cycle 11), which is higher
+    assert_close(context[0].0, 0.0);
+    // second: neighbours 0.1 and 0.2, both lower
+    assert_close(context[1].0, 1.0);
+    assert_close(context[1].1, (0.3 - 0.2) / (2.0f32 / 300.0).sqrt());
+    // alone in its window or cycle range
+    assert_close(context[3].0, 0.5);
+    assert_close(context[3].1, 0.0);
+    assert_close(context[4].0, 0.5);
+}
+
+#[test]
+fn test_window_share_context_counts_ties_half() {
+    use super::window_share::window_share_context;
+    let context = window_share_context(
+        &[
+            window_share_entry(0, 5, 0.2),
+            window_share_entry(0, 5, 0.2),
+            window_share_entry(0, 5, 0.1),
+        ],
+        0,
+    );
+
+    assert_close(context[0].0, 0.75);
+    assert_close(context[2].0, 0.0);
+}
+
+#[cfg(test)]
 mod feature_sets {
     use crate::candidate::{Candidate, CandidateCollection};
     use crate::constants::{FragmentType, Loss};
@@ -1460,6 +1756,7 @@ mod feature_sets {
         let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
         assert_eq!(apex.ion_coverage, None);
         assert_eq!(apex.library_agreement, None);
+        assert_eq!(apex.window_share, None);
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
@@ -1476,5 +1773,26 @@ mod feature_sets {
         assert!(ion_coverage.lib_share_over_50 > 0.99);
         assert!(ion_coverage.ion_fisher_lib > 0.0);
         assert!(library_agreement.ent_sim > 0.99);
+    }
+
+    #[test]
+    fn test_full_scores_the_fitted_spread_and_window_share() {
+        // given / when
+        let full = score(FeatureSet::Full);
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let off_apex = full.iter().find(|f| f.rank == 1).unwrap();
+        let library_agreement = apex.library_agreement.unwrap();
+        let window_share = apex.window_share.unwrap();
+        // the fragments follow the library and carry all of the window's signal at the apex
+        assert!(library_agreement.fit_intensity_abs_diff_max < 1e-5);
+        assert!((window_share.apex_window_signal_frac - 1.0).abs() < 1e-5);
+        // the two candidates are more than WINDOW_SHARE_CYCLE_RADIUS cycles apart, so each is alone
+        assert_eq!(window_share.apex_window_signal_frac_rank, 0.5);
+        assert_eq!(window_share.apex_window_signal_frac_zscore, 0.0);
+        for value in off_apex.values(FeatureSet::Full).unwrap() {
+            assert!(value.is_finite());
+        }
     }
 }

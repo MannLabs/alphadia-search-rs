@@ -129,6 +129,8 @@ fn config(backend: Backend) -> TrainConfig {
         weight_decay: 1e-5,
         seed: 7,
         backend,
+        cosine_schedule: false,
+        average_last_epoch: false,
     }
 }
 
@@ -232,4 +234,64 @@ fn test_training_with_fewer_rows_than_a_batch() {
 
     // Then it trains on one batch of all rows
     assert!(params.is_ok());
+}
+
+#[test]
+fn test_cosine_schedule_and_averaging_change_the_fit_and_still_learn() {
+    // Given a separable problem and the default (constant, last parameters) fit
+    let mut rng = StdRng::seed_from_u64(8);
+    let (n_rows, n_features) = (4096, 12);
+    let (x, y) = separable(&mut rng, n_rows, n_features);
+    let plain = network::train(&x, n_rows, n_features, &y, &config(Backend::Simd), None).unwrap();
+
+    for (cosine_schedule, average_last_epoch) in [(true, false), (false, true), (true, true)] {
+        // When training with the cosine schedule and/or the last-epoch average
+        let smoothed_config = TrainConfig {
+            cosine_schedule,
+            average_last_epoch,
+            ..config(Backend::Simd)
+        };
+        let params = network::train(&x, n_rows, n_features, &y, &smoothed_config, None).unwrap();
+        let logits =
+            network::predict(&x, n_rows, n_features, &[32, 16], &params, Backend::Simd).unwrap();
+
+        // Then the parameters differ from the plain fit and the classes still separate
+        assert_ne!(params, plain);
+        let correct = logits
+            .iter()
+            .zip(&y)
+            .filter(|(l, y)| (**l > 0.0) == (**y > 0.5))
+            .count();
+        assert!(correct as f64 / n_rows as f64 > 0.95, "{correct} correct");
+    }
+}
+
+#[test]
+fn test_average_of_one_minibatch_is_the_last_parameters() {
+    // Given one epoch of one minibatch
+    let mut rng = StdRng::seed_from_u64(9);
+    let (x, y) = separable(&mut rng, 128, 12);
+    let one_step = TrainConfig {
+        epochs: 1,
+        batch_size: 128,
+        ..config(Backend::Simd)
+    };
+
+    // When averaging the last epoch
+    let plain = network::train(&x, 128, 12, &y, &one_step, None).unwrap();
+    let averaged = network::train(
+        &x,
+        128,
+        12,
+        &y,
+        &TrainConfig {
+            average_last_epoch: true,
+            ..one_step
+        },
+        None,
+    )
+    .unwrap();
+
+    // Then the mean of a single step is that step
+    assert_eq!(plain, averaged);
 }

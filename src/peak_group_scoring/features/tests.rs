@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 37;
+const NUM_FULL_FEATURES: usize = 44;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -38,6 +38,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         core: numbered_core(),
         ion_coverage: None,
         library_agreement: None,
+        window_share: None,
     }
 }
 
@@ -67,6 +68,15 @@ fn numbered_full_feature() -> CandidateFeature {
             lib_cosine_over_50: 35.0,
             ent_sim: 36.0,
             ent_sim_corrweighted: 37.0,
+            fit_intensity_abs_diff_mean: 38.0,
+            fit_intensity_abs_diff_std: 39.0,
+            fit_intensity_abs_diff_max: 40.0,
+            fit_y_intensity_abs_diff_std: 41.0,
+        }),
+        window_share: Some(WindowShareFeatures {
+            apex_window_signal_frac: 42.0,
+            apex_window_signal_frac_rank: 43.0,
+            apex_window_signal_frac_zscore: 44.0,
         }),
     }
 }
@@ -120,7 +130,7 @@ fn test_calibration_feature_names_are_the_core_block() {
 }
 
 #[test]
-fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
+fn test_full_feature_names_are_core_ion_coverage_library_agreement_and_window_share() {
     // given / when
     let names = FeatureSet::Full.feature_names();
 
@@ -130,7 +140,8 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
         [
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
-            LibraryAgreementFeatures::NAMES
+            LibraryAgreementFeatures::NAMES,
+            WindowShareFeatures::NAMES
         ]
         .concat()
     );
@@ -139,12 +150,18 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
 }
 
 #[test]
-fn test_calibration_leaves_out_the_ion_coverage_and_library_agreement_features() {
+fn test_calibration_leaves_out_the_ion_coverage_library_agreement_and_window_share_features() {
     // given / when
     let names = FeatureSet::Calibration.feature_names();
 
     // then
-    for name in [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat() {
+    for name in [
+        IonCoverageFeatures::NAMES,
+        LibraryAgreementFeatures::NAMES,
+        WindowShareFeatures::NAMES,
+    ]
+    .concat()
+    {
         assert!(!names.contains(&name), "{name}");
     }
 }
@@ -168,6 +185,17 @@ fn test_block_column_names_are_the_field_names() {
     assert_eq!(
         value_of("ent_sim_corrweighted"),
         feature.library_agreement.unwrap().ent_sim_corrweighted
+    );
+    assert_eq!(
+        value_of("fit_y_intensity_abs_diff_std"),
+        feature
+            .library_agreement
+            .unwrap()
+            .fit_y_intensity_abs_diff_std
+    );
+    assert_eq!(
+        value_of("apex_window_signal_frac_zscore"),
+        feature.window_share.unwrap().apex_window_signal_frac_zscore
     );
 }
 

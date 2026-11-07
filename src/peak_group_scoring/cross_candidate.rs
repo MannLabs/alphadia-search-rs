@@ -17,6 +17,9 @@ use rayon::prelude::*;
 use crate::peak_group_scoring::feature_set::{FeatureBlockId, FeatureSet};
 use crate::peak_group_scoring::features::CandidateFeature;
 use crate::peak_group_scoring::ion_coverage::{num_ion_classes, IonEvidence, IonNoiseModel};
+use crate::peak_group_scoring::window_share::{
+    window_share_features, WindowShareEntry, WINDOW_SHARE_CYCLE_RADIUS,
+};
 
 /// What one candidate hands to the cross-candidate step, one field per block. A field is empty if the feature set
 /// has no such block.
@@ -24,6 +27,8 @@ use crate::peak_group_scoring::ion_coverage::{num_ion_classes, IonEvidence, IonN
 pub struct CandidateContext {
     /// ion-coverage block: the fragment evidence for the noise model of `ion_fisher_lib`
     pub ion_evidence: Vec<IonEvidence>,
+    /// window-share block: where the candidate's share is compared (12 bytes)
+    pub window_share: Option<WindowShareEntry>,
 }
 
 /// Computes the cross-candidate fields of every block of `feature_set`. `features` and `contexts` are in the same
@@ -41,6 +46,10 @@ pub fn apply_cross_candidate_features(
         contexts
             .par_iter_mut()
             .for_each(|context| context.ion_evidence = Vec::new());
+    }
+
+    if feature_set.has_block(FeatureBlockId::WindowShare) {
+        set_window_share(features, &contexts);
     }
 }
 
@@ -67,4 +76,21 @@ fn set_ion_fisher_lib(
                 ion_coverage.ion_fisher_lib = noise_model.fisher(&context.ion_evidence);
             }
         });
+}
+
+/// The window-share block compares each candidate's share with the candidates of the same quadrupole observation
+/// whose apex lies within WINDOW_SHARE_CYCLE_RADIUS cycles. Every candidate has an entry when the block is scored.
+fn set_window_share(features: &mut [CandidateFeature], contexts: &[CandidateContext]) {
+    let entries: Vec<WindowShareEntry> = contexts
+        .iter()
+        .map(|context| {
+            context
+                .window_share
+                .expect("every candidate has a window-share entry when the block is scored")
+        })
+        .collect();
+    let blocks = window_share_features(&entries, WINDOW_SHARE_CYCLE_RADIUS);
+    for (feature, block) in features.iter_mut().zip(blocks) {
+        feature.window_share = Some(block);
+    }
 }

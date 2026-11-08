@@ -99,11 +99,11 @@ impl<'a> Network<'a> {
 /// Per-thread buffers of [`train_chunk`](super::train_chunk), sized once for a network shape.
 pub struct TrainWorkspace {
     /// hidden activations of one row block, layer after layer (`TRAIN_ROW_BLOCK` rows each)
-    pub(crate) activations: Vec<f32>,
+    activations: Vec<f32>,
     /// gradients at the hidden pre-activations of one row block, laid out like `activations`
-    pub(crate) deltas: Vec<f32>,
+    deltas: Vec<f32>,
     /// zero bias of the input-gradient product
-    pub(crate) zeros: Vec<f32>,
+    zeros: Vec<f32>,
 }
 
 impl TrainWorkspace {
@@ -118,12 +118,12 @@ impl TrainWorkspace {
 }
 
 /// Start of hidden layer `l` in the workspace buffers.
-pub(crate) fn block_offset(dims: &[usize], l: usize) -> usize {
+fn block_offset(dims: &[usize], l: usize) -> usize {
     TRAIN_ROW_BLOCK * dims[1..=l].iter().sum::<usize>()
 }
 
-/// The `rows x dims[l + 1]` block of hidden layer `l - 1` (read) and of layer `l` (written).
-pub(crate) fn layer_pair<'b>(
+/// The blocks of hidden layer `l - 1` (read; empty for `l == 0`) and of layer `l` (written).
+fn forward_pair<'b>(
     buf: &'b mut [f32],
     dims: &[usize],
     l: usize,
@@ -139,7 +139,7 @@ pub(crate) fn layer_pair<'b>(
 }
 
 /// The `rows x dims[l + 1]` block of hidden layer `l`.
-pub(crate) fn layer<'b>(buf: &'b [f32], dims: &[usize], l: usize, rows: usize) -> &'b [f32] {
+fn layer<'b>(buf: &'b [f32], dims: &[usize], l: usize, rows: usize) -> &'b [f32] {
     &buf[block_offset(dims, l)..][..rows * dims[l + 1]]
 }
 
@@ -217,7 +217,7 @@ pub fn train_chunk_layered<K: LayerKernels + ?Sized>(
         let m = TRAIN_ROW_BLOCK.min(rows - r0);
         let x = &x[r0 * dims[0]..(r0 + m) * dims[0]];
         for l in 0..depth {
-            let (prev, out) = layer_pair(&mut ws.activations, dims, l, m);
+            let (prev, out) = forward_pair(&mut ws.activations, dims, l, m);
             let input = if l == 0 { x } else { prev };
             let (k, n) = (dims[l], dims[l + 1]);
             kernels.dense_forward(
@@ -233,7 +233,7 @@ pub fn train_chunk_layered<K: LayerKernels + ?Sized>(
         }
         {
             let (head, tail) = grad.split_at_mut(net.bias_offset(depth));
-            let (_, dz) = layer_pair(&mut ws.deltas, dims, depth - 1, m);
+            let (_, dz) = forward_pair(&mut ws.deltas, dims, depth - 1, m);
             kernels.output_layer_train(
                 layer(&ws.activations, dims, depth - 1, m),
                 m,
@@ -265,7 +265,7 @@ pub fn train_chunk_layered<K: LayerKernels + ?Sized>(
                 &mut tail[..n],
             );
             if l > 0 {
-                let (d_prev, dz) = upper_pair(&mut ws.deltas, dims, l, m);
+                let (d_prev, dz) = backward_pair(&mut ws.deltas, dims, l, m);
                 let a_prev = layer(&ws.activations, dims, l - 1, m);
                 kernels.dense_backward_input(dz, m, n, net.w(l), net.wt(l), k, a_prev, d_prev);
             } else if let Some(input_grad) = input_grad.as_deref_mut() {
@@ -278,8 +278,8 @@ pub fn train_chunk_layered<K: LayerKernels + ?Sized>(
     }
 }
 
-/// The deltas of hidden layer `l - 1` (written) and of layer `l` (read), `l > 0`.
-pub(crate) fn upper_pair<'b>(
+/// The blocks of hidden layer `l - 1` (written) and of layer `l` (read), `l > 0`.
+fn backward_pair<'b>(
     buf: &'b mut [f32],
     dims: &[usize],
     l: usize,

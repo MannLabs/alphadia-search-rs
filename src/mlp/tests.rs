@@ -31,9 +31,11 @@ fn for_each_backend(check: impl Fn()) {
     crate::simd::clear_backend();
 }
 
-// (rows, k, n): fast-path shapes of the FDR network, row tails, and odd shapes that exercise every
-// row and column tail tile of the portable kernels, and an empty reduction
-const SHAPES: [(usize, usize, usize); 10] = [
+// (rows, k, n): shapes of the FDR network, row tails, column counts that are not a multiple of
+// the vector width (masked tails) on either side of the tile width, odd shapes that exercise
+// every row and column tail tile of the portable kernels, a reduction longer than the
+// weight-gradient block, and an empty reduction
+const SHAPES: [(usize, usize, usize); 15] = [
     (64, 48, 128),
     (8, 40, 32),
     (130, 128, 64),
@@ -44,6 +46,11 @@ const SHAPES: [(usize, usize, usize); 10] = [
     (2, 17, 1),
     (1, 1, 2),
     (3, 0, 5),
+    (21, 33, 40),
+    (13, 17, 100),
+    (3, 1, 1),
+    (300, 24, 48),
+    (11, 70, 9),
 ];
 
 #[test]
@@ -138,7 +145,7 @@ fn test_output_layer_matches_reference() {
     for_each_backend(|| {
         // Given a final hidden layer and binary labels
         let mut rng = StdRng::seed_from_u64(4);
-        for (rows, k) in [(33, 32), (8, 6), (5, 37), (3, 1)] {
+        for (rows, k) in [(33, 32), (8, 6), (5, 37), (3, 1), (16, 16), (37, 40), (100, 23)] {
             let a = random(&mut rng, rows * k);
             let w = random(&mut rng, k);
             let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
@@ -220,4 +227,128 @@ fn test_output_layer_gradient_matches_finite_difference() {
 
     // Then they agree
     assert!((grad_w[2] - (up - down) / (2.0 * eps)).abs() < 1e-3);
+}
+
+#[test]
+#[serial]
+fn test_kernels_leave_memory_past_the_output_untouched() {
+    for_each_backend(|| {
+        // Given outputs followed by sentinels, for shapes with masked column and row tails
+        let mut rng = StdRng::seed_from_u64(6);
+        for (rows, k, n) in SHAPES {
+            let x = random(&mut rng, rows * k);
+            let wt = random(&mut rng, k * n);
+            let bias = random(&mut rng, n);
+            let dz = random(&mut rng, rows * n);
+            let sentinel = 7.5;
+            let mut out = vec![sentinel; rows * n + 40];
+            let mut d_prev = vec![sentinel; rows * k + 40];
+            let mut logits = vec![sentinel; rows + 40];
+            let (mut grad_wt, mut grad_b) = (vec![0.0; k * n + 40], vec![0.0; n + 40]);
+            grad_wt[k * n..].fill(sentinel);
+            grad_b[n..].fill(sentinel);
+
+            // When running the kernels on the leading part of the buffers
+            dense_forward(&x, rows, k, &wt, n, &bias, Activation::Relu, &mut out);
+            dense_backward_input(&dz, rows, n, &wt, k, &x, &mut d_prev);
+            dense_weight_grad(&x, rows, k, &dz, n, &mut grad_wt, &mut grad_b);
+            output_layer_logits(&x, rows, k, &wt[..k], 0.1, &mut logits);
+
+            // Then nothing past the outputs changed
+            assert!(out[rows * n..].iter().all(|&v| v == sentinel));
+            assert!(d_prev[rows * k..].iter().all(|&v| v == sentinel));
+            assert!(grad_wt[k * n..].iter().all(|&v| v == sentinel));
+            assert!(grad_b[n..].iter().all(|&v| v == sentinel));
+            assert!(logits[rows..].iter().all(|&v| v == sentinel));
+        }
+    });
+}
+
+#[test]
+#[serial]
+fn test_kernels_match_reference_at_any_buffer_offset() {
+    for_each_backend(|| {
+        // Given operands that start 0-3 floats past an allocation (cache-line splits, staging),
+        // including a weight gradient longer than one staging block
+        let mut rng = StdRng::seed_from_u64(7);
+        for (rows, k, n) in [(37, 40, 128), (700, 24, 48), (10, 3, 20)] {
+            for offset in 0..4 {
+                let x = random(&mut rng, rows * k + offset);
+                let wt = random(&mut rng, k * n + offset);
+                let bias = random(&mut rng, n);
+                let dz = random(&mut rng, rows * n + offset);
+                let (x, wt, dz) = (&x[offset..], &wt[offset..], &dz[offset..]);
+
+                // When running the kernels on the offset operands
+                let mut out = vec![0.0; rows * n];
+                dense_forward(x, rows, k, wt, n, &bias, Activation::Relu, &mut out);
+                let mut d_prev = vec![0.0; rows * k];
+                dense_backward_input(dz, rows, n, wt, k, x, &mut d_prev);
+                let (mut grad_wt, mut grad_b) = (vec![0.5; k * n], vec![0.5; n]);
+                dense_weight_grad(x, rows, k, dz, n, &mut grad_wt, &mut grad_b);
+
+                // Then they agree with the reference
+                let mut e_out = vec![0.0; rows * n];
+                reference::dense_forward(x, rows, k, wt, n, &bias, Activation::Relu, &mut e_out);
+                let mut e_d_prev = vec![0.0; rows * k];
+                reference::dense_backward_input(dz, rows, n, wt, k, x, &mut e_d_prev);
+                let (mut e_grad_wt, mut e_grad_b) = (vec![0.5; k * n], vec![0.5; n]);
+                reference::dense_weight_grad(x, rows, k, dz, n, &mut e_grad_wt, &mut e_grad_b);
+                assert_close(&out, &e_out);
+                assert_close(&d_prev, &e_d_prev);
+                assert_close(&grad_wt, &e_grad_wt);
+                assert_close(&grad_b, &e_grad_b);
+            }
+        }
+    });
+}
+
+#[test]
+#[serial]
+fn test_output_layer_matches_reference_for_saturated_logits() {
+    for_each_backend(|| {
+        // Given logits from about -200 to 200, where exp(-|logit|) underflows
+        let mut rng = StdRng::seed_from_u64(8);
+        let (rows, k) = (45, 16);
+        let a: Vec<f32> = random(&mut rng, rows * k)
+            .iter()
+            .map(|v| v * 25.0)
+            .collect();
+        let w = random(&mut rng, k);
+        let y: Vec<f32> = (0..rows).map(|r| (r % 3 == 0) as u8 as f32).collect();
+
+        // When running the fused output layer with the dispatched backend and the reference
+        let (mut dz, mut grad_w, mut grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
+        let loss = output_layer_train(
+            &a,
+            rows,
+            k,
+            &w,
+            -0.2,
+            &y,
+            1.0,
+            &mut dz,
+            &mut grad_w,
+            &mut grad_b,
+        );
+        let (mut e_dz, mut e_grad_w, mut e_grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
+        let e_loss = reference::output_layer_train(
+            &a,
+            rows,
+            k,
+            &w,
+            -0.2,
+            &y,
+            1.0,
+            &mut e_dz,
+            &mut e_grad_w,
+            &mut e_grad_b,
+        );
+
+        // Then loss and gradients agree
+        assert_close(&[loss], &[e_loss]);
+        assert_close(&dz, &e_dz);
+        assert_close(&grad_w, &e_grad_w);
+        assert_close(&[grad_b], &[e_grad_b]);
+    });
 }

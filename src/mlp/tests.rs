@@ -129,8 +129,12 @@ fn test_output_layer_matches_scalar() {
     for_each_backend(|| {
         // Given a final hidden layer and binary labels
         let mut rng = StdRng::seed_from_u64(4);
-        for (rows, k) in [(33, 32), (8, 6)] {
-            let a = random(&mut rng, rows * k);
+        // (rows, k, scale): ragged row groups, a scalar fallback, saturated sigmoids (|logit| > 90)
+        for (rows, k, scale) in [(33, 32, 1.0), (8, 6, 1.0), (40, 16, 25.0)] {
+            let a: Vec<f32> = random(&mut rng, rows * k)
+                .iter()
+                .map(|v| v * scale)
+                .collect();
             let w = random(&mut rng, k);
             let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
 

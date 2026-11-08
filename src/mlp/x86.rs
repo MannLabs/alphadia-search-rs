@@ -14,7 +14,8 @@
 //! only when the CPU supports it, which is what makes the `unsafe` calls below sound.
 
 /// The kernels of one instruction set, written against the primitives in scope (`V`, `LANES`,
-/// `MR`, `zero`, `load`, `store`, `splat`, `fma`, `add`, `mul`, `relu`, `keep_positive`, `hsum`).
+/// `MR`, `zero`, `load`, `store`, `splat`, `fma`, `add`, `mul`, `div`, `relu`, `keep_positive`,
+/// `hsum`, `clamp`, `round`, `ldexp`).
 /// `tails` are the tile heights below `MR` that cover row tails, largest first; 1 is implied.
 /// `WIDE_MR` is the height of the 4-vector tile used when `n % (2 NR) == 0` (0: none).
 macro_rules! dense_kernels {
@@ -161,6 +162,45 @@ macro_rules! dense_kernels {
             hsum(add(acc0, acc1))
         }
 
+        /// `exp(x)`, within 2 ulp (Cephes `expf`: `x = n ln 2 + r`, a degree-7 polynomial in
+        /// `r`, scaled by `2^n`).
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn exp(x: V) -> V {
+            let x = clamp(x, -87.3, 88.3);
+            let n = round(mul(x, splat(std::f32::consts::LOG2_E)));
+            let r = fma(n, splat(-0.693_359_4), x);
+            let r = fma(n, splat(2.121_944_4e-4), r);
+            let mut p = splat(1.987_569_1e-4);
+            for c in [1.398_199_9e-3, 8.333_452e-3, 4.166_579_6e-2, 0.166_666_65, 0.5] {
+                p = fma(p, r, splat(c));
+            }
+            let p = fma(mul(p, r), r, add(r, splat(1.0)));
+            ldexp(p, n)
+        }
+
+        #[test]
+        fn test_exp_matches_libm() {
+            let supported = if $feature == "avx512f" {
+                is_x86_feature_detected!("avx512f")
+            } else {
+                is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma")
+            };
+            if !supported {
+                return;
+            }
+            // Given arguments across the whole range, including beyond the f32 limits
+            for i in -1200..=1200 {
+                let x = i as f32 * 0.0789;
+                let mut out = [0.0f32; LANES];
+                // SAFETY: the instruction set was detected above
+                unsafe { store(out.as_mut_ptr(), exp(splat(x))) };
+                // Then the vector exp is within 2 ulp of libm (both saturate the same way)
+                let expected = x.clamp(-87.3, 88.3).exp();
+                assert!((out[0] - expected).abs() <= 2.5e-7 * expected, "exp({x}) = {}", out[0]);
+            }
+        }
+
         /// `grad_b[n] += colsum(dz[rows x n])`, `n % LANES == 0`; up to 8 column vectors at a
         /// time stay in registers over all rows.
         #[target_feature(enable = $feature)]
@@ -198,18 +238,48 @@ macro_rules! dense_kernels {
             grad_w: &mut [f32],
             grad_b: &mut f32,
         ) {
+            /// rows whose output gradients are computed before they are applied
+            const ROWS: usize = 16;
+            /// weight vectors accumulated in registers over the rows
+            const W: usize = 4;
             let (ap, wp, dp, gp) =
                 (a.as_ptr(), w.as_ptr(), dz_prev.as_mut_ptr(), grad_w.as_mut_ptr());
-            for (r, &label) in y[..rows].iter().enumerate() {
-                let a_row = ap.add(r * k);
-                let logit = b + dot(a_row, wp, k);
-                let d = (1.0 / (1.0 + (-logit).exp()) - label) * loss_scale;
-                *grad_b += d;
-                let dv = splat(d);
-                for p in (0..k).step_by(LANES) {
-                    let av = load(a_row.add(p));
-                    store(gp.add(p), fma(av, dv, load(gp.add(p))));
-                    store(dp.add(r * k + p), keep_positive(mul(load(wp.add(p)), dv), av));
+            const { assert!(ROWS % LANES == 0) };
+            let mut d = [0.0f32; ROWS];
+            let mut labels = [0.0f32; ROWS];
+            let one = splat(1.0);
+            for r0 in (0..rows).step_by(ROWS) {
+                let m = ROWS.min(rows - r0);
+                // logits, then d = (sigmoid(logit) - y) * loss_scale for all rows at once
+                for (i, d) in d[..m].iter_mut().enumerate() {
+                    *d = -(b + dot(ap.add((r0 + i) * k), wp, k));
+                }
+                labels[..m].copy_from_slice(&y[r0..r0 + m]);
+                for q in (0..m).step_by(LANES) {
+                    let sigmoid = div(one, add(one, exp(load(d.as_ptr().add(q)))));
+                    let minus_y = mul(load(labels.as_ptr().add(q)), splat(-loss_scale));
+                    store(d.as_mut_ptr().add(q), fma(sigmoid, splat(loss_scale), minus_y));
+                }
+                *grad_b += d[..m].iter().sum::<f32>();
+                for p0 in (0..k).step_by(W * LANES) {
+                    let width = ((k - p0) / LANES).min(W);
+                    let mut acc = [zero(); W];
+                    let mut wv = [zero(); W];
+                    for q in 0..width {
+                        acc[q] = load(gp.add(p0 + q * LANES));
+                        wv[q] = load(wp.add(p0 + q * LANES));
+                    }
+                    for (i, &d) in d[..m].iter().enumerate() {
+                        let (dv, at) = (splat(d), (r0 + i) * k + p0);
+                        for q in 0..width {
+                            let av = load(ap.add(at + q * LANES));
+                            acc[q] = fma(av, dv, acc[q]);
+                            store(dp.add(at + q * LANES), keep_positive(mul(wv[q], dv), av));
+                        }
+                    }
+                    for (q, v) in acc.iter().enumerate().take(width) {
+                        store(gp.add(p0 + q * LANES), *v);
+                    }
                 }
             }
         }
@@ -420,6 +490,29 @@ pub mod avx2 {
         let s = _mm_add_ps(s, _mm_movehl_ps(s, s));
         _mm_cvtss_f32(_mm_add_ss(s, _mm_shuffle_ps::<1>(s, s)))
     }
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn div(a: V, b: V) -> V {
+        _mm256_div_ps(a, b)
+    }
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn clamp(v: V, lo: f32, hi: f32) -> V {
+        _mm256_min_ps(_mm256_max_ps(v, _mm256_set1_ps(lo)), _mm256_set1_ps(hi))
+    }
+    /// `v` rounded to the nearest integer
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn round(v: V) -> V {
+        _mm256_round_ps::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(v)
+    }
+    /// `v * 2^n` for integral `n` in [-126, 127]
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn ldexp(v: V, n: V) -> V {
+        let bits = _mm256_slli_epi32::<23>(_mm256_cvtps_epi32(n));
+        _mm256_castsi256_ps(_mm256_add_epi32(_mm256_castps_si256(v), bits))
+    }
 
     dense_kernels!(feature = "avx2,fma", tails = [4, 2]);
 }
@@ -487,6 +580,28 @@ pub mod avx512 {
     #[target_feature(enable = "avx512f")]
     unsafe fn hsum(v: V) -> f32 {
         _mm512_reduce_add_ps(v)
+    }
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn div(a: V, b: V) -> V {
+        _mm512_div_ps(a, b)
+    }
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn clamp(v: V, lo: f32, hi: f32) -> V {
+        _mm512_min_ps(_mm512_max_ps(v, _mm512_set1_ps(lo)), _mm512_set1_ps(hi))
+    }
+    /// `v` rounded to the nearest integer
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn round(v: V) -> V {
+        _mm512_roundscale_ps::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(v)
+    }
+    /// `v * 2^n` for integral `n`
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn ldexp(v: V, n: V) -> V {
+        _mm512_scalef_ps(v, n)
     }
 
     dense_kernels!(feature = "avx512f", tails = [4, 2]);

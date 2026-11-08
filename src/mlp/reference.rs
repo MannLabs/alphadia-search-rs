@@ -100,12 +100,10 @@ pub fn output_layer_train(
     dz_prev: &mut [f32],
     grad_w: &mut [f32],
     grad_b: &mut f32,
-) -> f32 {
-    let mut loss = 0.0;
+) {
     for r in 0..rows {
         let a_row = &a[r * k..(r + 1) * k];
         let logit = b + a_row.iter().zip(w).map(|(x, wv)| x * wv).sum::<f32>();
-        loss += bce_with_logits(logit, y[r]);
         let d = (1.0 / (1.0 + (-logit).exp()) - y[r]) * loss_scale;
         *grad_b += d;
         for p in 0..k {
@@ -113,7 +111,6 @@ pub fn output_layer_train(
             dz_prev[r * k + p] = if a_row[p] > 0.0 { d * w[p] } else { 0.0 };
         }
     }
-    loss
 }
 
 pub fn output_layer_logits(

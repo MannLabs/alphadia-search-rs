@@ -34,7 +34,7 @@ type Kernels = (
     fn(&[f32], usize, usize, &[f32], usize, &[f32], Activation, &mut [f32]),
     fn(&[f32], usize, usize, &[f32], usize, &[f32], &mut [f32]),
     fn(&[f32], usize, usize, &[f32], usize, &mut [f32], &mut [f32]),
-    fn(&[f32], usize, usize, &[f32], f32, &[f32], f32, &mut [f32], &mut [f32], &mut f32) -> f32,
+    fn(&[f32], usize, usize, &[f32], f32, &[f32], f32, &mut [f32], &mut [f32], &mut f32),
 );
 
 #[test]

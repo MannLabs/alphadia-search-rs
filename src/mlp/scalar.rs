@@ -362,7 +362,7 @@ fn dot(a: &[f32], w: &[f32]) -> f32 {
     acc.iter().sum::<f32>() + tail
 }
 
-/// Single-logit output layer fused with BCE-with-logits; returns the summed loss.
+/// Single-logit output layer fused with BCE-with-logits: the gradients of the loss.
 #[allow(clippy::too_many_arguments)]
 pub fn output_layer_train_scalar(
     a: &[f32],
@@ -375,17 +375,12 @@ pub fn output_layer_train_scalar(
     dz_prev: &mut [f32],
     grad_w: &mut [f32],
     grad_b: &mut f32,
-) -> f32 {
+) {
     let (w, grad_w) = (&w[..k], &mut grad_w[..k]);
-    let mut loss = 0.0f32;
     for (r, &label) in y[..rows].iter().enumerate() {
         let a_row = &a[r * k..][..k];
         let logit = b + dot(a_row, w);
-        // one exp for both the stable loss and the sigmoid
-        let e = (-logit.abs()).exp();
-        loss += logit.max(0.0) - logit * label + e.ln_1p();
-        let sigmoid = if logit >= 0.0 { 1.0 } else { e } / (1.0 + e);
-        let d = (sigmoid - label) * loss_scale;
+        let d = (1.0 / (1.0 + (-logit).exp()) - label) * loss_scale;
         *grad_b += d;
         let dz_row = &mut dz_prev[r * k..][..k];
         for (((g, dz), &x), &wv) in grad_w.iter_mut().zip(dz_row).zip(a_row).zip(w) {
@@ -393,7 +388,6 @@ pub fn output_layer_train_scalar(
             *dz = if x > 0.0 { d * wv } else { 0.0 };
         }
     }
-    loss
 }
 
 /// `logits[r] = a[r] . w + b`.

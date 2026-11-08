@@ -14,7 +14,7 @@ struct Kernels {
     backward_input: fn(&[f32], usize, usize, &[f32], usize, &[f32], &mut [f32]),
     weight_grad: fn(&[f32], usize, usize, &[f32], usize, &mut [f32], &mut [f32]),
     output_train:
-        fn(&[f32], usize, usize, &[f32], f32, &[f32], f32, &mut [f32], &mut [f32], &mut f32) -> f32,
+        fn(&[f32], usize, usize, &[f32], f32, &[f32], f32, &mut [f32], &mut [f32], &mut f32),
     output_logits: fn(&[f32], usize, usize, &[f32], f32, &mut [f32]),
 }
 

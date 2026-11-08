@@ -89,54 +89,86 @@ pub fn dense_forward_relu(
     }
 }
 
-/// d_prev[rows x k] = (dz[rows x n] @ W) * (a_prev > 0); `w` is [n x k], `wt` the same as [k x n].
-#[allow(clippy::too_many_arguments)]
-pub fn dense_backward_input(
-    backend: Backend,
-    dz: &[f32],
-    rows: usize,
-    n: usize,
-    w: &[f32],
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] wt: &[f32],
-    k: usize,
-    a_prev: &[f32],
-    d_prev: &mut [f32],
-) {
-    match backend {
-        Backend::Simd => mlp::dense_backward_input(dz, rows, n, w, k, a_prev, d_prev),
-        #[cfg(target_os = "macos")]
-        Backend::Accelerate => {
-            accelerate::sgemm(false, true, rows, k, n, dz, n, wt, n, 0.0, d_prev, k);
-            for (d, &a) in d_prev[..rows * k].iter_mut().zip(&a_prev[..rows * k]) {
-                *d = if a > 0.0 { *d } else { 0.0 };
-            }
-        }
-    }
-}
+/// The per-layer kernels of a training step on Accelerate; the output layer stays on the
+/// SIMD kernels (a matrix-vector product).
+#[cfg(target_os = "macos")]
+pub struct Accelerate;
 
-/// grad_wt[k x n] += a_prev^T @ dz, grad_b[n] += colsum(dz)
-#[allow(clippy::too_many_arguments)]
-pub fn dense_weight_grad(
-    backend: Backend,
-    a_prev: &[f32],
-    rows: usize,
-    k: usize,
-    dz: &[f32],
-    n: usize,
-    grad_wt: &mut [f32],
-    grad_b: &mut [f32],
-) {
-    match backend {
-        Backend::Simd => mlp::dense_weight_grad(a_prev, rows, k, dz, n, grad_wt, grad_b),
-        #[cfg(target_os = "macos")]
-        Backend::Accelerate => {
-            accelerate::sgemm(true, false, k, n, rows, a_prev, k, dz, n, 1.0, grad_wt, n);
-            for row in dz[..rows * n].chunks_exact(n) {
-                for (g, &d) in grad_b.iter_mut().zip(row) {
-                    *g += d;
+#[cfg(target_os = "macos")]
+impl mlp::LayerKernels for Accelerate {
+    fn dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: Activation,
+        out: &mut [f32],
+    ) {
+        accelerate::sgemm(false, false, rows, n, k, x, k, wt, n, 0.0, out, n);
+        for row in out[..rows * n].chunks_exact_mut(n) {
+            for (v, &b) in row.iter_mut().zip(bias) {
+                *v += b;
+                if activation == Activation::Relu {
+                    *v = v.max(0.0);
                 }
             }
         }
+    }
+
+    /// d_prev[rows x k] = (dz[rows x n] @ W) * (a_prev > 0)
+    fn dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        _w: &[f32],
+        wt: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    ) {
+        accelerate::sgemm(false, true, rows, k, n, dz, n, wt, n, 0.0, d_prev, k);
+        for (d, &a) in d_prev[..rows * k].iter_mut().zip(&a_prev[..rows * k]) {
+            *d = if a > 0.0 { *d } else { 0.0 };
+        }
+    }
+
+    /// grad_wt[k x n] += a_prev^T @ dz, grad_b[n] += colsum(dz)
+    fn dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    ) {
+        accelerate::sgemm(true, false, k, n, rows, a_prev, k, dz, n, 1.0, grad_wt, n);
+        for row in dz[..rows * n].chunks_exact(n) {
+            for (g, &d) in grad_b.iter_mut().zip(row) {
+                *g += d;
+            }
+        }
+    }
+
+    fn output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    ) {
+        mlp::output_layer_train(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b);
     }
 }
 

@@ -295,13 +295,12 @@ pub fn output_layer_train_neon(
     dz_prev: &mut [f32],
     grad_w: &mut [f32],
     grad_b: &mut f32,
-) -> f32 {
+) {
     if k % 4 != 0 {
         return scalar::output_layer_train_scalar(
             a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b,
         );
     }
-    let mut loss = 0.0f32;
     unsafe {
         let zero = vdupq_n_f32(0.0);
         let (ap, wp, dp, gp) = (
@@ -313,15 +312,7 @@ pub fn output_layer_train_neon(
         for r in 0..rows {
             let a_row = ap.add(r * k);
             let logit = b + dot_neon(a_row, wp, k);
-            // one exp for both the stable loss and the sigmoid
-            let e = (-logit.abs()).exp();
-            loss += logit.max(0.0) - logit * y[r] + e.ln_1p();
-            let sigmoid = if logit >= 0.0 {
-                1.0 / (1.0 + e)
-            } else {
-                e / (1.0 + e)
-            };
-            let d = (sigmoid - y[r]) * loss_scale;
+            let d = (1.0 / (1.0 + (-logit).exp()) - y[r]) * loss_scale;
             *grad_b += d;
             let dv = vdupq_n_f32(d);
             for p in (0..k).step_by(4) {
@@ -336,7 +327,6 @@ pub fn output_layer_train_neon(
             }
         }
     }
-    loss
 }
 
 #[cfg(target_arch = "aarch64")]

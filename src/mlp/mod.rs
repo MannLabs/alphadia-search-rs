@@ -153,4 +153,6 @@ fn check_len(values: &[f32], expected: usize, name: &str) {
 }
 
 #[cfg(test)]
+mod bench_train;
+#[cfg(test)]
 mod tests;

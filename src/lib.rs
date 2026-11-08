@@ -22,6 +22,7 @@ mod precursor_quantified;
 mod quadrupole_observation;
 mod rt_index;
 pub mod score;
+pub mod search_tolerances;
 mod simd;
 pub mod speclib_flat;
 pub mod speclib_flat_quantified;
@@ -40,6 +41,7 @@ use crate::peak_group_quantification::{PeakGroupQuantification, QuantificationPa
 use crate::peak_group_scoring::features::CandidateFeatureCollection;
 use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
+use crate::search_tolerances::SearchTolerances;
 use crate::speclib_flat::SpecLibFlat;
 use crate::speclib_flat_quantified::SpecLibFlatQuantified;
 use crate::varmodel_quantification::VarModelQuantification;
@@ -88,6 +90,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<FeatureSet>()?;
     m.add_class::<PeakGroupSelection>()?;
     m.add_class::<SelectionParameters>()?;
+    m.add_class::<SearchTolerances>()?;
     m.add_class::<PeakGroupQuantification>()?;
     m.add_class::<QuantificationParameters>()?;
     m.add_class::<CandidateCollection>()?;

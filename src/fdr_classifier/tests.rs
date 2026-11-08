@@ -525,3 +525,56 @@ fn test_mid_rank_bounds_maps_ties_at_the_highest_quantile_to_their_middle() {
     // between knots 80 and 81 (rank 0.81 forward-backward mean with 1.0 gives 0.905)
     assert!((mid[0] - norm_ppf(0.905) as f32).abs() < 1e-4, "{}", mid[0]);
 }
+
+#[test]
+fn test_batch_norm_folded_into_the_first_layer_predicts_like_normalized_input() {
+    // Given trained batch norm parameters, with features far off zero relative to their spread
+    let mut rng = StdRng::seed_from_u64(13);
+    let (n_rows, n_features) = (2000, 12);
+    let (mut x, y) = separable(&mut rng, n_rows, n_features);
+    for (i, v) in x.iter_mut().enumerate() {
+        if i % n_features < 6 {
+            *v = *v * 0.1 + 100.0;
+        }
+    }
+    let params = network::train(&x, n_rows, n_features, &y, &batch_norm_config(), None).unwrap();
+
+    // When predicting with the batch norm, and without it on input normalized by hand
+    let logits = network::predict(
+        &x,
+        n_rows,
+        n_features,
+        &[32, 16],
+        &params,
+        Backend::Simd,
+        true,
+    )
+    .unwrap();
+    let plain = network::Layout::new(n_features, &[32, 16], false)
+        .unwrap()
+        .size;
+    let bn = |i: usize| &params[plain + i * n_features..plain + (i + 1) * n_features];
+    let normalized: Vec<f32> = x
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let p = i % n_features;
+            bn(0)[p] * (v - bn(2)[p]) / (bn(3)[p] + 1e-5).sqrt() + bn(1)[p]
+        })
+        .collect();
+    let expected = network::predict(
+        &normalized,
+        n_rows,
+        n_features,
+        &[32, 16],
+        &params[..plain],
+        Backend::Simd,
+        false,
+    )
+    .unwrap();
+
+    // Then both agree
+    for (a, e) in logits.iter().zip(&expected) {
+        assert!((a - e).abs() < 1e-3 * (1.0 + e.abs()), "{a} vs {e}");
+    }
+}

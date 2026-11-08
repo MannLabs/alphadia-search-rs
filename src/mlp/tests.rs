@@ -1,5 +1,6 @@
 use super::reference;
 use super::reference::bce_with_logits;
+use super::fused::{self, Dense};
 use super::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -413,6 +414,35 @@ fn test_train_chunk_matches_scalar_on_every_backend() {
     }
 }
 
+/// Layer-by-layer reference of [`fused::Network::logits`] with the scalar kernels.
+fn network_reference(
+    x: &[f32],
+    rows: usize,
+    k: usize,
+    hidden: &[Dense],
+    w_out: &[f32],
+    b_out: f32,
+) -> Vec<f32> {
+    let (mut input, mut inputs) = (x.to_vec(), k);
+    for layer in hidden {
+        let mut out = vec![0.0; rows * layer.n];
+        reference::dense_forward(
+            &input,
+            rows,
+            inputs,
+            layer.wt,
+            layer.n,
+            layer.bias,
+            Activation::Relu,
+            &mut out,
+        );
+        (input, inputs) = (out, layer.n);
+    }
+    let mut logits = vec![0.0; rows];
+    reference::output_layer_logits(&input, rows, inputs, w_out, b_out, &mut logits);
+    logits
+}
+
 #[test]
 #[serial]
 fn test_train_chunk_gradient_matches_finite_difference() {
@@ -493,4 +523,53 @@ fn test_aligned_buffer_starts_on_a_cache_line() {
         assert_eq!(&buf[..], &values[..]);
         assert_eq!(buf.as_ptr() as usize % 64, 0);
     }
+}
+
+#[test]
+#[serial]
+fn test_network_logits_match_the_layer_by_layer_reference() {
+    for_each_backend(|| {
+        // Given networks of the FDR shape, odd feature counts and widths that need padding,
+        // a single row, and row counts that leave partial blocks and chunks
+        let mut rng = StdRng::seed_from_u64(6);
+        let cases: [(usize, usize, &[usize]); 6] = [
+            (1000, 40, &[128, 64, 32]),
+            (1, 40, &[128, 64, 32]),
+            (8195, 13, &[128, 64, 32]),
+            (77, 5, &[33, 7]),
+            (130, 1, &[300]),
+            (9, 3, &[1, 1, 1]),
+        ];
+        for (rows, k, widths) in cases {
+            let x = random(&mut rng, rows * k);
+            let (mut wts, mut biases, mut inputs) = (Vec::new(), Vec::new(), k);
+            for &n in widths {
+                wts.push(random(&mut rng, inputs * n));
+                biases.push(random(&mut rng, n));
+                inputs = n;
+            }
+            let hidden: Vec<Dense> = widths
+                .iter()
+                .enumerate()
+                .map(|(l, &n)| Dense {
+                    wt: &wts[l],
+                    bias: &biases[l],
+                    n,
+                })
+                .collect();
+            let w_out = random(&mut rng, inputs);
+
+            // When predicting fused, in parallel and on one thread
+            let network = fused::Network::new(k, &hidden, &w_out, 0.2);
+            let mut logits = vec![0.0; rows];
+            network.logits(&x, &mut logits);
+            let mut serial = vec![0.0; rows];
+            network.logits_serial(&x, &mut serial);
+
+            // Then both match the layer-by-layer reference
+            let expected = network_reference(&x, rows, k, &hidden, &w_out, 0.2);
+            assert_close(&logits, &expected);
+            assert_close(&serial, &expected);
+        }
+    });
 }

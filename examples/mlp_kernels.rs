@@ -46,16 +46,51 @@ fn kernels(name: &str) -> Kernels {
     }
 }
 
-fn data(len: usize, seed: u32) -> Vec<f32> {
+/// A buffer whose first element is `MLP_MISALIGN` floats (default 0) past a 64-byte boundary,
+/// so tile changes are not confused with the alignment the allocator happens to return.
+struct Buf {
+    v: Vec<f32>,
+    off: usize,
+    len: usize,
+}
+
+impl std::ops::Deref for Buf {
+    type Target = [f32];
+    fn deref(&self) -> &[f32] {
+        &self.v[self.off..self.off + self.len]
+    }
+}
+
+impl std::ops::DerefMut for Buf {
+    fn deref_mut(&mut self) -> &mut [f32] {
+        &mut self.v[self.off..self.off + self.len]
+    }
+}
+
+fn misalign() -> usize {
+    std::env::var("MLP_MISALIGN").map_or(0, |v| v.parse().unwrap())
+}
+
+fn zeros(len: usize) -> Buf {
+    let v = vec![0.0f32; len + 32];
+    let to_boundary = (64 - v.as_ptr() as usize % 64) % 64 / 4;
+    Buf {
+        v,
+        off: to_boundary + misalign(),
+        len,
+    }
+}
+
+fn data(len: usize, seed: u32) -> Buf {
+    let mut buf = zeros(len);
     let mut s = seed.wrapping_mul(2654435761).wrapping_add(12345);
-    (0..len)
-        .map(|_| {
-            s ^= s << 13;
-            s ^= s >> 17;
-            s ^= s << 5;
-            (s as f32 / u32::MAX as f32) - 0.5
-        })
-        .collect()
+    for x in buf.iter_mut() {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        *x = (s as f32 / u32::MAX as f32) - 0.5;
+    }
+    buf
 }
 
 /// Best-of-repeats seconds per call of `f`.
@@ -101,8 +136,47 @@ fn main() {
     let train_rows: usize = args.get(2).map_or(625, |s| s.parse().unwrap());
     let predict_rows = 4096;
     let kn = kernels(backend);
+    // optional `k n`: time only that layer shape
+    if let (Some(k), Some(n)) = (args.get(3), args.get(4)) {
+        let (k, n): (usize, usize) = (k.parse().unwrap(), n.parse().unwrap());
+        let rows = train_rows;
+        let (x, wt, bias, dz) = (
+            data(rows * k, 1),
+            data(k * n, 2),
+            data(n, 3),
+            data(rows * n, 4),
+        );
+        let (mut out, mut d_prev) = (zeros(rows * n), zeros(rows * k));
+        let (mut gw, mut gb) = (zeros(k * n), zeros(n));
+        let flops = 2.0 * (rows * k * n) as f64;
+        let s = time(flops, || {
+            (kn.forward)(
+                black_box(&x),
+                rows,
+                k,
+                &wt,
+                n,
+                &bias,
+                Activation::Relu,
+                &mut out,
+            )
+        });
+        report(&format!("forward {k}x{n}"), flops, s);
+        let s = time(flops, || {
+            (kn.backward_input)(black_box(&dz), rows, n, &wt, k, &x, &mut d_prev)
+        });
+        report(&format!("backward_in {n}->{k}"), flops, s);
+        let s = time(flops, || {
+            (kn.weight_grad)(black_box(&x), rows, k, &dz, n, &mut gw, &mut gb)
+        });
+        report(&format!("weight_grad {k}x{n}"), flops, s);
+        return;
+    }
     let layers = [(40usize, 128usize), (128, 64), (64, 32)];
-    println!("backend {backend}, train rows {train_rows}, predict rows {predict_rows}");
+    println!(
+        "backend {backend}, train rows {train_rows}, predict rows {predict_rows}, buffers {} floats past 64-byte alignment",
+        misalign()
+    );
     #[cfg(target_arch = "x86_64")]
     if backend == "avx512" {
         let iters = 1_000_000;
@@ -119,7 +193,7 @@ fn main() {
             let x = data(rows * k, 1);
             let wt = data(k * n, 2);
             let bias = data(n, 3);
-            let mut out = vec![0.0; rows * n];
+            let mut out = zeros(rows * n);
             let flops = 2.0 * (rows * k * n) as f64;
             let s = time(flops, || {
                 (kn.forward)(
@@ -144,7 +218,7 @@ fn main() {
         let dz = data(rows * n, 4);
         let w = data(n * k, 5);
         let a_prev = data(rows * k, 6);
-        let mut d_prev = vec![0.0; rows * k];
+        let mut d_prev = zeros(rows * k);
         let flops = 2.0 * (rows * k * n) as f64;
         let s = time(flops, || {
             (kn.backward_input)(black_box(&dz), rows, n, &w, k, &a_prev, &mut d_prev)
@@ -155,8 +229,8 @@ fn main() {
     for &(k, n) in &layers {
         let a_prev = data(rows * k, 7);
         let dz = data(rows * n, 8);
-        let mut gw = vec![0.0; k * n];
-        let mut gb = vec![0.0; n];
+        let mut gw = zeros(k * n);
+        let mut gb = zeros(n);
         let flops = 2.0 * (rows * k * n) as f64;
         let s = time(flops, || {
             (kn.weight_grad)(black_box(&a_prev), rows, k, &dz, n, &mut gw, &mut gb)
@@ -169,8 +243,8 @@ fn main() {
         let a = data(rows * k, 9);
         let w = data(k, 10);
         let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
-        let mut dz = vec![0.0; rows * k];
-        let mut gw = vec![0.0; k];
+        let mut dz = zeros(rows * k);
+        let mut gw = zeros(k);
         let mut gb = 0.0;
         let flops = 4.0 * (rows * k) as f64;
         let s = time(flops, || {
@@ -191,7 +265,7 @@ fn main() {
         total_train += s;
         let rows = predict_rows;
         let a = data(rows * k, 11);
-        let mut logits = vec![0.0; rows];
+        let mut logits = zeros(rows);
         let flops = 2.0 * (rows * k) as f64;
         let s = time(flops, || {
             (kn.output_logits)(black_box(&a), rows, k, &w, 0.1, &mut logits)

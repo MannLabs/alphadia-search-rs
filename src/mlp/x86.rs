@@ -1,19 +1,23 @@
 //! AVX2 and AVX-512 dense-layer kernels (x86_64).
 //!
-//! One register-blocked tile computes `MR` rows x `NV` vectors of `C = A @ B`; its accumulators
-//! stay in registers for the whole reduction and the epilogue (bias + ReLU, bias, the ReLU mask
-//! of the previous layer, or accumulation into `C`) is fused into the store. A is applied as one
-//! broadcast element per tile row, so it is never packed for the forward and input-gradient
-//! passes and may be read with any stride; the weight gradient packs strips of the transposed
-//! activations into a stack panel and runs the same tile on it. Row tails use smaller tiles;
-//! a column tail runs the full-width tile with masked loads and stores, so every shape is
-//! vectorised. The tile is unrolled explicitly ([`unroll`]), not by the optimizer, which on
-//! Rust 1.89 keeps larger tiles in memory.
+//! Every dense pass is one GEMM `C = epilogue(A @ B)` over register-blocked tiles of `M` rows x
+//! `W` vectors: the accumulators stay in registers for the whole reduction, and the epilogue
+//! (bias + ReLU, bias, the ReLU mask of the previous layer, or accumulation into `C`) is fused
+//! into the store. A is applied as one broadcast element per tile row, so it is never packed:
+//! the forward and input-gradient passes read it from activation rows, the weight gradient from
+//! `a_prev` itself, whose rows hold the `M` inputs of a tile contiguously (a "panel"), with the
+//! reduction running over all rows. B streams whole vectors; when its rows are not 64-byte
+//! aligned it is staged into an aligned stack buffer, so no B load splits a cache line.
+//!
+//! Tiles come in two shapes per instruction set (wide for layers with many outputs), row tails
+//! use 4-, 2- and 1-row tiles and column tails masked loads and stores, so every shape is
+//! vectorised. Each tile is unrolled explicitly ([`unroll`]), not by the optimizer: on Rust 1.89
+//! LLVM leaves a 12-row tile rolled and its accumulators in memory.
 //!
 //! [`dense_kernels`] writes the kernels once; each instruction set only supplies its vector
-//! type, tile shape and a handful of primitives. The SIMD backend registry selects an
+//! type, tile shapes and a handful of primitives. The SIMD backend registry selects an
 //! instruction set only when the CPU supports it, which is what makes the `unsafe` calls below
-//! sound. No kernel allocates: scratch space (the weight-gradient panel) lives on the stack.
+//! sound. No kernel allocates.
 
 /// Expands `$body` once per index `0..16`, with `$i` a `const usize` inside it. Bodies guard
 /// themselves with `if $i < BOUND` on a const generic, which the compiler folds away, so a
@@ -31,9 +35,8 @@ macro_rules! unroll {
 }
 
 /// The kernels of one instruction set, written against the primitives in scope: the vector and
-/// mask types `V`, `Mask`, `LANES`, the tile shapes (`MR` rows x `NV` vectors by default and for
-/// the weight-gradient panel, `WIDE_MR x WIDE_NV` for layers with at least `WIDE_NV` vectors of
-/// columns) and `zero`, `load`, `store`, `tail_mask`, `load_masked`, `store_masked`, `splat`,
+/// mask types `V`, `Mask`, `LANES`, the tile shapes (`MR` rows x `NV` vectors, and
+/// `WIDE_MR x WIDE_NV` for layers with at least `WIDE_NV` vectors of columns) and `zero`, `load`, `store`, `tail_mask`, `load_masked`, `store_masked`, `splat`,
 /// `fma`, `add`, `mul`, `relu`, `keep_positive`, `pair_sum`.
 macro_rules! dense_kernels {
     (feature = $feature:literal) => {
@@ -41,11 +44,17 @@ macro_rules! dense_kernels {
 
         /// Columns of a full tile of the default shape.
         const NC: usize = NV * LANES;
-        /// Reduction steps per iteration of the tile loop, reading A from rows or from a panel.
+        /// Reduction steps per iteration of the tile loop, reading A from rows or from a panel
+        /// (unrolling the row form makes LLVM hoist all broadcasts and spill them).
         const UNROLL_ROWS: usize = 1;
         const UNROLL_PANEL: usize = 4;
-        /// Rows the weight-gradient kernel packs and reduces per block.
-        const GRAD_ROW_BLOCK: usize = 128;
+
+        /// Floats of the stack buffer that stages a misaligned B (64 KiB).
+        const STAGE_FLOATS: usize = 16384;
+        const STAGE_ALIGN: usize = 64;
+
+        #[repr(C, align(64))]
+        struct Stage([f32; STAGE_FLOATS]);
 
         const EPILOGUE_LINEAR: u8 = 0;
         const EPILOGUE_RELU: u8 = 1;
@@ -234,10 +243,16 @@ macro_rules! dense_kernels {
             }
         }
 
-        /// The forward / input-gradient GEMM: wide tiles when there are enough columns.
+        /// [`gemm`] with `ldb == ldc == n`, in wide tiles when there are enough columns.
+        ///
+        /// B rows that do not start on 64-byte boundaries (a misaligned buffer, or `n` not a
+        /// multiple of 16) would make every B load split a cache line. Such a B is copied into an
+        /// aligned stack buffer with padded rows first, whole when it fits (the weights of the
+        /// forward and input-gradient passes), or in blocks of reduction steps for the
+        /// accumulating weight gradient. The copy is a small fraction of the GEMM it serves.
         #[target_feature(enable = $feature)]
         #[allow(clippy::too_many_arguments)]
-        unsafe fn gemm_rows<const EPILOGUE: u8>(
+        unsafe fn gemm_shaped<const PANEL: bool, const EPILOGUE: u8>(
             a: *const f32,
             lda: usize,
             m: usize,
@@ -248,10 +263,45 @@ macro_rules! dense_kernels {
             aux_ld: usize,
             c: *mut f32,
         ) {
+            let stage_ld = n.next_multiple_of(STAGE_ALIGN / 4);
+            let block = STAGE_FLOATS / stage_ld;
+            let aligned = (b as usize) % STAGE_ALIGN == 0 && stage_ld == n;
+            if aligned || block == 0 || (block < kk && EPILOGUE != EPILOGUE_ACCUMULATE) {
+                return gemm_tiled::<PANEL, EPILOGUE>(a, lda, m, kk, b, n, n, aux, aux_ld, c);
+            }
+            let mut stage = std::mem::MaybeUninit::<Stage>::uninit();
+            let stage = stage.as_mut_ptr() as *mut f32;
+            let mut p0 = 0;
+            while p0 < kk {
+                let len = block.min(kk - p0);
+                for p in 0..len {
+                    std::ptr::copy_nonoverlapping(b.add((p0 + p) * n), stage.add(p * stage_ld), n);
+                }
+                let a_p = a.add(if PANEL { p0 * lda } else { p0 });
+                gemm_tiled::<PANEL, EPILOGUE>(a_p, lda, m, len, stage, stage_ld, n, aux, aux_ld, c);
+                p0 += len;
+            }
+        }
+
+        /// [`gemm`] with `ldc == n`, in wide tiles when there are enough columns.
+        #[target_feature(enable = $feature)]
+        #[allow(clippy::too_many_arguments)]
+        unsafe fn gemm_tiled<const PANEL: bool, const EPILOGUE: u8>(
+            a: *const f32,
+            lda: usize,
+            m: usize,
+            kk: usize,
+            b: *const f32,
+            ldb: usize,
+            n: usize,
+            aux: *const f32,
+            aux_ld: usize,
+            c: *mut f32,
+        ) {
             if n >= WIDE_NV * LANES {
-                gemm::<WIDE_MR, WIDE_NV, false, EPILOGUE>(a, lda, m, kk, b, n, n, aux, aux_ld, c, n)
+                gemm::<WIDE_MR, WIDE_NV, PANEL, EPILOGUE>(a, lda, m, kk, b, ldb, n, aux, aux_ld, c, n)
             } else {
-                gemm::<MR, NV, false, EPILOGUE>(a, lda, m, kk, b, n, n, aux, aux_ld, c, n)
+                gemm::<MR, NV, PANEL, EPILOGUE>(a, lda, m, kk, b, ldb, n, aux, aux_ld, c, n)
             }
         }
 
@@ -303,49 +353,6 @@ macro_rules! dense_kernels {
                 }});
                 store_cols::<MASKED>(g, sum, masks[Q]);
             }});
-        }
-
-        /// `grad_wt[k x n] += a[rows x k]^T @ dz[rows x n]`, `rows <= GRAD_ROW_BLOCK`. Each strip
-        /// of `MR` inputs is copied into a contiguous stack panel (`[rows x MR]`), so the tile
-        /// broadcasts A from one unit-stride stream instead of `MR` columns `k` floats apart.
-        #[target_feature(enable = $feature)]
-        unsafe fn weight_grad_block(
-            a: *const f32,
-            rows: usize,
-            k: usize,
-            dz: *const f32,
-            n: usize,
-            grad_wt: *mut f32,
-        ) {
-            let mut panel = [0.0f32; GRAD_ROW_BLOCK * MR];
-            let panel = panel.as_mut_ptr();
-            for i0 in (0..k).step_by(MR) {
-                let strip = MR.min(k - i0);
-                if strip == MR {
-                    for r in 0..rows {
-                        std::ptr::copy_nonoverlapping(a.add(r * k + i0), panel.add(r * MR), MR);
-                    }
-                } else {
-                    for r in 0..rows {
-                        for i in 0..strip {
-                            *panel.add(r * MR + i) = *a.add(r * k + i0 + i);
-                        }
-                    }
-                }
-                gemm::<MR, NV, true, EPILOGUE_ACCUMULATE>(
-                    panel,
-                    MR,
-                    strip,
-                    rows,
-                    dz,
-                    n,
-                    n,
-                    std::ptr::null(),
-                    0,
-                    grad_wt.add(i0 * n),
-                    n,
-                );
-            }
         }
 
         /// `out[i] = bias + a[i] . w` for `count` rows of `a` (row stride `k`); `L == LANES`
@@ -498,10 +505,10 @@ macro_rules! dense_kernels {
             unsafe {
                 match activation {
                     Activation::Relu => {
-                        gemm_rows::<EPILOGUE_RELU>(x, k, rows, k, wt, n, bias, 0, out)
+                        gemm_shaped::<false, EPILOGUE_RELU>(x, k, rows, k, wt, n, bias, 0, out)
                     }
                     Activation::Linear => {
-                        gemm_rows::<EPILOGUE_LINEAR>(x, k, rows, k, wt, n, bias, 0, out)
+                        gemm_shaped::<false, EPILOGUE_LINEAR>(x, k, rows, k, wt, n, bias, 0, out)
                     }
                 }
             }
@@ -520,7 +527,7 @@ macro_rules! dense_kernels {
             // reduction over the n outputs, result columns are the k inputs
             // SAFETY: as in dense_forward
             unsafe {
-                gemm_rows::<EPILOGUE_RELU_MASK>(
+                gemm_shaped::<false, EPILOGUE_RELU_MASK>(
                     dz.as_ptr(),
                     n,
                     rows,
@@ -547,17 +554,11 @@ macro_rules! dense_kernels {
             let (a, d) = (a_prev.as_ptr(), dz.as_ptr());
             // SAFETY: as in dense_forward
             unsafe {
-                for r0 in (0..rows).step_by(GRAD_ROW_BLOCK) {
-                    let block = GRAD_ROW_BLOCK.min(rows - r0);
-                    weight_grad_block(
-                        a.add(r0 * k),
-                        block,
-                        k,
-                        d.add(r0 * n),
-                        n,
-                        grad_wt.as_mut_ptr(),
-                    );
-                }
+                // tile rows are the k inputs, A = a_prev^T: the `MR` inputs of a tile are
+                // contiguous in every row of a_prev (a panel with stride k), and the reduction
+                // runs over all rows
+                let g = grad_wt.as_mut_ptr();
+                gemm_shaped::<true, EPILOGUE_ACCUMULATE>(a, k, k, rows, d, n, std::ptr::null(), 0, g);
                 colsum(d, rows, n, grad_b.as_mut_ptr());
             }
         }
@@ -699,7 +700,8 @@ pub mod avx2 {
     dense_kernels!(feature = "avx2,fma");
 }
 
-/// AVX-512F: 16 lanes, an 8 x 32 tile in 16 of the 32 vector registers.
+/// AVX-512F: 16 lanes; 12 x 32 tiles (24 accumulators), 6 x 64 tiles for layers with at least
+/// 64 outputs (24 accumulators, fewer B loads and broadcasts per FMA).
 pub mod avx512 {
     use std::arch::x86_64::*;
 

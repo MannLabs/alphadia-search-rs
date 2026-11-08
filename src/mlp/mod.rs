@@ -4,12 +4,14 @@
 //! weights transposed, `wt[k x n]`, so the forward pass streams contiguous weight rows.
 //! The kernels dispatch through the SIMD backend (scalar reference, NEON, AVX2 or AVX-512).
 
+mod aligned;
 pub mod neon;
 mod network;
 pub mod scalar;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
 
+pub use aligned::AlignedBuf;
 pub use network::{train_chunk_layered, LayerKernels, Network, TrainWorkspace, TRAIN_ROW_BLOCK};
 
 /// What a forward kernel applies to `x @ wt` before storing it.

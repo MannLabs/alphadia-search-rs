@@ -5,7 +5,7 @@
 //! back before the next block starts, so their activations and deltas stay in L1/L2 between the
 //! layers and the workspace does not grow with the chunk.
 
-use super::Activation;
+use super::{Activation, AlignedBuf};
 
 /// Rows of a chunk that pass through the whole network together.
 pub const TRAIN_ROW_BLOCK: usize = 128;
@@ -99,9 +99,9 @@ impl<'a> Network<'a> {
 /// Per-thread buffers of [`train_chunk`](super::train_chunk), sized once for a network shape.
 pub struct TrainWorkspace {
     /// hidden activations of one row block, layer after layer (`TRAIN_ROW_BLOCK` rows each)
-    activations: Vec<f32>,
+    activations: AlignedBuf,
     /// gradients at the hidden pre-activations of one row block, laid out like `activations`
-    deltas: Vec<f32>,
+    deltas: AlignedBuf,
     /// zero bias of the input-gradient product
     zeros: Vec<f32>,
 }
@@ -110,8 +110,8 @@ impl TrainWorkspace {
     pub fn new(dims: &[usize]) -> Self {
         let hidden: usize = dims[1..dims.len() - 1].iter().sum();
         TrainWorkspace {
-            activations: vec![0.0; TRAIN_ROW_BLOCK * hidden],
-            deltas: vec![0.0; TRAIN_ROW_BLOCK * hidden],
+            activations: AlignedBuf::zeros(TRAIN_ROW_BLOCK * hidden),
+            deltas: AlignedBuf::zeros(TRAIN_ROW_BLOCK * hidden),
             zeros: vec![0.0; dims[0]],
         }
     }

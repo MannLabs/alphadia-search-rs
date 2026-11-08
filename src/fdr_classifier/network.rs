@@ -166,7 +166,7 @@ fn forward_hidden(
 /// Buffers of one training thread, allocated once per fit.
 struct ChunkState {
     ws: mlp::TrainWorkspace,
-    grad: Vec<f32>,
+    grad: mlp::AlignedBuf,
     /// gradient at the batch norm output (only with the input batch norm)
     input_grad: Vec<f32>,
 }
@@ -309,7 +309,7 @@ pub fn train(
         );
     }
     let mut rng = StdRng::seed_from_u64(config.seed);
-    let mut params = match init {
+    let params = match init {
         Some(params) if params.len() == layout.size => params,
         Some(params) => {
             return Err(format!(
@@ -320,6 +320,8 @@ pub fn train(
         }
         None => layout.init_params(&mut rng),
     };
+    // the kernels stream weights and gradients in 64-byte vectors: keep them on cache lines
+    let mut params = mlp::AlignedBuf::from_slice(&params);
 
     // rows in random order once, then contiguous batches in a new random order every epoch
     let mut order: Vec<usize> = (0..n_rows).collect();
@@ -341,12 +343,12 @@ pub fn train(
     let mut states: Vec<ChunkState> = (0..n_chunks)
         .map(|_| ChunkState {
             ws: mlp::TrainWorkspace::new(&layout.dims),
-            grad: vec![0.0; layout.size],
+            grad: mlp::AlignedBuf::zeros(layout.size),
             input_grad: vec![0.0; input_grad_len],
         })
         .collect();
     // the backward pass reads the hidden weights untransposed
-    let mut back = vec![0.0f32; layout.size];
+    let mut back = mlp::AlignedBuf::zeros(layout.size);
     let mut adam_m = vec![0.0f32; layout.size];
     let mut adam_v = vec![0.0f32; layout.size];
     let mut grad = vec![0.0f32; layout.size];
@@ -413,7 +415,7 @@ pub fn train(
 
             grad.copy_from_slice(&states[0].grad);
             for state in &states[1..] {
-                for (g, w) in grad.iter_mut().zip(&state.grad) {
+                for (g, w) in grad.iter_mut().zip(state.grad.iter()) {
                     *g += w;
                 }
             }
@@ -446,10 +448,10 @@ pub fn train(
             if config.average_last_epoch && epoch + 1 == config.epochs {
                 n_averaged += 1;
                 match averaged.as_mut() {
-                    None => averaged = Some(params.clone()),
+                    None => averaged = Some(params.to_vec()),
                     Some(mean) => {
                         let weight = 1.0 / n_averaged as f32;
-                        for (a, &p) in mean.iter_mut().zip(&params) {
+                        for (a, &p) in mean.iter_mut().zip(params.iter()) {
                             *a += (p - *a) * weight;
                         }
                     }
@@ -457,7 +459,7 @@ pub fn train(
             }
         }
     }
-    Ok(averaged.unwrap_or(params))
+    Ok(averaged.unwrap_or_else(|| params.to_vec()))
 }
 
 /// Output logit of every row of `x`.

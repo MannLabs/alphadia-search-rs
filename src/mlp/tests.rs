@@ -346,3 +346,16 @@ fn test_train_chunk_gradient_matches_finite_difference() {
         );
     }
 }
+
+#[test]
+fn test_aligned_buffer_starts_on_a_cache_line() {
+    for len in [0, 1, 17, 15617] {
+        // Given a buffer copied from a slice
+        let values: Vec<f32> = (0..len).map(|i| i as f32).collect();
+        let buf = AlignedBuf::from_slice(&values);
+
+        // Then it has the values and starts on a 64-byte boundary
+        assert_eq!(&buf[..], &values[..]);
+        assert_eq!(buf.as_ptr() as usize % 64, 0);
+    }
+}

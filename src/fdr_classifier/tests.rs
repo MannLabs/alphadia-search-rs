@@ -75,6 +75,62 @@ fn test_quantile_transform_matches_exact_scores() {
 }
 
 #[test]
+fn test_radix_sort_orders_like_total_cmp() {
+    // Given random floats of all magnitudes, with ties, signed zeros, infinities and NaNs
+    let mut rng = StdRng::seed_from_u64(3);
+    let mut x: Vec<f32> = (0..50_000)
+        .map(|i| match i % 5 {
+            0 => f32::from_bits(rng.random()),
+            1 => rng.random_range(-3.0f32..3.0).round(),
+            _ => rng.random_range(-1e3f32..1e3),
+        })
+        .collect();
+    x.extend([0.0, -0.0, f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -f32::NAN]);
+
+    // When sorting with the radix sort of the quantile fit
+    let sorted = test_access::radix_sort(&x);
+
+    // Then the bits are those of a total_cmp sort
+    let mut expected = x.clone();
+    expected.sort_by(f32::total_cmp);
+    let bits = |v: &[f32]| v.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&sorted), bits(&expected));
+}
+
+#[test]
+#[serial_test::serial]
+fn test_quantile_transform_is_identical_on_every_simd_backend() {
+    // Given quantiles of heavy-tailed, discrete and uniform features fitted on a subsample, and
+    // rows with values outside the fitted range, at the knots and NaN
+    let mut rng = StdRng::seed_from_u64(4);
+    let (n_rows, n_features, n_quantiles) = (10_007, 3, 101);
+    let mut x = heavy_tailed(&mut rng, n_rows, n_features);
+    let q = quantile::fit(&x, n_rows, n_features, n_quantiles, Some(500), 0).unwrap();
+    x[..n_features].copy_from_slice(&[f32::NAN, 1e9, -1e9]);
+    x[n_features..2 * n_features].copy_from_slice(&[q[0] as f32, q[150] as f32, q[252] as f32]);
+
+    for mid_rank_bounds in [false, true] {
+        // When transforming with every SIMD backend
+        let transform = |backend: &str| {
+            crate::simd::set_backend(backend).ok()?;
+            quantile::transform(&x, n_rows, n_features, &q, n_quantiles, mid_rank_bounds).ok()
+        };
+        let reference = transform("scalar").unwrap();
+        for backend in ["avx2", "avx512", "neon"] {
+            // Then the scores are bit for bit those of the scalar code
+            if let Some(scores) = transform(backend) {
+                let same = scores
+                    .iter()
+                    .zip(&reference)
+                    .all(|(a, b)| a.to_bits() == b.to_bits());
+                assert!(same, "{backend}, mid_rank_bounds {mid_rank_bounds}");
+            }
+        }
+    }
+    crate::simd::clear_backend();
+}
+
+#[test]
 fn test_quantile_transform_keeps_nan_and_rejects_shape_mismatch() {
     // Given fitted quantiles
     let x: Vec<f32> = (0..1000).map(|v| v as f32).collect();

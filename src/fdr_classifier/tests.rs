@@ -85,7 +85,14 @@ fn test_radix_sort_orders_like_total_cmp() {
             _ => rng.random_range(-1e3f32..1e3),
         })
         .collect();
-    x.extend([0.0, -0.0, f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -f32::NAN]);
+    x.extend([
+        0.0,
+        -0.0,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::NAN,
+        -f32::NAN,
+    ]);
 
     // When sorting with the radix sort of the quantile fit
     let sorted = test_access::radix_sort(&x);

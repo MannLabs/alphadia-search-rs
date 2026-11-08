@@ -71,19 +71,25 @@ pub fn fit(
             .map(|_| Vec::with_capacity(group))
             .collect();
         for column in &mut columns {
-            for (block, piece) in blocks.iter_mut().zip(column.chunks_mut(TRANSFORM_CHUNK_ROWS)) {
+            for (block, piece) in blocks
+                .iter_mut()
+                .zip(column.chunks_mut(TRANSFORM_CHUNK_ROWS))
+            {
                 block.push(piece);
             }
         }
-        blocks.into_par_iter().enumerate().for_each(|(b, mut block)| {
-            for i in 0..block[0].len() {
-                let r = b * TRANSFORM_CHUNK_ROWS + i;
-                let row = &x[rows.map_or(r, |rows| rows[r]) * n_features + first..];
-                for (column, &v) in block.iter_mut().zip(row) {
-                    column[i] = order_key(v);
+        blocks
+            .into_par_iter()
+            .enumerate()
+            .for_each(|(b, mut block)| {
+                for i in 0..block[0].len() {
+                    let r = b * TRANSFORM_CHUNK_ROWS + i;
+                    let row = &x[rows.map_or(r, |rows| rows[r]) * n_features + first..];
+                    for (column, &v) in block.iter_mut().zip(row) {
+                        column[i] = order_key(v);
+                    }
                 }
-            }
-        });
+            });
         let per_feature: Vec<Vec<f64>> = columns
             .into_par_iter()
             .map(|keys| percentiles_from_sorted(&radix_sort(keys), &references))
@@ -368,7 +374,10 @@ impl FeatureMap {
         map.knot_scores = map.quantiles.iter().map(|&q| map.exact(q)).collect();
         map.slopes = (0..map.quantiles.len())
             .map(|j| {
-                let width = map.quantiles.get(j + 1).map_or(0.0, |&q| q - map.quantiles[j]);
+                let width = map
+                    .quantiles
+                    .get(j + 1)
+                    .map_or(0.0, |&q| q - map.quantiles[j]);
                 if width > 0.0 {
                     (map.knot_scores[j + 1] - map.knot_scores[j]) / width
                 } else {
@@ -455,7 +464,10 @@ impl FeatureMap {
             return unsafe { avx512::apply(self, x) };
         }
         let mut out = [0.0f32; LANES];
-        for (x, out) in x.chunks_exact(SCALAR_LANES).zip(out.chunks_exact_mut(SCALAR_LANES)) {
+        for (x, out) in x
+            .chunks_exact(SCALAR_LANES)
+            .zip(out.chunks_exact_mut(SCALAR_LANES))
+        {
             let x: [f64; SCALAR_LANES] = std::array::from_fn(|i| f64::from(x[i]));
             let segments = self.segments(&x);
             for ((out, &x), &j) in out.iter_mut().zip(&x).zip(&segments) {

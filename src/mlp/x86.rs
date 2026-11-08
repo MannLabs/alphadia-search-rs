@@ -158,8 +158,10 @@ macro_rules! dense_kernels {
                 }};
             }
             let unroll = if PANEL { UNROLL_PANEL } else { UNROLL_ROWS };
+            // `p < unrolled` rather than `p + unroll <= kk`: LLVM then fuses compare and branch
+            let unrolled = kk - kk % unroll;
             let mut p = 0;
-            while p + unroll <= kk {
+            while p < unrolled {
                 unroll!(U < 4 => { if U < unroll { step!(p + U) } });
                 p += unroll;
             }

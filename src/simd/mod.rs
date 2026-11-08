@@ -84,7 +84,7 @@ pub trait SimdBackend: Send + Sync {
         dz_prev: &mut [f32],
         grad_w: &mut [f32],
         grad_b: &mut f32,
-    ) -> f32;
+    );
     fn mlp_output_layer_logits(
         &self,
         a: &[f32],
@@ -95,10 +95,85 @@ pub trait SimdBackend: Send + Sync {
         logits: &mut [f32],
     );
 
+    /// See [`crate::mlp::train_chunk`]; by default composed of the per-layer kernels above.
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_train_chunk(
+        &self,
+        net: &crate::mlp::Network,
+        x: &[f32],
+        y: &[f32],
+        rows: usize,
+        loss_scale: f32,
+        ws: &mut crate::mlp::TrainWorkspace,
+        grad: &mut [f32],
+        input_grad: Option<&mut [f32]>,
+    ) {
+        crate::mlp::train_chunk_layered(self, net, x, y, rows, loss_scale, ws, grad, input_grad)
+    }
+
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
     fn priority(&self) -> Rank;
+}
+
+impl<T: SimdBackend + ?Sized> crate::mlp::LayerKernels for T {
+    fn dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: crate::mlp::Activation,
+        out: &mut [f32],
+    ) {
+        self.mlp_dense_forward(x, rows, k, wt, n, bias, activation, out)
+    }
+
+    fn dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        w: &[f32],
+        _wt: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    ) {
+        self.mlp_dense_backward_input(dz, rows, n, w, k, a_prev, d_prev)
+    }
+
+    fn dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    ) {
+        self.mlp_dense_weight_grad(a_prev, rows, k, dz, n, grad_wt, grad_b)
+    }
+
+    fn output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    ) {
+        self.mlp_output_layer_train(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b)
+    }
 }
 
 // Import backend implementations

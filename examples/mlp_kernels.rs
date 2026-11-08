@@ -8,11 +8,11 @@ use alphadia_search_rs::mlp::{scalar, Activation};
 use std::hint::black_box;
 use std::time::Instant;
 
+#[allow(clippy::type_complexity)]
 struct Kernels {
     forward: fn(&[f32], usize, usize, &[f32], usize, &[f32], Activation, &mut [f32]),
     backward_input: fn(&[f32], usize, usize, &[f32], usize, &[f32], &mut [f32]),
     weight_grad: fn(&[f32], usize, usize, &[f32], usize, &mut [f32], &mut [f32]),
-    #[allow(clippy::type_complexity)]
     output_train:
         fn(&[f32], usize, usize, &[f32], f32, &[f32], f32, &mut [f32], &mut [f32], &mut f32) -> f32,
     output_logits: fn(&[f32], usize, usize, &[f32], f32, &mut [f32]),

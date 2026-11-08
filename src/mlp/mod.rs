@@ -13,8 +13,14 @@ mod network;
 #[cfg(test)]
 mod reference;
 pub mod scalar;
+// the kernel template; declared before its instantiations so its macros are in scope there
 #[cfg(target_arch = "x86_64")]
-pub mod x86;
+#[macro_use]
+mod x86;
+#[cfg(target_arch = "x86_64")]
+pub mod avx2;
+#[cfg(target_arch = "x86_64")]
+pub mod avx512;
 
 pub use aligned::AlignedBuf;
 pub use network::{LayerKernels, Network, TrainWorkspace};

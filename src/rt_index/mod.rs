@@ -2,8 +2,6 @@ use numpy::ndarray::Array1;
 
 use crate::dia_data::AlphaRawView;
 
-const MIN_CYCLES: f32 = 10.0;
-
 pub struct RTIndex {
     pub rt: Array1<f32>,
     delta_t: f32,
@@ -80,7 +78,8 @@ impl RTIndex {
     }
 
     /// Finds the index range within the retention time array that falls within a tolerance window.
-    /// Ensures the range is at least MIN_CYCLES*delta_t + num_cycles_padding*delta_t wide.
+    /// The window is precursor_rt +- rt_tolerance, but at least +- num_cycles_padding / 2 cycles, so that it always
+    /// spans the convolution kernel (num_cycles_padding cycles); a narrower tolerance is used as it is otherwise.
     ///
     /// # Arguments
     ///
@@ -101,8 +100,10 @@ impl RTIndex {
             return (0, 0);
         }
 
-        // Calculate minimum required tolerance: MIN_CYCLES*delta_t + num_cycles_padding*delta_t
-        let min_tolerance = (MIN_CYCLES + num_cycles_padding as f32) * self.delta_t;
+        // The window must span the convolution kernel: at least half of it on each side of the target.
+        // (A fixed minimum of 10 extra cycles on top of the full padding made windows of about 46 s on
+        // Astral data, wider than the optimized RT tolerance on 2-4 min gradients.)
+        let min_tolerance = (num_cycles_padding as f32 / 2.0) * self.delta_t;
         let effective_tolerance = rt_tolerance.max(min_tolerance);
 
         let lower_rt = precursor_rt - effective_tolerance;

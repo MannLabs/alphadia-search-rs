@@ -109,11 +109,21 @@ impl TestAlphaRawData {
 #[test]
 fn test_minimum_tolerance_enforced() {
     let rt_index = create_realistic_index();
-    // Small tolerance should trigger minimum enforcement
+    // A tolerance narrower than half the kernel is widened to half the kernel: 20 cycles of 0.5 s -> +- 5 s
+    let (lower, upper) = rt_index.get_cycle_idx_limits(25.0, 2.0, 20);
+
+    assert!(lower >= 39 && lower <= 41);
+    assert!(upper >= 59 && upper <= 61);
+}
+
+#[test]
+fn test_small_tolerance_used_when_it_spans_the_kernel() {
+    let rt_index = create_realistic_index();
+    // +- 2 s already spans a 5-cycle kernel (+- 1.25 s), so the tolerance is used as it is
     let (lower, upper) = rt_index.get_cycle_idx_limits(25.0, 2.0, 5);
 
-    assert!(lower >= 33 && lower <= 37);
-    assert!(upper >= 63 && upper <= 67);
+    assert!(lower >= 45 && lower <= 47);
+    assert!(upper >= 53 && upper <= 55);
 }
 
 #[test]
@@ -141,8 +151,9 @@ fn test_padding_increases_range() {
     let range1 = u1 - l1;
     let range2 = u2 - l2;
 
-    assert!(range1 >= 22 && range1 <= 26);
-    assert!(range2 >= 38 && range2 <= 42);
+    // padding 2: the 1 s tolerance spans the kernel, +- 1 s = 4 cycles; padding 10: +- 2.5 s = 10 cycles
+    assert!(range1 >= 3 && range1 <= 5);
+    assert!(range2 >= 9 && range2 <= 11);
 }
 
 #[test]
@@ -202,8 +213,8 @@ fn test_binary_search_standard_case() {
     assert!(upper <= rt_index.len());
     assert!(lower <= upper);
 
-    // Verify the tolerance logic is preserved
-    let min_tolerance = (MIN_CYCLES + params.padding as f32) * rt_index.delta_t;
+    // Verify the tolerance logic is preserved: half the kernel on each side at least
+    let min_tolerance = (params.padding as f32 / 2.0) * rt_index.delta_t;
     let _effective_tolerance = params.tolerance.max(min_tolerance);
     assert!(upper - lower > 0); // Should capture some range
 }
@@ -219,9 +230,9 @@ fn test_binary_search_small_tolerance() {
     assert!(upper <= rt_index.len());
     assert!(lower <= upper);
 
-    // With small tolerance, minimum should be enforced
-    let min_tolerance = MIN_CYCLES * rt_index.delta_t;
-    assert!(upper - lower >= (min_tolerance / rt_index.delta_t) as usize / 2);
+    // Without padding there is no minimum: the window is +- tolerance (5 s = 10 cycles each side)
+    let expected_cycles = (2.0 * params.tolerance / rt_index.delta_t) as usize;
+    assert!(upper - lower + 1 >= expected_cycles);
 }
 
 #[test]
@@ -236,8 +247,8 @@ fn test_binary_search_with_padding() {
     assert!(lower <= upper);
 
     // Verify padding affects the tolerance calculation
-    let min_tolerance_no_padding = MIN_CYCLES * rt_index.delta_t;
-    let min_tolerance_with_padding = (MIN_CYCLES + params.padding as f32) * rt_index.delta_t;
+    let min_tolerance_no_padding = 0.0;
+    let min_tolerance_with_padding = (params.padding as f32 / 2.0) * rt_index.delta_t;
 
     // With padding, minimum tolerance should be larger
     assert!(min_tolerance_with_padding > min_tolerance_no_padding);

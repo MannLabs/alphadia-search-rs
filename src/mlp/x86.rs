@@ -40,8 +40,9 @@ macro_rules! unroll {
 
 /// The kernels of one instruction set, written against the primitives in scope: the vector and
 /// mask types `V`, `Mask`, `LANES`, the tile shapes (`MR` rows x `NV` vectors, and
-/// `WIDE_MR x WIDE_NV` for layers with at least `WIDE_NV` vectors of columns) and `zero`, `load`, `store`, `tail_mask`, `load_masked`, `store_masked`, `splat`,
-/// `fma`, `add`, `mul`, `relu`, `keep_positive`, `pair_sum`.
+/// `WIDE_MR x WIDE_NV` for layers with at least `WIDE_NV` vectors of columns) and `zero`, `load`,
+/// `store`, `tail_mask`, `load_masked`, `store_masked`, `select`, `splat`, `fma`, `add`, `mul`,
+/// `div`, `relu`, `keep_positive`, `round`, `pow2i`, `pair_sum`.
 macro_rules! dense_kernels {
     (feature = $feature:literal) => {
         use crate::mlp::Activation;
@@ -419,7 +420,7 @@ macro_rules! dense_kernels {
             grad_w: *mut f32,
             grad_b: &mut f32,
         ) -> f32 {
-            let mut loss = 0.0f32;
+            let (mut loss_acc, mut d_acc) = (zero(), zero());
             let full = k - k % LANES;
             let tail = tail_mask(k - full);
             for r0 in (0..rows).step_by(LANES) {
@@ -431,16 +432,22 @@ macro_rules! dense_kernels {
                 } else {
                     row_logits::<false, LANES>(a_blk, count, w, k, b, logits.as_mut_ptr())
                 }
+                let valid = tail_mask(count);
+                let (logit, label) = (load(logits.as_ptr()), load_masked(y.add(r0), valid));
+                // one exp for both the stable loss and the sigmoid
+                let e = exp_non_positive(neg(abs(logit)));
+                let loss_rows = add(sub(relu(logit), mul(logit, label)), ln_1p_unit(e));
+                let s = div(splat(1.0), add(splat(1.0), e));
+                // s for a non-negative logit, else 1 - s = e / (1 + e)
+                let one_minus_s = sub(splat(1.0), s);
+                let sigmoid = add(one_minus_s, keep_positive(sub(s, one_minus_s), logit));
+                let dv = mul(sub(sigmoid, label), splat(loss_scale));
+                // rows past `count` contribute nothing
+                loss_acc = add(loss_acc, select(loss_rows, valid));
+                let dv = select(dv, valid);
+                d_acc = add(d_acc, dv);
                 let mut d = [0.0f32; LANES];
-                for i in 0..count {
-                    let (logit, label) = (logits[i], *y.add(r0 + i));
-                    // one exp for both the stable loss and the sigmoid
-                    let e = (-logit.abs()).exp();
-                    loss += logit.max(0.0) - logit * label + e.ln_1p();
-                    let sigmoid = if logit >= 0.0 { 1.0 / (1.0 + e) } else { e / (1.0 + e) };
-                    d[i] = (sigmoid - label) * loss_scale;
-                    *grad_b += d[i];
-                }
+                store(d.as_mut_ptr(), dv);
                 // grad_w += sum_i d[i] a[i], dz_prev[i] = d[i] w (a[i] > 0), per vector of k
                 let mut p = 0;
                 while p < k {
@@ -473,7 +480,66 @@ macro_rules! dense_kernels {
                     p += LANES;
                 }
             }
-            loss
+            *grad_b += lane_sum(d_acc);
+            lane_sum(loss_acc)
+        }
+
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn lane_sum(v: V) -> f32 {
+            let mut lanes = [0.0f32; LANES];
+            store(lanes.as_mut_ptr(), v);
+            lanes.iter().sum()
+        }
+
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn sub(a: V, b: V) -> V {
+            fma(b, splat(-1.0), a)
+        }
+
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn neg(v: V) -> V {
+            mul(v, splat(-1.0))
+        }
+
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn abs(v: V) -> V {
+            // |v| = max(v, 0) + max(-v, 0)
+            add(relu(v), relu(neg(v)))
+        }
+
+        /// `exp(x)` for `x <= 0` (Cephes `expf`: `2^n exp(r)`, `|r| <= ln 2 / 2`, degree-7
+        /// polynomial; below -87 the result is the smallest normal power of two, not 0).
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn exp_non_positive(x: V) -> V {
+            let x = sub(relu(add(x, splat(87.0))), splat(87.0));
+            let n = round(mul(x, splat(std::f32::consts::LOG2_E)));
+            let r = fma(n, splat(-0.693_359_4), x);
+            let r = fma(n, splat(2.121_944_4e-4), r);
+            let mut p = splat(1.987_569_1e-4);
+            for c in [1.398_199_9e-3, 8.333_452e-3, 4.166_579_6e-2, 0.166_666_65, 0.5] {
+                p = fma(p, r, splat(c));
+            }
+            let e_r = fma(mul(p, r), r, add(r, splat(1.0)));
+            mul(e_r, pow2i(n))
+        }
+
+        /// `ln(1 + e)` for `0 <= e <= 1`: `2 atanh(s)`, `s = e / (2 + e) <= 1/3`, as the odd
+        /// series through `s^15` (relative error below 1e-7).
+        #[inline]
+        #[target_feature(enable = $feature)]
+        unsafe fn ln_1p_unit(e: V) -> V {
+            let s = div(e, add(splat(2.0), e));
+            let z = mul(s, s);
+            let mut q = splat(1.0 / 15.0);
+            for c in [1.0 / 13.0, 1.0 / 11.0, 1.0 / 9.0, 1.0 / 7.0, 1.0 / 5.0, 1.0 / 3.0, 1.0] {
+                q = fma(q, z, splat(c));
+            }
+            mul(add(s, s), q)
         }
 
         #[target_feature(enable = $feature)]
@@ -695,6 +761,30 @@ pub mod avx2 {
     unsafe fn store_masked(p: *mut f32, v: V, mask: Mask) {
         _mm256_maskstore_ps(p, mask, v)
     }
+    /// `v` in the lanes `mask` selects, else 0
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn select(v: V, mask: Mask) -> V {
+        _mm256_and_ps(v, _mm256_castsi256_ps(mask))
+    }
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn div(a: V, b: V) -> V {
+        _mm256_div_ps(a, b)
+    }
+    /// to the nearest integer
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn round(v: V) -> V {
+        _mm256_round_ps::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(v)
+    }
+    /// `2^n` for integral `-126 <= n <= 127`
+    #[inline]
+    #[target_feature(enable = "avx2,fma")]
+    unsafe fn pow2i(n: V) -> V {
+        let biased = _mm256_add_epi32(_mm256_cvtps_epi32(n), _mm256_set1_epi32(127));
+        _mm256_castsi256_ps(_mm256_slli_epi32::<23>(biased))
+    }
     /// `[x0 + x1, x2 + x3, .., y0 + y1, y2 + y3, ..]`
     #[inline]
     #[target_feature(enable = "avx2,fma")]
@@ -786,6 +876,29 @@ pub mod avx512 {
     #[target_feature(enable = "avx512f")]
     unsafe fn store_masked(p: *mut f32, v: V, mask: Mask) {
         _mm512_mask_storeu_ps(p, mask, v)
+    }
+    /// `v` in the lanes `mask` selects, else 0
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn select(v: V, mask: Mask) -> V {
+        _mm512_maskz_mov_ps(mask, v)
+    }
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn div(a: V, b: V) -> V {
+        _mm512_div_ps(a, b)
+    }
+    /// to the nearest integer
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn round(v: V) -> V {
+        _mm512_roundscale_ps::<{ _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC }>(v)
+    }
+    /// `2^n` for integral `-126 <= n <= 127`
+    #[inline]
+    #[target_feature(enable = "avx512f")]
+    unsafe fn pow2i(n: V) -> V {
+        _mm512_scalef_ps(_mm512_set1_ps(1.0), n)
     }
     /// `[x0 + x1, x2 + x3, .., y0 + y1, y2 + y3, ..]`
     #[inline]

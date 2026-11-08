@@ -104,7 +104,7 @@ pub fn fdr_quantile_transform<'py>(
 ///
 /// Returns the flat float32 parameter vector. `params` continues training from earlier
 /// parameters (warm start). `backend` overrides the matmul backend ("accelerate" on macOS,
-/// "simd", "gemm"); the default is the fastest one for the platform.
+/// "simd"); the default is the fastest one for the platform.
 #[pyfunction]
 #[pyo3(signature = (
     x,

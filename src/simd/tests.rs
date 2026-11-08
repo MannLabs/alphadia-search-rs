@@ -1,6 +1,18 @@
 use super::*;
 use serial_test::serial;
 
+/// The backend natural selection picks on this machine.
+#[cfg(not(target_arch = "aarch64"))]
+fn expected_natural_backend() -> &'static str {
+    #[cfg(target_arch = "x86_64")]
+    for backend in [&AVX512 as &dyn SimdBackend, &AVX2] {
+        if backend.is_available() {
+            return backend.name();
+        }
+    }
+    "scalar"
+}
+
 // comment
 #[test]
 #[serial]
@@ -30,10 +42,10 @@ fn test_natural_backend_selection() {
     #[cfg(not(target_arch = "aarch64"))]
     {
         assert_eq!(
-            selected_backend, "scalar",
-            "Should select scalar backend on non-aarch64"
+            selected_backend,
+            expected_natural_backend(),
+            "Should select the widest x86 instruction set the CPU supports, scalar otherwise"
         );
-        println!("⚠️  Non-aarch64 architecture - SIMD testing limited to scalar backend");
     }
 }
 
@@ -120,13 +132,10 @@ fn test_optimal_vs_current_backend() {
 
     #[cfg(not(target_arch = "aarch64"))]
     {
-        // Both should return scalar on non-aarch64
         set_backend("scalar").expect("Should be able to set scalar backend");
 
         assert_eq!(get_current_backend(), "scalar");
-        assert_eq!(get_optimal_simd_backend(), "scalar");
-
-        println!("⚠️  Non-aarch64: both functions return scalar (expected)");
+        assert_eq!(get_optimal_simd_backend(), expected_natural_backend());
     }
 
     clear_backend();
@@ -162,7 +171,8 @@ fn test_invalid_backend_error_handling() {
     #[cfg(not(target_arch = "aarch64"))]
     {
         assert_eq!(
-            backend, "scalar",
+            backend,
+            expected_natural_backend(),
             "Should maintain natural selection after invalid backend"
         );
     }
@@ -187,9 +197,10 @@ fn test_architecture_info() {
 
     #[cfg(not(target_arch = "aarch64"))]
     {
-        println!("⚠️  Running on non-aarch64 architecture");
-        println!("⚠️  SIMD testing is limited - only scalar backend available");
-        println!("⚠️  For complete SIMD testing, run on aarch64 (Apple Silicon/ARM64)");
+        println!(
+            "Running on non-aarch64, natural backend: {}",
+            expected_natural_backend()
+        );
     }
 
     // This test always passes - it's just for information

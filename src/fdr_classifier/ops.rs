@@ -1,10 +1,10 @@
-//! Dense-layer operations of the FDR network on three matmul backends.
+//! Dense-layer operations of the FDR network on two matmul backends.
 //!
 //! - `Accelerate`: Apple's BLAS, which runs on the AMX unit (macOS only, the default there)
-//! - `Simd`: the fused kernels of [`crate::mlp`] (NEON on aarch64, the default on other ARM)
-//! - `Gemm`: the `gemm` crate with runtime AVX2/AVX-512 dispatch (the default on x86)
+//! - `Simd`: the fused kernels of [`crate::mlp`] through the SIMD backend registry: NEON on
+//!   aarch64, AVX-512 or AVX2 on x86_64, scalar otherwise (the default outside macOS)
 //!
-//! The bias/ReLU/mask passes of the BLAS backends are branch-free selects: a conditional store
+//! The bias/ReLU/mask passes of the BLAS backend are branch-free selects: a conditional store
 //! does not vectorise and mispredicts on the random ReLU pattern.
 
 use crate::mlp::{self, Activation};
@@ -14,17 +14,14 @@ pub enum Backend {
     #[cfg(target_os = "macos")]
     Accelerate,
     Simd,
-    Gemm,
 }
 
 impl Backend {
     pub fn default_for_target() -> Self {
         #[cfg(target_os = "macos")]
         return Backend::Accelerate;
-        #[cfg(all(not(target_os = "macos"), target_arch = "aarch64"))]
+        #[cfg(not(target_os = "macos"))]
         return Backend::Simd;
-        #[cfg(all(not(target_os = "macos"), not(target_arch = "aarch64")))]
-        return Backend::Gemm;
     }
 
     pub fn from_name(name: &str) -> Result<Self, String> {
@@ -41,7 +38,6 @@ impl Backend {
             #[cfg(target_os = "macos")]
             Backend::Accelerate => "accelerate",
             Backend::Simd => "simd",
-            Backend::Gemm => "gemm",
         }
     }
 
@@ -49,7 +45,7 @@ impl Backend {
     pub fn available_names() -> Vec<&'static str> {
         let default = Self::default_for_target();
         let mut names = vec![default.name()];
-        for name in ["accelerate", "simd", "gemm"] {
+        for name in ["accelerate", "simd"] {
             if name != default.name() && Self::from_name_unchecked(name).is_some() {
                 names.push(name);
             }
@@ -62,7 +58,6 @@ impl Backend {
             #[cfg(target_os = "macos")]
             "accelerate" => Some(Backend::Accelerate),
             "simd" => Some(Backend::Simd),
-            "gemm" => Some(Backend::Gemm),
             _ => None,
         }
     }
@@ -82,8 +77,9 @@ pub fn dense_forward_relu(
 ) {
     match backend {
         Backend::Simd => mlp::dense_forward(x, rows, k, wt, n, bias, Activation::Relu, out),
-        _ => {
-            sgemm(backend, false, false, rows, n, k, x, k, wt, n, 0.0, out, n);
+        #[cfg(target_os = "macos")]
+        Backend::Accelerate => {
+            accelerate::sgemm(false, false, rows, n, k, x, k, wt, n, 0.0, out, n);
             for row in out[..rows * n].chunks_exact_mut(n) {
                 for (v, &b) in row.iter_mut().zip(bias) {
                     *v = (*v + b).max(0.0);
@@ -101,17 +97,16 @@ pub fn dense_backward_input(
     rows: usize,
     n: usize,
     w: &[f32],
-    wt: &[f32],
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] wt: &[f32],
     k: usize,
     a_prev: &[f32],
     d_prev: &mut [f32],
 ) {
     match backend {
         Backend::Simd => mlp::dense_backward_input(dz, rows, n, w, k, a_prev, d_prev),
-        _ => {
-            sgemm(
-                backend, false, true, rows, k, n, dz, n, wt, n, 0.0, d_prev, k,
-            );
+        #[cfg(target_os = "macos")]
+        Backend::Accelerate => {
+            accelerate::sgemm(false, true, rows, k, n, dz, n, wt, n, 0.0, d_prev, k);
             for (d, &a) in d_prev[..rows * k].iter_mut().zip(&a_prev[..rows * k]) {
                 *d = if a > 0.0 { *d } else { 0.0 };
             }
@@ -133,96 +128,15 @@ pub fn dense_weight_grad(
 ) {
     match backend {
         Backend::Simd => mlp::dense_weight_grad(a_prev, rows, k, dz, n, grad_wt, grad_b),
-        _ => {
-            sgemm(
-                backend, true, false, k, n, rows, a_prev, k, dz, n, 1.0, grad_wt, n,
-            );
+        #[cfg(target_os = "macos")]
+        Backend::Accelerate => {
+            accelerate::sgemm(true, false, k, n, rows, a_prev, k, dz, n, 1.0, grad_wt, n);
             for row in dz[..rows * n].chunks_exact(n) {
                 for (g, &d) in grad_b.iter_mut().zip(row) {
                     *g += d;
                 }
             }
         }
-    }
-}
-
-/// Row-major C[m x n] = op(A) @ op(B) + beta * C; `lda`/`ldb` are the stored row strides.
-#[allow(clippy::too_many_arguments)]
-fn sgemm(
-    backend: Backend,
-    trans_a: bool,
-    trans_b: bool,
-    m: usize,
-    n: usize,
-    k: usize,
-    a: &[f32],
-    lda: usize,
-    b: &[f32],
-    ldb: usize,
-    beta: f32,
-    c: &mut [f32],
-    ldc: usize,
-) {
-    match backend {
-        #[cfg(target_os = "macos")]
-        Backend::Accelerate => {
-            accelerate::sgemm(trans_a, trans_b, m, n, k, a, lda, b, ldb, beta, c, ldc)
-        }
-        _ => gemm_crate(trans_a, trans_b, m, n, k, a, lda, b, ldb, beta, c, ldc),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn gemm_crate(
-    trans_a: bool,
-    trans_b: bool,
-    m: usize,
-    n: usize,
-    k: usize,
-    a: &[f32],
-    lda: usize,
-    b: &[f32],
-    ldb: usize,
-    beta: f32,
-    c: &mut [f32],
-    ldc: usize,
-) {
-    // (row stride, column stride) of op(X)
-    let (a_rs, a_cs) = if trans_a {
-        (1, lda as isize)
-    } else {
-        (lda as isize, 1)
-    };
-    let (b_rs, b_cs) = if trans_b {
-        (1, ldb as isize)
-    } else {
-        (ldb as isize, 1)
-    };
-    assert!(c.len() >= (m - 1) * ldc + n, "output too small");
-    // SAFETY: the strides above stay inside the slices for the given shapes, which the
-    // callers derive from the same layer dimensions as the slice lengths.
-    unsafe {
-        gemm::gemm(
-            m,
-            n,
-            k,
-            c.as_mut_ptr(),
-            1,
-            ldc as isize,
-            beta != 0.0,
-            a.as_ptr(),
-            a_cs,
-            a_rs,
-            b.as_ptr(),
-            b_cs,
-            b_rs,
-            beta,
-            1.0,
-            false,
-            false,
-            false,
-            gemm::Parallelism::None,
-        );
     }
 }
 
@@ -268,8 +182,8 @@ mod accelerate {
         ldc: usize,
     ) {
         assert!(c.len() >= (m - 1) * ldc + n, "output too small");
-        // SAFETY: as for the gemm crate; BLAS reads op(A), op(B) and writes C within the
-        // shapes and strides passed.
+        // SAFETY: BLAS reads op(A), op(B) and writes C within the shapes and strides passed,
+        // which the callers derive from the same layer dimensions as the slice lengths.
         unsafe {
             cblas_sgemm(
                 ROW_MAJOR,

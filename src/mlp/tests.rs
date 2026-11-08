@@ -30,14 +30,21 @@ fn for_each_backend(check: impl Fn()) {
     crate::simd::clear_backend();
 }
 
-// (rows, k, n): fast-path shapes of the FDR network, row tails, and a scalar fallback
-const SHAPES: [(usize, usize, usize); 6] = [
+// (rows, k, n): shapes of the FDR network, row tails, and column counts that are not a multiple
+// of the vector width (masked tails) on either side of the tile width, including a reduction
+// longer than the weight-gradient block
+const SHAPES: [(usize, usize, usize); 11] = [
     (64, 48, 128),
     (8, 40, 32),
     (130, 128, 64),
     (7, 64, 32),
     (257, 32, 16),
     (9, 5, 7),
+    (21, 33, 40),
+    (13, 17, 100),
+    (3, 1, 1),
+    (300, 24, 48),
+    (11, 70, 9),
 ];
 
 #[test]
@@ -124,7 +131,7 @@ fn test_output_layer_matches_scalar() {
     for_each_backend(|| {
         // Given a final hidden layer and binary labels
         let mut rng = StdRng::seed_from_u64(4);
-        for (rows, k) in [(33, 32), (8, 6)] {
+        for (rows, k) in [(33, 32), (8, 6), (16, 16), (37, 40), (5, 1), (100, 23)] {
             let a = random(&mut rng, rows * k);
             let w = random(&mut rng, k);
             let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
@@ -206,4 +213,39 @@ fn test_output_layer_gradient_matches_finite_difference() {
 
     // Then they agree
     assert!((grad_w[2] - (up - down) / (2.0 * eps)).abs() < 1e-3);
+}
+
+#[test]
+#[serial]
+fn test_kernels_leave_memory_past_the_output_untouched() {
+    for_each_backend(|| {
+        // Given outputs followed by sentinels, for shapes with masked column and row tails
+        let mut rng = StdRng::seed_from_u64(6);
+        for (rows, k, n) in SHAPES {
+            let x = random(&mut rng, rows * k);
+            let wt = random(&mut rng, k * n);
+            let bias = random(&mut rng, n);
+            let dz = random(&mut rng, rows * n);
+            let sentinel = 7.5;
+            let mut out = vec![sentinel; rows * n + 40];
+            let mut d_prev = vec![sentinel; rows * k + 40];
+            let mut logits = vec![sentinel; rows + 40];
+            let (mut grad_wt, mut grad_b) = (vec![0.0; k * n + 40], vec![0.0; n + 40]);
+            grad_wt[k * n..].fill(sentinel);
+            grad_b[n..].fill(sentinel);
+
+            // When running the kernels on the leading part of the buffers
+            dense_forward(&x, rows, k, &wt, n, &bias, Activation::Relu, &mut out);
+            dense_backward_input(&dz, rows, n, &wt, k, &x, &mut d_prev);
+            dense_weight_grad(&x, rows, k, &dz, n, &mut grad_wt, &mut grad_b);
+            output_layer_logits(&x, rows, k, &wt[..k], 0.1, &mut logits);
+
+            // Then nothing past the outputs changed
+            assert!(out[rows * n..].iter().all(|&v| v == sentinel));
+            assert!(d_prev[rows * k..].iter().all(|&v| v == sentinel));
+            assert!(grad_wt[k * n..].iter().all(|&v| v == sentinel));
+            assert!(grad_b[n..].iter().all(|&v| v == sentinel));
+            assert!(logits[rows..].iter().all(|&v| v == sentinel));
+        }
+    });
 }

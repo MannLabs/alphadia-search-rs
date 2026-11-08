@@ -60,9 +60,9 @@ fn data(len: usize, seed: u32) -> Vec<f32> {
 
 /// Best-of-repeats seconds per call of `f`.
 fn time(flops: f64, mut f: impl FnMut()) -> f64 {
-    let calls = ((2e8 / flops) as usize).max(1);
+    let calls = ((2e7 / flops) as usize).max(1);
     let mut best = f64::INFINITY;
-    for _ in 0..7 {
+    for _ in 0..50 {
         let t = Instant::now();
         for _ in 0..calls {
             f();

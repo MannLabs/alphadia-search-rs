@@ -1,12 +1,13 @@
-//! Fused dense-layer kernels for a small feed-forward network (the FDR classifier).
+//! A small feed-forward ReLU network with one output logit (the FDR classifier): [`Network`]
+//! trains on row chunks and predicts, composed of fused dense-layer kernels.
 //!
 //! All matrices are row-major `f32`. A dense layer with `k` inputs and `n` outputs keeps its
 //! weights transposed, `wt[k x n]`, so the forward pass streams contiguous weight rows.
-//! The kernels dispatch through the SIMD backend (portable, NEON, AVX2 or AVX-512);
-//! the tests compare each against the naive loops in `reference`.
+//! The kernels dispatch through the SIMD backend (portable, NEON, AVX2 or AVX-512); every SIMD
+//! backend is a [`LayerKernels`] implementation. The tests compare each against the naive loops
+//! in `reference`.
 
 mod aligned;
-pub mod fused;
 pub mod neon;
 mod network;
 #[cfg(test)]
@@ -16,7 +17,7 @@ pub mod scalar;
 pub mod x86;
 
 pub use aligned::AlignedBuf;
-pub use network::{train_chunk_layered, LayerKernels, Network, TrainWorkspace, TRAIN_ROW_BLOCK};
+pub use network::{LayerKernels, Network, TrainWorkspace};
 
 /// What a forward kernel applies to `x @ wt` before storing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,31 +126,6 @@ pub fn output_layer_logits(
     crate::simd::get_backend().mlp_output_layer_logits(a, rows, k, w, b, logits)
 }
 
-/// One training step of `net` over `rows` rows of `x [rows x inputs]` with binary labels `y`:
-/// forward, BCE-with-logits loss scaled by `loss_scale`, backward. Adds the parameter gradients
-/// to `grad` (the layout of the parameters) and, if given, writes the gradient w.r.t. the input
-/// to `input_grad [rows x inputs]`.
-#[allow(clippy::too_many_arguments)]
-pub fn train_chunk(
-    net: &Network,
-    x: &[f32],
-    y: &[f32],
-    rows: usize,
-    loss_scale: f32,
-    ws: &mut TrainWorkspace,
-    grad: &mut [f32],
-    input_grad: Option<&mut [f32]>,
-) {
-    let inputs = net.dims()[0];
-    check_len(x, rows * inputs, "x");
-    check_len(y, rows, "y");
-    check_len(grad, Network::param_count(net.dims()), "grad");
-    if let Some(g) = input_grad.as_deref() {
-        check_len(g, rows * inputs, "input_grad");
-    }
-    crate::simd::get_backend().mlp_train_chunk(net, x, y, rows, loss_scale, ws, grad, input_grad)
-}
-
 fn check_len(values: &[f32], expected: usize, name: &str) {
     assert!(
         values.len() >= expected,
@@ -158,9 +134,5 @@ fn check_len(values: &[f32], expected: usize, name: &str) {
     );
 }
 
-#[cfg(test)]
-mod bench;
-#[cfg(test)]
-mod bench_train;
 #[cfg(test)]
 mod tests;

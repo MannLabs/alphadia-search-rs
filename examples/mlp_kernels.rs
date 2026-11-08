@@ -1,10 +1,12 @@
-//! Per-kernel throughput of the dense-layer kernels on the FDR network shapes (40-128-64-32-1),
-//! single-threaded. `cargo run --release --example mlp_kernels [avx512|avx2|scalar] [rows]`
-//! prints GFLOP/s per kernel and shape (best of several repeats).
+//! Single-threaded throughput of the dense-layer kernels on the FDR network shapes
+//! (40-128-64-32-1), and of the whole network built from them: a training step per row chunk and
+//! fused prediction. `cargo run --release --example mlp_kernels [avx512|avx2|scalar] [rows]`
+//! prints GFLOP/s per kernel and shape and ns per row for the network (best of several repeats).
+//! `MLP_MISALIGN=<floats>` offsets the kernel buffers from a cache line.
 
 #[cfg(target_arch = "x86_64")]
 use alphadia_search_rs::mlp::x86::{avx2, avx512};
-use alphadia_search_rs::mlp::{scalar, Activation};
+use alphadia_search_rs::mlp::{scalar, Activation, LayerKernels, Network, TrainWorkspace};
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -16,6 +18,72 @@ struct Kernels {
     output_train:
         fn(&[f32], usize, usize, &[f32], f32, &[f32], f32, &mut [f32], &mut [f32], &mut f32),
     output_logits: fn(&[f32], usize, usize, &[f32], f32, &mut [f32]),
+}
+
+impl LayerKernels for Kernels {
+    fn dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: Activation,
+        out: &mut [f32],
+    ) {
+        (self.forward)(x, rows, k, wt, n, bias, activation, out)
+    }
+    fn dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        w: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    ) {
+        (self.backward_input)(dz, rows, n, w, k, a_prev, d_prev)
+    }
+    fn dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    ) {
+        (self.weight_grad)(a_prev, rows, k, dz, n, grad_wt, grad_b)
+    }
+    fn output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    ) {
+        (self.output_train)(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b)
+    }
+    fn output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    ) {
+        (self.output_logits)(a, rows, k, w, b, logits)
+    }
 }
 
 fn kernels(name: &str) -> Kernels {
@@ -248,7 +316,7 @@ fn main() {
         let mut gb = 0.0;
         let flops = 4.0 * (rows * k) as f64;
         let s = time(flops, || {
-            black_box((kn.output_train)(
+            (kn.output_train)(
                 black_box(&a),
                 rows,
                 k,
@@ -259,7 +327,7 @@ fn main() {
                 &mut dz,
                 &mut gw,
                 &mut gb,
-            ));
+            );
         });
         report("train output_train 32", flops, s);
         total_train += s;
@@ -273,4 +341,44 @@ fn main() {
         report("pred output_logits 32", flops, s);
     }
     println!("train chunk total {:.2} us", total_train * 1e6);
+
+    // the whole network: one training step per chunk, and fused prediction on one thread
+    let dims = [40usize, 128, 64, 32, 1];
+    let params: Vec<f32> = data(Network::param_count(&dims), 12)
+        .iter()
+        .map(|v| v * 0.3)
+        .collect();
+    let net = Network::new(&dims, &params);
+    let x = data(train_rows * dims[0], 13);
+    let y: Vec<f32> = (0..train_rows).map(|r| (r % 3 == 0) as u8 as f32).collect();
+    let mut ws = TrainWorkspace::new(&net);
+    let mut grad = vec![0.0f32; params.len()];
+    // forward and weight gradient of every layer, input gradient of all but the first
+    let products: Vec<usize> = dims.windows(2).map(|d| d[0] * d[1]).collect();
+    let per_row = 4 * products.iter().sum::<usize>() + 2 * products[1..].iter().sum::<usize>();
+    let flops = (per_row * train_rows) as f64;
+    let s = time(flops, || {
+        net.train_chunk(&kn, black_box(&x), &y, 1e-3, &mut ws, &mut grad, None)
+    });
+    println!(
+        "{:<28} {:>8.1} GFLOP/s  {:>8.1} ns/row",
+        format!("network train_chunk {train_rows}"),
+        flops / s * 1e-9,
+        s * 1e9 / train_rows as f64
+    );
+    let rows = 65536;
+    let x = data(rows * dims[0], 14);
+    let mut logits = vec![0.0f32; rows];
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .unwrap();
+    let flops = (2 * products.iter().sum::<usize>() * rows) as f64;
+    let s = pool.install(|| time(flops, || net.logits(&kn, black_box(&x), &mut logits)));
+    println!(
+        "{:<28} {:>8.1} GFLOP/s  {:>8.1} ns/row",
+        format!("network logits {rows}"),
+        flops / s * 1e-9,
+        s * 1e9 / rows as f64
+    );
 }

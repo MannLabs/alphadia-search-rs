@@ -129,3 +129,106 @@ pub fn output_layer_logits(
             .sum::<f32>();
     }
 }
+
+/// The kernels above as a backend of [`super::Network`].
+pub struct Kernels;
+
+impl super::LayerKernels for Kernels {
+    fn dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: Activation,
+        out: &mut [f32],
+    ) {
+        dense_forward(x, rows, k, wt, n, bias, activation, out)
+    }
+
+    fn dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        w: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    ) {
+        dense_backward_input(dz, rows, n, w, k, a_prev, d_prev)
+    }
+
+    fn dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    ) {
+        dense_weight_grad(a_prev, rows, k, dz, n, grad_wt, grad_b)
+    }
+
+    fn output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    ) {
+        output_layer_train(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b)
+    }
+
+    fn output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    ) {
+        output_layer_logits(a, rows, k, w, b, logits)
+    }
+}
+
+/// The logits of `net` for every row of `x`, one row and layer at a time from the flat parameters.
+pub fn logits(net: &super::Network, x: &[f32], logits: &mut [f32]) {
+    let (dims, params) = (net.dims(), net.params());
+    for (row, logit) in x.chunks_exact(dims[0]).zip(logits.iter_mut()) {
+        let (mut a, mut offset) = (row.to_vec(), 0);
+        for (l, d) in dims.windows(2).enumerate() {
+            let (k, n) = (d[0], d[1]);
+            let mut z = vec![0.0; n];
+            dense_forward(
+                &a,
+                1,
+                k,
+                &params[offset..],
+                n,
+                &params[offset + k * n..],
+                Activation::Linear,
+                &mut z,
+            );
+            let hidden = l + 2 < dims.len();
+            a = if hidden {
+                z.iter().map(|v| v.max(0.0)).collect()
+            } else {
+                z
+            };
+            offset += k * n + n;
+        }
+        *logit = a[0];
+    }
+}

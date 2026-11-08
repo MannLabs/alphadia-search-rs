@@ -81,11 +81,6 @@ pub fn dense_weight_grad_scalar(
     }
 }
 
-/// Numerically stable `log(1 + exp(-|z|)) + max(z, 0) - y z`.
-pub(crate) fn bce_with_logits(logit: f32, y: f32) -> f32 {
-    logit.max(0.0) - logit * y + (-logit.abs()).exp().ln_1p()
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn output_layer_train_scalar(
     a: &[f32],
@@ -98,12 +93,10 @@ pub fn output_layer_train_scalar(
     dz_prev: &mut [f32],
     grad_w: &mut [f32],
     grad_b: &mut f32,
-) -> f32 {
-    let mut loss = 0.0;
+) {
     for r in 0..rows {
         let a_row = &a[r * k..(r + 1) * k];
         let logit = b + a_row.iter().zip(w).map(|(x, wv)| x * wv).sum::<f32>();
-        loss += bce_with_logits(logit, y[r]);
         let d = (1.0 / (1.0 + (-logit).exp()) - y[r]) * loss_scale;
         *grad_b += d;
         for p in 0..k {
@@ -111,7 +104,6 @@ pub fn output_layer_train_scalar(
             dz_prev[r * k + p] = if a_row[p] > 0.0 { d * w[p] } else { 0.0 };
         }
     }
-    loss
 }
 
 pub fn output_layer_logits_scalar(

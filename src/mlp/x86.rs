@@ -172,18 +172,13 @@ macro_rules! dense_kernels {
             dz_prev: &mut [f32],
             grad_w: &mut [f32],
             grad_b: &mut f32,
-        ) -> f32 {
+        ) {
             let (ap, wp, dp, gp) =
                 (a.as_ptr(), w.as_ptr(), dz_prev.as_mut_ptr(), grad_w.as_mut_ptr());
-            let mut loss = 0.0f32;
             for (r, &label) in y[..rows].iter().enumerate() {
                 let a_row = ap.add(r * k);
                 let logit = b + dot(a_row, wp, k);
-                // one exp for both the stable loss and the sigmoid
-                let e = (-logit.abs()).exp();
-                loss += logit.max(0.0) - logit * label + e.ln_1p();
-                let sigmoid = if logit >= 0.0 { 1.0 / (1.0 + e) } else { e / (1.0 + e) };
-                let d = (sigmoid - label) * loss_scale;
+                let d = (1.0 / (1.0 + (-logit).exp()) - label) * loss_scale;
                 *grad_b += d;
                 let dv = splat(d);
                 for p in (0..k).step_by(LANES) {
@@ -192,7 +187,6 @@ macro_rules! dense_kernels {
                     store(dp.add(r * k + p), keep_positive(mul(load(wp.add(p)), dv), av));
                 }
             }
-            loss
         }
 
         #[allow(clippy::too_many_arguments)]
@@ -307,7 +301,7 @@ macro_rules! dense_kernels {
             dz_prev: &mut [f32],
             grad_w: &mut [f32],
             grad_b: &mut f32,
-        ) -> f32 {
+        ) {
             if k % LANES != 0 {
                 return scalar::output_layer_train_scalar(
                     a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b,

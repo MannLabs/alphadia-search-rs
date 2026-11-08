@@ -10,6 +10,11 @@ fn random(rng: &mut StdRng, len: usize) -> Vec<f32> {
     (0..len).map(|_| rng.random_range(-1.0..1.0)).collect()
 }
 
+/// Numerically stable `log(1 + exp(-|z|)) + max(z, 0) - y z`.
+fn bce_with_logits(logit: f32, y: f32) -> f32 {
+    logit.max(0.0) - logit * y + (-logit.abs()).exp().ln_1p()
+}
+
 fn assert_close(actual: &[f32], expected: &[f32]) {
     assert_eq!(actual.len(), expected.len());
     for (i, (a, e)) in actual.iter().zip(expected).enumerate() {
@@ -131,7 +136,7 @@ fn test_output_layer_matches_scalar() {
 
             // When running the fused output layer
             let (mut dz, mut grad_w, mut grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
-            let loss = output_layer_train(
+            output_layer_train(
                 &a,
                 rows,
                 k,
@@ -144,7 +149,7 @@ fn test_output_layer_matches_scalar() {
                 &mut grad_b,
             );
             let (mut e_dz, mut e_grad_w, mut e_grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
-            let e_loss = output_layer_train_scalar(
+            output_layer_train_scalar(
                 &a,
                 rows,
                 k,
@@ -161,8 +166,7 @@ fn test_output_layer_matches_scalar() {
             let mut e_logits = vec![0.0; rows];
             output_layer_logits_scalar(&a, rows, k, &w, 0.3, &mut e_logits);
 
-            // Then loss, gradients and logits agree
-            assert_close(&[loss], &[e_loss]);
+            // Then gradients and logits agree
             assert_close(&dz, &e_dz);
             assert_close(&grad_w, &e_grad_w);
             assert_close(&[grad_b], &[e_grad_b]);
@@ -206,4 +210,135 @@ fn test_output_layer_gradient_matches_finite_difference() {
 
     // Then they agree
     assert!((grad_w[2] - (up - down) / (2.0 * eps)).abs() < 1e-3);
+}
+
+/// A random network with `dims` and its backward weight copy.
+fn random_network(rng: &mut StdRng, dims: &[usize]) -> (Vec<f32>, Vec<f32>) {
+    let size = Network::param_count(dims);
+    let params: Vec<f32> = random(rng, size).iter().map(|v| v * 0.5).collect();
+    let mut back = vec![0.0; size];
+    Network::backward_weights(dims, &params, &mut back);
+    (params, back)
+}
+
+/// Gradients of one `train_chunk` call with the selected backend: (params, input).
+fn chunk_gradients(
+    dims: &[usize],
+    params: &[f32],
+    back: &[f32],
+    x: &[f32],
+    y: &[f32],
+) -> (Vec<f32>, Vec<f32>) {
+    let rows = y.len();
+    let net = Network::new(dims, params, back);
+    let mut ws = TrainWorkspace::new(dims);
+    let mut grad = vec![0.25; params.len()];
+    let mut input_grad = vec![0.0; rows * dims[0]];
+    train_chunk(
+        &net,
+        x,
+        y,
+        rows,
+        0.5,
+        &mut ws,
+        &mut grad,
+        Some(&mut input_grad),
+    );
+    (grad, input_grad)
+}
+
+// network shapes: the FDR network, odd widths (scalar fallbacks), one hidden layer
+const NETWORKS: [&[usize]; 3] = [&[40, 128, 64, 32, 1], &[7, 48, 17, 1], &[16, 32, 1]];
+
+#[test]
+#[serial]
+fn test_train_chunk_matches_scalar_on_every_backend() {
+    let mut rng = StdRng::seed_from_u64(6);
+    for dims in NETWORKS {
+        // Given a random network and more rows than one row block, with a ragged tail
+        let rows = 2 * TRAIN_ROW_BLOCK + 13;
+        let (params, back) = random_network(&mut rng, dims);
+        let x = random(&mut rng, rows * dims[0]);
+        let y: Vec<f32> = (0..rows).map(|r| (r % 3 == 0) as u8 as f32).collect();
+        crate::simd::set_backend("scalar").unwrap();
+        let (expected, expected_input) = chunk_gradients(dims, &params, &back, &x, &y);
+
+        for_each_backend(|| {
+            // When training one chunk with each backend
+            let (grad, input_grad) = chunk_gradients(dims, &params, &back, &x, &y);
+
+            // Then the gradients agree with the scalar reference
+            assert_close(&grad, &expected);
+            assert_close(&input_grad, &expected_input);
+        });
+    }
+}
+
+#[test]
+#[serial]
+fn test_train_chunk_gradient_matches_finite_difference() {
+    // Given a small network and a few rows
+    let mut rng = StdRng::seed_from_u64(7);
+    let dims = [3, 5, 4, 1];
+    let (params, back) = random_network(&mut rng, &dims);
+    let rows = 6;
+    let x = random(&mut rng, rows * dims[0]);
+    let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
+    crate::simd::set_backend("scalar").unwrap();
+    let (grad, input_grad) = chunk_gradients(&dims, &params, &back, &x, &y);
+    crate::simd::clear_backend();
+
+    // When comparing with central differences of the summed loss (scaled by 0.5)
+    let loss = |params: &[f32], x: &[f32]| -> f64 {
+        let mut total = 0.0;
+        for r in 0..rows {
+            let mut a: Vec<f32> = x[r * dims[0]..(r + 1) * dims[0]].to_vec();
+            let mut offset = 0;
+            for l in 0..dims.len() - 1 {
+                let (k, n) = (dims[l], dims[l + 1]);
+                let mut z = params[offset + k * n..offset + k * n + n].to_vec();
+                for p in 0..k {
+                    for j in 0..n {
+                        z[j] += a[p] * params[offset + p * n + j];
+                    }
+                }
+                offset += k * n + n;
+                a = if l + 2 < dims.len() {
+                    z.iter().map(|v| v.max(0.0)).collect()
+                } else {
+                    z
+                };
+            }
+            total += f64::from(bce_with_logits(a[0], y[r])) * 0.5;
+        }
+        total
+    };
+    let eps = 1e-2;
+    let central = |f: &dyn Fn(f32) -> f64| ((f(eps) - f(-eps)) / (2.0 * f64::from(eps))) as f32;
+
+    // Then the parameter gradients (on top of the initial 0.25) and the input gradient agree
+    for i in 0..params.len() {
+        let numeric = central(&|d| {
+            let mut p = params.clone();
+            p[i] += d;
+            loss(&p, &x)
+        });
+        assert!(
+            (grad[i] - 0.25 - numeric).abs() < 2e-3,
+            "param {i}: {} vs {numeric}",
+            grad[i] - 0.25
+        );
+    }
+    for i in 0..x.len() {
+        let numeric = central(&|d| {
+            let mut xd = x.clone();
+            xd[i] += d;
+            loss(&params, &xd)
+        });
+        assert!(
+            (input_grad[i] - numeric).abs() < 2e-3,
+            "input {i}: {} vs {numeric}",
+            input_grad[i]
+        );
+    }
 }

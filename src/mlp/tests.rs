@@ -1,5 +1,5 @@
 use super::reference;
-use super::scalar::bce_with_logits;
+use super::reference::bce_with_logits;
 use super::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -32,8 +32,8 @@ fn for_each_backend(check: impl Fn()) {
 }
 
 // (rows, k, n): fast-path shapes of the FDR network, row tails, and odd shapes that exercise every
-// row and column tail tile of the portable kernels
-const SHAPES: [(usize, usize, usize); 9] = [
+// row and column tail tile of the portable kernels, and an empty reduction
+const SHAPES: [(usize, usize, usize); 10] = [
     (64, 48, 128),
     (8, 40, 32),
     (130, 128, 64),
@@ -43,6 +43,7 @@ const SHAPES: [(usize, usize, usize); 9] = [
     (7, 3, 29),
     (2, 17, 1),
     (1, 1, 2),
+    (3, 0, 5),
 ];
 
 #[test]
@@ -114,7 +115,15 @@ fn test_dense_weight_grad_accumulates_like_reference() {
             let (mut grad_wt, mut grad_b) = (grad_wt_start.clone(), grad_b_start.clone());
             dense_weight_grad(&a_prev, rows, k, &dz, n, &mut grad_wt, &mut grad_b);
             let (mut expected_wt, mut expected_b) = (grad_wt_start, grad_b_start);
-            reference::dense_weight_grad(&a_prev, rows, k, &dz, n, &mut expected_wt, &mut expected_b);
+            reference::dense_weight_grad(
+                &a_prev,
+                rows,
+                k,
+                &dz,
+                n,
+                &mut expected_wt,
+                &mut expected_b,
+            );
 
             // Then both agree
             assert_close(&grad_wt, &expected_wt);

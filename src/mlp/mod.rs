@@ -4,6 +4,7 @@
 //! weights transposed, `wt[k x n]`, so the forward pass streams contiguous weight rows.
 //! The kernels dispatch through the SIMD backend (scalar reference, NEON, AVX2 or AVX-512).
 
+pub mod fused;
 pub mod neon;
 pub mod scalar;
 #[cfg(target_arch = "x86_64")]

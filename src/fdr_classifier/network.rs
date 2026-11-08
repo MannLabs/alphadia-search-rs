@@ -12,7 +12,10 @@
 //! the output bias: scale, shift, running mean, running variance (`n_features` each).
 
 use super::ops::{self, Backend};
-use crate::mlp;
+use crate::mlp::{
+    self,
+    fused::{Dense, Network},
+};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
@@ -23,6 +26,7 @@ const ADAM_BETA_2: f32 = 0.999;
 const ADAM_EPS: f32 = 1e-8;
 /// Row chunks are multiples of the 4-row SIMD kernel tile.
 const ROW_ALIGN: usize = 4;
+#[cfg(target_os = "macos")]
 const PREDICT_CHUNK_ROWS: usize = 4096;
 const BN_MOMENTUM: f32 = 0.1;
 const BN_EPS: f32 = 1e-5;
@@ -305,22 +309,33 @@ fn normalize_batch(
     }
 }
 
-/// Batch norm at prediction (torch evaluation mode): running mean and variance, scale and shift.
-fn normalize_rows(layout: &Layout, params: &[f32], x: &[f32], out: &mut [f32]) {
-    let k = layout.dims[0];
-    let (scale, shift, mean_at, var_at) = (
-        layout.bn(0).unwrap(),
-        layout.bn(1).unwrap(),
-        layout.bn(2).unwrap(),
-        layout.bn(3).unwrap(),
-    );
-    for (row, out_row) in x.chunks_exact(k).zip(out.chunks_exact_mut(k)) {
-        for p in 0..k {
-            let inv_std = 1.0 / (params[var_at + p] + BN_EPS).sqrt();
-            out_row[p] =
-                params[scale + p] * (row[p] - params[mean_at + p]) * inv_std + params[shift + p];
+/// The prediction-time batch norm (torch evaluation mode: running mean and variance, scale and
+/// shift) is an affine map `a * x + c` per feature, so it folds into the first layer:
+/// `wt'[p] = a[p] * wt[p]`, `bias' = bias + sum_p c[p] * wt[p]`. Returns `(wt', bias')`.
+fn fold_input_batch_norm(layout: &Layout, params: &[f32]) -> (Vec<f32>, Vec<f32>) {
+    let (k, n) = (layout.dims[0], layout.dims[1]);
+    let bn = |i: usize| &params[layout.bn(i).unwrap()..layout.bn(i).unwrap() + k];
+    let (scale, shift, mean, var) = (bn(0), bn(1), bn(2), bn(3));
+    let wt = layout.wt(params, 0);
+    let mut folded = wt.to_vec();
+    let mut bias: Vec<f64> = layout
+        .bias(params, 0)
+        .iter()
+        .map(|&b| f64::from(b))
+        .collect();
+    for p in 0..k {
+        let a = scale[p] / (var[p] + BN_EPS).sqrt();
+        let c = f64::from(shift[p]) - f64::from(a) * f64::from(mean[p]);
+        for ((w, &w0), b) in folded[p * n..(p + 1) * n]
+            .iter_mut()
+            .zip(&wt[p * n..(p + 1) * n])
+            .zip(&mut bias)
+        {
+            *w = a * w0;
+            *b += c * f64::from(w0);
         }
     }
+    (folded, bias.into_iter().map(|b| b as f32).collect())
 }
 
 fn transpose(wt: &[f32], k: usize, n: usize, w: &mut [f32]) {
@@ -536,39 +551,51 @@ pub fn predict(
         ));
     }
     let n_hidden = layout.n_hidden();
+    let folded = layout
+        .input_bn
+        .map(|_| fold_input_batch_norm(&layout, params));
+    let hidden: Vec<Dense> = (0..n_hidden)
+        .map(|l| match (&folded, l) {
+            (Some((wt, bias)), 0) => Dense {
+                wt,
+                bias,
+                n: layout.dims[1],
+            },
+            _ => Dense {
+                wt: layout.wt(params, l),
+                bias: layout.bias(params, l),
+                n: layout.dims[l + 1],
+            },
+        })
+        .collect();
+    let (w_out, b_out) = (
+        layout.wt(params, n_hidden),
+        layout.bias(params, n_hidden)[0],
+    );
     let mut logits = vec![0.0f32; n_rows];
-    logits
-        .par_chunks_mut(PREDICT_CHUNK_ROWS)
-        .enumerate()
-        .for_each_init(
-            || {
-                let normalized = vec![
-                    0.0f32;
-                    layout
-                        .input_bn
-                        .map_or(0, |_| PREDICT_CHUNK_ROWS * n_features)
-                ];
-                (Workspace::new(&layout, PREDICT_CHUNK_ROWS), normalized)
-            },
-            |(ws, normalized), (c, out)| {
-                let rows = out.len();
-                let r0 = c * PREDICT_CHUNK_ROWS;
-                let mut input = &x[r0 * n_features..(r0 + rows) * n_features];
-                if layout.input_bn.is_some() {
-                    normalize_rows(&layout, params, input, &mut normalized[..rows * n_features]);
-                    input = &normalized[..rows * n_features];
-                }
-                forward_hidden(backend, params, &layout, ws, input, rows);
-                let k = layout.dims[n_hidden];
-                mlp::output_layer_logits(
-                    &ws.activations[n_hidden - 1][..rows * k],
-                    rows,
-                    k,
-                    layout.wt(params, n_hidden),
-                    layout.bias(params, n_hidden)[0],
-                    out,
-                );
-            },
-        );
+    match backend {
+        Backend::Simd => Network::new(n_features, &hidden, w_out, b_out).logits(x, &mut logits),
+        #[cfg(target_os = "macos")]
+        Backend::Accelerate => logits
+            .par_chunks_mut(PREDICT_CHUNK_ROWS)
+            .enumerate()
+            .for_each_init(
+                || Workspace::new(&layout, PREDICT_CHUNK_ROWS),
+                |ws, (c, out)| {
+                    let (r0, rows) = (c * PREDICT_CHUNK_ROWS, out.len());
+                    let mut input = &x[r0 * n_features..(r0 + rows) * n_features];
+                    let mut k = n_features;
+                    for (layer, a) in hidden.iter().zip(&mut ws.activations) {
+                        let a = &mut a[..rows * layer.n];
+                        ops::dense_forward_relu(
+                            backend, input, rows, k, layer.wt, layer.n, layer.bias, a,
+                        );
+                        input = a;
+                        k = layer.n;
+                    }
+                    mlp::output_layer_logits(input, rows, k, w_out, b_out, out);
+                },
+            ),
+    }
     Ok(logits)
 }

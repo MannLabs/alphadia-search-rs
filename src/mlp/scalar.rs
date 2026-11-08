@@ -1,5 +1,5 @@
 //! Portable dense-layer kernels: plain safe Rust that LLVM autovectorises for whatever the target
-//! offers (SSE2, NEON, wasm-simd128, AVX with `target-cpu=native`, ...). The SIMD backends also
+//! offers (SSE2, NEON, wasm-simd128, AVX with `target-cpu=native`, ...). The NEON kernels also
 //! call them for shapes outside their fast paths.
 //!
 //! The three dense kernels are one GEMM, `C = epilogue(A @ B)`, in the scheme of the hand-written

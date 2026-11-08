@@ -173,16 +173,20 @@ impl<T: SimdBackend + ?Sized> crate::mlp::LayerKernels for T {
 }
 
 // Import backend implementations
+#[cfg(target_arch = "x86_64")]
+mod avx2;
+#[cfg(target_arch = "x86_64")]
+mod avx512;
 mod neon;
 mod scalar;
-#[cfg(target_arch = "x86_64")]
-mod x86;
 
+#[cfg(target_arch = "x86_64")]
+use avx2::Avx2Backend;
+#[cfg(target_arch = "x86_64")]
+use avx512::Avx512Backend;
 #[cfg(target_arch = "aarch64")]
 use neon::NeonBackend;
 use scalar::ScalarBackend;
-#[cfg(target_arch = "x86_64")]
-use x86::{Avx2Backend, Avx512Backend};
 
 // Static backend instances
 static SCALAR: ScalarBackend = ScalarBackend;

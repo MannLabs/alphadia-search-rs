@@ -5,7 +5,7 @@
 //! `MLP_MISALIGN=<floats>` offsets the kernel buffers from a cache line.
 
 #[cfg(target_arch = "x86_64")]
-use alphadia_search_rs::mlp::x86::{avx2, avx512};
+use alphadia_search_rs::mlp::{avx2, avx512};
 use alphadia_search_rs::mlp::{scalar, Activation, LayerKernels, Network, TrainWorkspace};
 use std::hint::black_box;
 use std::time::Instant;
@@ -90,19 +90,19 @@ fn kernels(name: &str) -> Kernels {
     match name {
         #[cfg(target_arch = "x86_64")]
         "avx512" => Kernels {
-            forward: avx512::dense_forward,
-            backward_input: avx512::dense_backward_input,
-            weight_grad: avx512::dense_weight_grad,
-            output_train: avx512::output_layer_train,
-            output_logits: avx512::output_layer_logits,
+            forward: avx512::dense_forward_avx512,
+            backward_input: avx512::dense_backward_input_avx512,
+            weight_grad: avx512::dense_weight_grad_avx512,
+            output_train: avx512::output_layer_train_avx512,
+            output_logits: avx512::output_layer_logits_avx512,
         },
         #[cfg(target_arch = "x86_64")]
         "avx2" => Kernels {
-            forward: avx2::dense_forward,
-            backward_input: avx2::dense_backward_input,
-            weight_grad: avx2::dense_weight_grad,
-            output_train: avx2::output_layer_train,
-            output_logits: avx2::output_layer_logits,
+            forward: avx2::dense_forward_avx2,
+            backward_input: avx2::dense_backward_input_avx2,
+            weight_grad: avx2::dense_weight_grad_avx2,
+            output_train: avx2::output_layer_train_avx2,
+            output_logits: avx2::output_layer_logits_avx2,
         },
         _ => Kernels {
             forward: scalar::dense_forward_scalar,

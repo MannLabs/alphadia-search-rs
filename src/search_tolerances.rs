@@ -21,13 +21,13 @@ pub struct SearchTolerances {
     /// Fragment mass tolerance in ppm.
     #[pyo3(get)]
     pub ms2_error: f64,
-    /// Ion mobility tolerance in 1/K0.
+    /// Ion mobility tolerance in 1/K0. A placeholder for data without ion mobility.
     #[pyo3(get)]
     pub mobility_error: f64,
     /// Full width at half maximum of the retention time peak in seconds.
     #[pyo3(get)]
     pub fwhm_rt: f64,
-    /// Full width at half maximum of the ion mobility peak in 1/K0.
+    /// Full width at half maximum of the ion mobility peak in 1/K0. A placeholder for data without ion mobility.
     #[pyo3(get)]
     pub fwhm_mobility: f64,
     /// Maximum number of peak group candidates per precursor.
@@ -54,18 +54,21 @@ impl SearchTolerances {
             ("rt_error", rt_error),
             ("ms1_error", ms1_error),
             ("ms2_error", ms2_error),
-            ("mobility_error", mobility_error),
             ("fwhm_rt", fwhm_rt),
-            ("fwhm_mobility", fwhm_mobility),
         ] {
             if !(value.is_finite() && value > 0.0) {
                 return Err(format!("{name} must be a positive number, got {value}"));
             }
         }
-        if !score_cutoff.is_finite() {
-            return Err(format!(
-                "score_cutoff must be a finite number, got {score_cutoff}"
-            ));
+        // The mobility values are placeholders for data without ion mobility, e.g. a fwhm_mobility of -1.
+        for (name, value) in [
+            ("mobility_error", mobility_error),
+            ("fwhm_mobility", fwhm_mobility),
+            ("score_cutoff", score_cutoff),
+        ] {
+            if !value.is_finite() {
+                return Err(format!("{name} must be a finite number, got {value}"));
+            }
         }
         if num_candidates == 0 {
             return Err("num_candidates must be at least 1".to_string());
@@ -179,13 +182,11 @@ mod tests {
 
     #[test]
     fn test_try_new_rejects_non_positive_tolerances() {
-        let cases: [(&str, fn(&mut SearchTolerances)); 6] = [
+        let cases: [(&str, fn(&mut SearchTolerances)); 4] = [
             ("rt_error", |t| t.rt_error = 0.0),
             ("ms1_error", |t| t.ms1_error = -1.0),
             ("ms2_error", |t| t.ms2_error = 0.0),
-            ("mobility_error", |t| t.mobility_error = -0.1),
             ("fwhm_rt", |t| t.fwhm_rt = 0.0),
-            ("fwhm_mobility", |t| t.fwhm_mobility = -0.01),
         ];
         for (name, modify) in cases {
             // when
@@ -206,6 +207,28 @@ mod tests {
         // then
         assert!(rt.unwrap_err().contains("rt_error"));
         assert!(cutoff.unwrap_err().contains("score_cutoff"));
+    }
+
+    #[test]
+    fn test_try_new_accepts_placeholder_mobility_values() {
+        // given: data without ion mobility, for which alphaDIA records fwhm_mobility as -1
+        // when
+        let result = with(|t| {
+            t.mobility_error = 0.0;
+            t.fwhm_mobility = -1.0;
+        });
+
+        // then
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_try_new_rejects_non_finite_mobility_values() {
+        // when
+        let result = with(|t| t.fwhm_mobility = f64::NAN);
+
+        // then
+        assert!(result.unwrap_err().contains("fwhm_mobility"));
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! the tests compare each against the naive loops in `reference`.
 
 mod aligned;
+pub mod fused;
 pub mod neon;
 mod network;
 #[cfg(test)]

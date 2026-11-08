@@ -129,8 +129,6 @@ impl Layout {
 
 struct Workspace {
     activations: Vec<Vec<f32>>,
-    deltas: Vec<Vec<f32>>,
-    grad: Vec<f32>,
 }
 
 impl Workspace {
@@ -138,8 +136,6 @@ impl Workspace {
         let hidden = &layout.dims[1..layout.dims.len() - 1];
         Workspace {
             activations: hidden.iter().map(|&d| vec![0.0; rows * d]).collect(),
-            deltas: hidden.iter().map(|&d| vec![0.0; rows * d]).collect(),
-            grad: vec![0.0; layout.size],
         }
     }
 }
@@ -169,93 +165,59 @@ fn forward_hidden(
     }
 }
 
+/// Buffers of one training thread, allocated once per fit.
+struct ChunkState {
+    ws: mlp::TrainWorkspace,
+    grad: mlp::AlignedBuf,
+    /// gradient at the batch norm output (only with the input batch norm)
+    input_grad: Vec<f32>,
+}
+
+/// Gradients of one row chunk into `state.grad`.
 #[allow(clippy::too_many_arguments)]
 fn train_chunk(
     backend: Backend,
-    params: &[f32],
-    weights_untransposed: &[Vec<f32>],
+    net: &mlp::Network,
     layout: &Layout,
-    ws: &mut Workspace,
+    state: &mut ChunkState,
     x: &[f32],
     y: &[f32],
     rows: usize,
     loss_scale: f32,
     x_hat: Option<&[f32]>,
 ) {
-    let n_hidden = layout.n_hidden();
-    forward_hidden(backend, params, layout, ws, x, rows);
-    ws.grad.iter_mut().for_each(|g| *g = 0.0);
-
-    let k = layout.dims[n_hidden];
-    {
-        let (grad_w, grad_rest) = ws.grad.split_at_mut(layout.biases[n_hidden]);
-        mlp::output_layer_train(
-            &ws.activations[n_hidden - 1][..rows * k],
-            rows,
-            k,
-            layout.wt(params, n_hidden),
-            layout.bias(params, n_hidden)[0],
+    let ChunkState {
+        ws,
+        grad,
+        input_grad,
+    } = state;
+    grad.fill(0.0);
+    let k = layout.dims[0];
+    let input_grad = &mut input_grad[..x_hat.map_or(0, |_| rows * k)];
+    let wanted = x_hat.is_some().then_some(&mut *input_grad);
+    match backend {
+        Backend::Simd => mlp::train_chunk(net, x, y, rows, loss_scale, ws, grad, wanted),
+        #[cfg(target_os = "macos")]
+        Backend::Accelerate => mlp::train_chunk_layered(
+            &ops::Accelerate,
+            net,
+            x,
             y,
-            loss_scale,
-            &mut ws.deltas[n_hidden - 1][..rows * k],
-            &mut grad_w[layout.weights[n_hidden]..],
-            &mut grad_rest[0],
-        );
-    }
-
-    for l in (0..n_hidden).rev() {
-        let (k, n) = (layout.dims[l], layout.dims[l + 1]);
-        let input = if l == 0 {
-            x
-        } else {
-            &ws.activations[l - 1][..rows * k]
-        };
-        let (grad_w, grad_rest) = ws.grad.split_at_mut(layout.biases[l]);
-        ops::dense_weight_grad(
-            backend,
-            input,
             rows,
-            k,
-            &ws.deltas[l][..rows * n],
-            n,
-            &mut grad_w[layout.weights[l]..],
-            &mut grad_rest[..n],
-        );
-        if l == 0 {
-            if let (Some(x_hat), Some(scale), Some(shift)) = (x_hat, layout.bn(0), layout.bn(1)) {
-                // the input has no parameters, so scale and shift get exact gradients from the
-                // gradient at the batch norm output: d_in = delta_0 . W_0^T
-                let wt0 = layout.wt(params, 0);
-                let deltas = &ws.deltas[0][..rows * n];
-                for p in 0..k {
-                    let w_row = &wt0[p * n..(p + 1) * n];
-                    let (mut g_scale, mut g_shift) = (0.0f32, 0.0f32);
-                    for r in 0..rows {
-                        let d_in: f32 = deltas[r * n..(r + 1) * n]
-                            .iter()
-                            .zip(w_row)
-                            .map(|(d, w)| d * w)
-                            .sum();
-                        g_scale += d_in * x_hat[r * k + p];
-                        g_shift += d_in;
-                    }
-                    ws.grad[scale + p] += g_scale;
-                    ws.grad[shift + p] += g_shift;
-                }
+            loss_scale,
+            ws,
+            grad,
+            wanted,
+        ),
+    }
+    if let (Some(x_hat), Some(scale), Some(shift)) = (x_hat, layout.bn(0), layout.bn(1)) {
+        // the input has no parameters, so scale and shift get exact gradients from the
+        // gradient at the batch norm output
+        for (d_row, h_row) in input_grad.chunks_exact(k).zip(x_hat.chunks_exact(k)) {
+            for (p, (&d, &h)) in d_row.iter().zip(h_row).enumerate() {
+                grad[scale + p] += d * h;
+                grad[shift + p] += d;
             }
-        } else {
-            let (lower, upper) = ws.deltas.split_at_mut(l);
-            ops::dense_backward_input(
-                backend,
-                &upper[0][..rows * n],
-                rows,
-                n,
-                &weights_untransposed[l],
-                layout.wt(params, l),
-                k,
-                &ws.activations[l - 1][..rows * k],
-                &mut lower[l - 1][..rows * k],
-            );
         }
     }
 }
@@ -325,14 +287,6 @@ fn normalize_rows(layout: &Layout, params: &[f32], x: &[f32], out: &mut [f32]) {
     }
 }
 
-fn transpose(wt: &[f32], k: usize, n: usize, w: &mut [f32]) {
-    for p in 0..k {
-        for j in 0..n {
-            w[j * k + p] = wt[p * n + j];
-        }
-    }
-}
-
 /// Train on `x [n_rows x n_features]` with binary labels `y`, starting from `init` if given
 /// (warm start) and from torch-style random weights otherwise. Returns the parameters.
 pub fn train(
@@ -357,7 +311,7 @@ pub fn train(
         );
     }
     let mut rng = StdRng::seed_from_u64(config.seed);
-    let mut params = match init {
+    let params = match init {
         Some(params) if params.len() == layout.size => params,
         Some(params) => {
             return Err(format!(
@@ -368,6 +322,8 @@ pub fn train(
         }
         None => layout.init_params(&mut rng),
     };
+    // the kernels stream weights and gradients in 64-byte vectors: keep them on cache lines
+    let mut params = mlp::AlignedBuf::from_slice(&params);
 
     // rows in random order once, then contiguous batches in a new random order every epoch
     let mut order: Vec<usize> = (0..n_rows).collect();
@@ -390,14 +346,16 @@ pub fn train(
     let n_chunks = rayon::current_num_threads().max(1);
     let chunk_rows = batch_size.div_ceil(n_chunks).div_ceil(ROW_ALIGN) * ROW_ALIGN;
     let n_chunks = batch_size.div_ceil(chunk_rows);
-    let mut workspaces: Vec<Workspace> = (0..n_chunks)
-        .map(|_| Workspace::new(&layout, chunk_rows))
+    let input_grad_len = layout.input_bn.map_or(0, |_| chunk_rows * n_features);
+    let mut states: Vec<ChunkState> = (0..n_chunks)
+        .map(|_| ChunkState {
+            ws: mlp::TrainWorkspace::new(&layout.dims),
+            grad: mlp::AlignedBuf::zeros(layout.size),
+            input_grad: vec![0.0; input_grad_len],
+        })
         .collect();
-    let n_hidden = layout.n_hidden();
-    // the input-gradient kernel reads the weights as [out x in]
-    let mut weights_untransposed: Vec<Vec<f32>> = (0..n_hidden)
-        .map(|l| vec![0.0; layout.dims[l] * layout.dims[l + 1]])
-        .collect();
+    // the backward pass reads the hidden weights untransposed
+    let mut back = mlp::AlignedBuf::zeros(layout.size);
     let mut adam_m = vec![0.0f32; layout.size];
     let mut adam_v = vec![0.0f32; layout.size];
     let mut grad = vec![0.0f32; layout.size];
@@ -430,19 +388,13 @@ pub fn train(
                     &mut x_hat,
                 );
             }
-            for l in 1..n_hidden {
-                transpose(
-                    layout.wt(&params, l),
-                    layout.dims[l],
-                    layout.dims[l + 1],
-                    &mut weights_untransposed[l],
-                );
-            }
-            let (params_ref, w_ref, layout_ref) = (&params, &weights_untransposed, &layout);
+            mlp::Network::backward_weights(&layout.dims, &params, &mut back);
+            let net = mlp::Network::new(&layout.dims, &params, &back);
+            let layout_ref = &layout;
             let (xs, ys) = (&x_shuffled, &y_shuffled);
             let (x_norm_ref, x_hat_ref) = (&x_norm, &x_hat);
             let batch_norm = layout.input_bn.is_some();
-            workspaces.par_iter_mut().enumerate().for_each(|(c, ws)| {
+            states.par_iter_mut().enumerate().for_each(|(c, state)| {
                 let r0 = batch_start + c * chunk_rows;
                 let rows = chunk_rows.min(batch_start + batch_size - r0);
                 // rows of this chunk within the batch
@@ -457,10 +409,9 @@ pub fn train(
                 };
                 train_chunk(
                     config.backend,
-                    params_ref,
-                    w_ref,
+                    &net,
                     layout_ref,
-                    ws,
+                    state,
                     input,
                     &ys[r0..r0 + rows],
                     rows,
@@ -469,9 +420,9 @@ pub fn train(
                 );
             });
 
-            grad.copy_from_slice(&workspaces[0].grad);
-            for ws in &workspaces[1..] {
-                for (g, w) in grad.iter_mut().zip(&ws.grad) {
+            grad.copy_from_slice(&states[0].grad);
+            for state in &states[1..] {
+                for (g, w) in grad.iter_mut().zip(state.grad.iter()) {
                     *g += w;
                 }
             }
@@ -504,10 +455,10 @@ pub fn train(
             if config.average_last_epoch && epoch + 1 == config.epochs {
                 n_averaged += 1;
                 match averaged.as_mut() {
-                    None => averaged = Some(params.clone()),
+                    None => averaged = Some(params.to_vec()),
                     Some(mean) => {
                         let weight = 1.0 / n_averaged as f32;
-                        for (a, &p) in mean.iter_mut().zip(&params) {
+                        for (a, &p) in mean.iter_mut().zip(params.iter()) {
                             *a += (p - *a) * weight;
                         }
                     }
@@ -515,7 +466,7 @@ pub fn train(
             }
         }
     }
-    Ok(averaged.unwrap_or(params))
+    Ok(averaged.unwrap_or_else(|| params.to_vec()))
 }
 
 /// Output logit of every row of `x`.

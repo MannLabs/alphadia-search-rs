@@ -77,7 +77,7 @@ impl SimdBackend for ScalarBackend {
         dz_prev: &mut [f32],
         grad_w: &mut [f32],
         grad_b: &mut f32,
-    ) -> f32 {
+    ) {
         crate::mlp::scalar::output_layer_train_scalar(
             a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b,
         )

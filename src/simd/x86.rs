@@ -87,7 +87,7 @@ macro_rules! x86_backend {
                 dz_prev: &mut [f32],
                 grad_w: &mut [f32],
                 grad_b: &mut f32,
-            ) -> f32 {
+            ) {
                 crate::mlp::x86::$kernels::output_layer_train(
                     a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b,
                 )

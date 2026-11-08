@@ -40,7 +40,8 @@ macro_rules! unroll {
 
 /// The kernels of one instruction set, written against the primitives in scope: the vector and
 /// mask types `V`, `Mask`, `LANES`, the tile shapes (`MR` rows x `NV` vectors, and
-/// `WIDE_MR x WIDE_NV` for layers with at least `WIDE_NV` vectors of columns) and `zero`, `load`,
+/// `WIDE_MR x WIDE_NV` for layers with at least `WIDE_NV` vectors of columns), the unrolling of
+/// the reduction (`UNROLL_ROWS`, `UNROLL_PANEL`) and `zero`, `load`,
 /// `store`, `tail_mask`, `load_masked`, `store_masked`, `select`, `splat`, `fma`, `add`, `mul`,
 /// `div`, `min`, `max`, `relu`, `keep_positive`, `round`, `pow2i`, `pair_sum`.
 macro_rules! dense_kernels {
@@ -49,13 +50,10 @@ macro_rules! dense_kernels {
 
         // the caps of `unroll!`
         const _: () = assert!(NV <= 4 && WIDE_NV <= 4 && MR <= 16 && WIDE_MR <= 16 && LANES <= 16);
+        const _: () = assert!(UNROLL_ROWS <= 4 && UNROLL_PANEL <= 4);
 
         /// Columns of a full tile of the default shape.
         const NC: usize = NV * LANES;
-        /// Reduction steps per iteration of the tile loop, reading A from rows or from a panel
-        /// (unrolling the row form makes LLVM hoist all broadcasts and spill them).
-        const UNROLL_ROWS: usize = 1;
-        const UNROLL_PANEL: usize = 4;
 
         /// Floats of the stack buffer that stages a misaligned B (64 KiB).
         const STAGE_FLOATS: usize = 16384;
@@ -687,6 +685,10 @@ pub mod avx2 {
     const NV: usize = 2;
     const WIDE_MR: usize = MR;
     const WIDE_NV: usize = NV;
+    /// Reduction steps per tile loop iteration: reading A from rows, or from a panel (with 16
+    /// registers, unrolling either makes LLVM hoist the broadcasts and spill them).
+    const UNROLL_ROWS: usize = 1;
+    const UNROLL_PANEL: usize = 1;
 
     #[inline]
     #[target_feature(enable = "avx2,fma")]
@@ -813,6 +815,10 @@ pub mod avx512 {
     const NV: usize = 2;
     const WIDE_MR: usize = 6;
     const WIDE_NV: usize = 4;
+    /// Reduction steps per tile loop iteration: reading A from rows (unrolling makes LLVM hoist
+    /// all broadcasts of a 12-row tile and spill them), or from a panel.
+    const UNROLL_ROWS: usize = 1;
+    const UNROLL_PANEL: usize = 4;
 
     #[inline]
     #[target_feature(enable = "avx512f")]

@@ -249,3 +249,42 @@ fn test_kernels_leave_memory_past_the_output_untouched() {
         }
     });
 }
+
+#[test]
+#[serial]
+fn test_kernels_match_scalar_at_any_buffer_offset() {
+    for_each_backend(|| {
+        // Given operands that start 0-3 floats past an allocation (cache-line splits, staging),
+        // including a weight gradient longer than one staging block
+        let mut rng = StdRng::seed_from_u64(7);
+        for (rows, k, n) in [(37, 40, 128), (700, 24, 48), (10, 3, 20)] {
+            for offset in 0..4 {
+                let x = random(&mut rng, rows * k + offset);
+                let wt = random(&mut rng, k * n + offset);
+                let bias = random(&mut rng, n);
+                let dz = random(&mut rng, rows * n + offset);
+                let (x, wt, dz) = (&x[offset..], &wt[offset..], &dz[offset..]);
+
+                // When running the kernels on the offset operands
+                let mut out = vec![0.0; rows * n];
+                dense_forward(x, rows, k, wt, n, &bias, Activation::Relu, &mut out);
+                let mut d_prev = vec![0.0; rows * k];
+                dense_backward_input(dz, rows, n, wt, k, x, &mut d_prev);
+                let (mut grad_wt, mut grad_b) = (vec![0.5; k * n], vec![0.5; n]);
+                dense_weight_grad(x, rows, k, dz, n, &mut grad_wt, &mut grad_b);
+
+                // Then they agree with the reference
+                let mut e_out = vec![0.0; rows * n];
+                dense_forward_scalar(x, rows, k, wt, n, &bias, Activation::Relu, &mut e_out);
+                let mut e_d_prev = vec![0.0; rows * k];
+                dense_backward_input_scalar(dz, rows, n, wt, k, x, &mut e_d_prev);
+                let (mut e_grad_wt, mut e_grad_b) = (vec![0.5; k * n], vec![0.5; n]);
+                dense_weight_grad_scalar(x, rows, k, dz, n, &mut e_grad_wt, &mut e_grad_b);
+                assert_close(&out, &e_out);
+                assert_close(&d_prev, &e_d_prev);
+                assert_close(&grad_wt, &e_grad_wt);
+                assert_close(&grad_b, &e_grad_b);
+            }
+        }
+    });
+}

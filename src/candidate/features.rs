@@ -63,6 +63,8 @@ pub const FEATURE_NAMES: &[&str] = &[
     "ms1_frag_corr",
     "ms1_iso_m1_err",
     "ms1_ppm_signed",
+    "ms1_m0_accurate_share",
+    "ms1_m1_accurate_share",
     "shadow_lib_share",
     "shadow_clean_libw_corr",
     "shadow_corr_sum6",
@@ -134,6 +136,8 @@ pub struct CandidateFeature {
     pub ms1_frag_corr: f32,
     pub ms1_iso_m1_err: f32,
     pub ms1_ppm_signed: f32,
+    pub ms1_m0_accurate_share: f32,
+    pub ms1_m1_accurate_share: f32,
     pub shadow_lib_share: f32,
     pub shadow_clean_libw_corr: f32,
     pub shadow_corr_sum6: f32,
@@ -261,6 +265,8 @@ impl CandidateFeature {
             ms1_frag_corr: 0.0,
             ms1_iso_m1_err: 0.0,
             ms1_ppm_signed: 0.0,
+            ms1_m0_accurate_share: 0.0,
+            ms1_m1_accurate_share: 0.0,
             shadow_lib_share: 0.0,
             shadow_clean_libw_corr: 0.0,
             shadow_corr_sum6: 0.0,
@@ -280,6 +286,8 @@ impl CandidateFeature {
         self.ms1_frag_corr = ms1.ms1_frag_corr;
         self.ms1_iso_m1_err = ms1.ms1_iso_m1_err;
         self.ms1_ppm_signed = ms1.ms1_ppm_signed;
+        self.ms1_m0_accurate_share = ms1.ms1_m0_accurate_share;
+        self.ms1_m1_accurate_share = ms1.ms1_m1_accurate_share;
         self
     }
 
@@ -398,6 +406,8 @@ impl CandidateFeatureCollection {
         let mut ms1_frag_corr = Array1::<f32>::zeros(n);
         let mut ms1_iso_m1_err = Array1::<f32>::zeros(n);
         let mut ms1_ppm_signed = Array1::<f32>::zeros(n);
+        let mut ms1_m0_accurate_share = Array1::<f32>::zeros(n);
+        let mut ms1_m1_accurate_share = Array1::<f32>::zeros(n);
         let mut shadow_lib_share = Array1::<f32>::zeros(n);
         let mut shadow_clean_libw_corr = Array1::<f32>::zeros(n);
         let mut shadow_corr_sum6 = Array1::<f32>::zeros(n);
@@ -467,6 +477,8 @@ impl CandidateFeatureCollection {
             ms1_frag_corr[i] = feature.ms1_frag_corr;
             ms1_iso_m1_err[i] = feature.ms1_iso_m1_err;
             ms1_ppm_signed[i] = feature.ms1_ppm_signed;
+            ms1_m0_accurate_share[i] = feature.ms1_m0_accurate_share;
+            ms1_m1_accurate_share[i] = feature.ms1_m1_accurate_share;
             shadow_lib_share[i] = feature.shadow_lib_share;
             shadow_clean_libw_corr[i] = feature.shadow_clean_libw_corr;
             shadow_corr_sum6[i] = feature.shadow_corr_sum6;
@@ -601,6 +613,14 @@ impl CandidateFeatureCollection {
         dict.set_item("ms1_frag_corr", ms1_frag_corr.into_pyarray(py))?;
         dict.set_item("ms1_iso_m1_err", ms1_iso_m1_err.into_pyarray(py))?;
         dict.set_item("ms1_ppm_signed", ms1_ppm_signed.into_pyarray(py))?;
+        dict.set_item(
+            "ms1_m0_accurate_share",
+            ms1_m0_accurate_share.into_pyarray(py),
+        )?;
+        dict.set_item(
+            "ms1_m1_accurate_share",
+            ms1_m1_accurate_share.into_pyarray(py),
+        )?;
         dict.set_item("shadow_lib_share", shadow_lib_share.into_pyarray(py))?;
         dict.set_item(
             "shadow_clean_libw_corr",

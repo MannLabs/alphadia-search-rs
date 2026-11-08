@@ -19,6 +19,11 @@ const APEX_HALF_WIDTH: usize = 1;
 const BACKGROUND_EXCLUSION: usize = 2;
 /// Added before logarithms so that an empty trace stays finite.
 const LOG_EPSILON: f32 = 1.0;
+/// Tolerance (ppm) of the accurate-mass traces, about 1.7 residual sd of the calibrated MS1 error at 5 ng Astral
+/// (0.9 ppm). The extraction tolerance (4 sd) admits a chance peak at a random peptide m/z in ~40 % of the apex
+/// windows, anywhere in the window; a real precursor's M0 sits close to the calibrated m/z, so the share of apex scans
+/// with a peak this close separates the two better than presence and co-elution.
+pub const ACCURATE_PPM: f32 = 1.5;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Ms1Features {
@@ -38,6 +43,10 @@ pub struct Ms1Features {
     pub ms1_iso_m1_err: f32,
     /// Intensity-weighted signed mass error of M0 at the apex in ppm; 0 without M0 signal
     pub ms1_ppm_signed: f32,
+    /// Share of the apex points (MS1 scan x apex cycle) with an M0 peak within ACCURATE_PPM
+    pub ms1_m0_accurate_share: f32,
+    /// Share of the apex points with an M+1 peak within ACCURATE_PPM
+    pub ms1_m1_accurate_share: f32,
 }
 
 impl Ms1Features {
@@ -74,14 +83,7 @@ pub fn ms1_features(
         return Ms1Features::missing();
     }
 
-    let apex = fragment_profile
-        .iter()
-        .enumerate()
-        .max_by(|a, b| a.1.total_cmp(b.1))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    let start = apex.saturating_sub(APEX_HALF_WIDTH);
-    let stop = (apex + APEX_HALF_WIDTH + 1).min(n_cycles);
+    let (apex, start, stop) = apex_window(fragment_profile);
 
     let apex_sum = |trace: usize| -> f32 { (start..stop).map(|c| dense_xic[[trace, c]]).sum() };
     let m_minus1 = apex_sum(0);
@@ -156,7 +158,55 @@ pub fn ms1_features(
         ms1_frag_corr,
         ms1_iso_m1_err,
         ms1_ppm_signed,
+        ..Ms1Features::default()
     }
+}
+
+/// Apex cycle (maximum of the fragment profile) and the half-open cycle range around it that counts as the apex.
+pub fn apex_window(fragment_profile: &[f32]) -> (usize, usize, usize) {
+    let apex = fragment_profile
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let start = apex.saturating_sub(APEX_HALF_WIDTH);
+    let stop = (apex + APEX_HALF_WIDTH + 1).min(fragment_profile.len());
+    (apex, start, stop)
+}
+
+/// Shares of the apex points with M0 and with M+1 signal in the accurate-mass traces of each MS1 scan.
+///
+/// `scan_xics` holds one [2, cycle] array per MS1 scan of the cycle (rows M0, M+1, extracted at ACCURATE_PPM over the
+/// candidate's cycles); the scans are kept apart because the cycle sum would count a peak once per cycle however many
+/// scans carry it.
+pub fn accurate_shares(scan_xics: &[Array2<f32>], fragment_profile: &[f32]) -> (f32, f32) {
+    if scan_xics.is_empty() || fragment_profile.is_empty() {
+        return (0.0, 0.0);
+    }
+    let (_, start, stop) = apex_window(fragment_profile);
+    let mut hits = [0usize; 2];
+    let mut points = 0usize;
+    for xic in scan_xics {
+        if xic.nrows() < 2 || xic.ncols() != fragment_profile.len() {
+            continue;
+        }
+        for c in start..stop {
+            points += 1;
+            for (k, hit) in hits.iter_mut().enumerate() {
+                if xic[[k, c]] > 0.0 {
+                    *hit += 1;
+                }
+            }
+        }
+    }
+    if points == 0 {
+        return (0.0, 0.0);
+    }
+    (
+        hits[0] as f32 / points as f32,
+        hits[1] as f32 / points as f32,
+    )
 }
 
 #[cfg(test)]
@@ -226,6 +276,24 @@ mod tests {
         let f = ms1_features(&xic, &mz, 500.0, &abundance, &profile);
 
         assert!((f.ms1_m_minus1_share - 0.75).abs() < 1e-5);
+    }
+
+    #[test]
+    fn accurate_shares_count_apex_scans_with_signal() {
+        let profile = [0.0, 1.0, 3.0, 1.0, 0.0];
+        let scan_a = arr2(&[[0.0, 5.0, 5.0, 0.0, 9.0], [0.0, 0.0, 2.0, 0.0, 0.0]]);
+        let scan_b = arr2(&[[0.0, 0.0, 5.0, 5.0, 0.0], [0.0, 0.0, 0.0, 0.0, 0.0]]);
+
+        let (m0, m1) = accurate_shares(&[scan_a, scan_b], &profile);
+
+        // apex cycle 2, apex window cycles 1..=3: M0 in 4 of 6 points, M+1 in 1 of 6; cycle 4 is outside
+        assert!((m0 - 4.0 / 6.0).abs() < 1e-6);
+        assert!((m1 - 1.0 / 6.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn accurate_shares_without_scans_are_zero() {
+        assert_eq!(accurate_shares(&[], &[1.0, 2.0]), (0.0, 0.0));
     }
 
     #[test]

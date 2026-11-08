@@ -396,13 +396,36 @@ impl PeakGroupScoring {
                     self.params.ms1_mass_tolerance,
                     &isotope_mz,
                 );
-                ms1::ms1_features(
+                let mut features = ms1::ms1_features(
                     &ms1_xic.dense_xic,
                     &ms1_xic.dense_mz,
                     ms1_mz,
                     isotope_intensity,
                     &median_profile_filtered,
-                )
+                );
+                let accurate_mz = &isotope_mz
+                    [ms1::ISOTOPES_BELOW..(ms1::ISOTOPES_BELOW + 2).min(isotope_mz.len())];
+                if accurate_mz.len() == 2 {
+                    let scan_xics: Vec<_> = ms1_observations
+                        .iter()
+                        .map(|&obs| {
+                            DenseXICMZObservation::from_observations(
+                                dia_data,
+                                vec![obs],
+                                cycle_start_idx,
+                                cycle_stop_idx,
+                                ms1::ACCURATE_PPM,
+                                accurate_mz,
+                            )
+                            .dense_xic
+                        })
+                        .collect();
+                    let (m0_share, m1_share) =
+                        ms1::accurate_shares(&scan_xics, &median_profile_filtered);
+                    features.ms1_m0_accurate_share = m0_share;
+                    features.ms1_m1_accurate_share = m1_share;
+                }
+                features
             }
             _ => ms1::Ms1Features::missing(),
         };

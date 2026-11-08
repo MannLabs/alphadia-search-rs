@@ -8,8 +8,9 @@
 //!
 //! With `input_batch_norm`, the input passes a torch `BatchNorm1d` first (momentum 0.1, eps 1e-5):
 //! training normalizes each minibatch with its own mean and biased variance and learns a scale and
-//! shift per feature; prediction uses the running mean and unbiased variance. Its parameters follow
-//! the output bias: scale, shift, running mean, running variance (`n_features` each).
+//! shift per feature; prediction uses the running mean and unbiased variance, folded into the first
+//! layer. Its parameters follow the output bias: scale, shift, running mean, running variance
+//! (`n_features` each).
 
 use super::ops::Backend;
 use crate::mlp::{self, Network, TrainWorkspace};

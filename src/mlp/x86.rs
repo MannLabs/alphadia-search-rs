@@ -5,8 +5,9 @@
 //! ReLU, bias, the ReLU mask of the previous layer, or accumulation into `C`) is fused into the
 //! store. A is applied as one broadcast element per tile row, so it is never packed and may be
 //! read with any stride: the weight gradient runs the same tile on the transposed activations.
-//! Row tails use smaller tiles; column counts that are not a multiple of `NR` fall back to the
-//! scalar code.
+//! Where the column count allows, AVX-512 uses a wider `WIDE_MR x 2 NR` tile (6 x 64: 24
+//! accumulators, 10 loads per 24 FMAs instead of 10 per 16). Row tails use smaller tiles; column
+//! counts that are not a multiple of `NR` fall back to the scalar code.
 //!
 //! [`dense_kernels`] writes the kernels once; each instruction set only supplies its vector type,
 //! tile height and a handful of primitives. The SIMD backend registry selects an instruction set
@@ -15,6 +16,7 @@
 /// The kernels of one instruction set, written against the primitives in scope (`V`, `LANES`,
 /// `MR`, `zero`, `load`, `store`, `splat`, `fma`, `add`, `mul`, `relu`, `keep_positive`, `hsum`).
 /// `tails` are the tile heights below `MR` that cover row tails, largest first; 1 is implied.
+/// `WIDE_MR` is the height of the 4-vector tile used when `n % (2 NR) == 0` (0: none).
 macro_rules! dense_kernels {
     (feature = $feature:literal, tails = [$($tail:literal),*]) => {
         use crate::mlp::scalar;
@@ -37,7 +39,7 @@ macro_rules! dense_kernels {
         #[inline]
         #[target_feature(enable = $feature)]
         #[allow(clippy::too_many_arguments)]
-        unsafe fn tile<const M: usize, const EPILOGUE: u8>(
+        unsafe fn tile<const M: usize, const NV: usize, const EPILOGUE: u8>(
             a: *const f32,
             a_row: usize,
             a_red: usize,
@@ -49,22 +51,28 @@ macro_rules! dense_kernels {
             c: *mut f32,
             ldc: usize,
         ) {
-            let mut acc = [[zero(); 2]; M];
+            let mut acc = [[zero(); NV]; M];
             for (i, acc_row) in acc.iter_mut().enumerate() {
-                *acc_row = match EPILOGUE {
-                    EPILOGUE_RELU_MASK => [zero(); 2],
-                    EPILOGUE_ACCUMULATE => [load(c.add(i * ldc)), load(c.add(i * ldc + LANES))],
-                    _ => [load(aux), load(aux.add(LANES))],
-                };
+                for (q, v) in acc_row.iter_mut().enumerate() {
+                    *v = match EPILOGUE {
+                        EPILOGUE_RELU_MASK => zero(),
+                        EPILOGUE_ACCUMULATE => load(c.add(i * ldc + q * LANES)),
+                        _ => load(aux.add(q * LANES)),
+                    };
+                }
             }
             for p in 0..kk {
                 let b_row = b.add(p * ldb);
-                let (b0, b1) = (load(b_row), load(b_row.add(LANES)));
+                let mut bv = [zero(); NV];
+                for (q, v) in bv.iter_mut().enumerate() {
+                    *v = load(b_row.add(q * LANES));
+                }
                 let a_col = a.add(p * a_red);
                 for (i, acc_row) in acc.iter_mut().enumerate() {
                     let av = splat(*a_col.add(i * a_row));
-                    acc_row[0] = fma(av, b0, acc_row[0]);
-                    acc_row[1] = fma(av, b1, acc_row[1]);
+                    for (q, v) in acc_row.iter_mut().enumerate() {
+                        *v = fma(av, bv[q], *v);
+                    }
                 }
             }
             for (i, acc_row) in acc.iter().enumerate() {
@@ -113,19 +121,23 @@ macro_rules! dense_kernels {
                 };
                 let (a_i, c_i, aux_i) =
                     (a.add(i0 * a_row), c.add(i0 * ldc), aux.wrapping_add(i0 * aux_ld));
-                for j0 in (0..n).step_by(NR) {
+                let wide = WIDE_MR > 0 && n % (2 * NR) == 0;
+                let rows = if wide && left >= WIDE_MR { WIDE_MR } else { rows };
+                let step = if wide && rows == WIDE_MR { 2 * NR } else { NR };
+                for j0 in (0..n).step_by(step) {
                     let (b_j, aux_j, c_j) = (b.add(j0), aux_i.wrapping_add(j0), c_i.add(j0));
                     macro_rules! run {
-                        ($m:expr) => {
-                            tile::<{ $m }, EPILOGUE>(
+                        ($m:expr, $nv:expr) => {
+                            tile::<{ $m }, { $nv }, EPILOGUE>(
                                 a_i, a_row, a_red, kk, b_j, ldb, aux_j, aux_ld, c_j, ldc,
                             )
                         };
                     }
                     match rows {
-                        MR => run!(MR),
-                        $($tail => run!($tail),)*
-                        _ => run!(1),
+                        WIDE_MR if step == 2 * NR => run!(WIDE_MR, 4),
+                        MR => run!(MR, 2),
+                        $($tail => run!($tail, 2),)*
+                        _ => run!(1, 2),
                     }
                 }
                 i0 += rows;
@@ -149,13 +161,26 @@ macro_rules! dense_kernels {
             hsum(add(acc0, acc1))
         }
 
-        /// `grad_b[n] += colsum(dz[rows x n])`, `n % LANES == 0`.
+        /// `grad_b[n] += colsum(dz[rows x n])`, `n % LANES == 0`; up to 8 column vectors at a
+        /// time stay in registers over all rows.
         #[target_feature(enable = $feature)]
         unsafe fn colsum(dz: *const f32, rows: usize, n: usize, grad_b: *mut f32) {
-            for r in 0..rows {
-                for j0 in (0..n).step_by(LANES) {
-                    store(grad_b.add(j0), add(load(grad_b.add(j0)), load(dz.add(r * n + j0))));
+            const W: usize = 8;
+            let mut j0 = 0;
+            while j0 < n {
+                let width = ((n - j0) / LANES).min(W);
+                let mut acc = [zero(); W];
+                for r in 0..rows {
+                    let row = dz.add(r * n + j0);
+                    for (q, v) in acc.iter_mut().enumerate().take(width) {
+                        *v = add(*v, load(row.add(q * LANES)));
+                    }
                 }
+                for (q, v) in acc.iter().enumerate().take(width) {
+                    let g = grad_b.add(j0 + q * LANES);
+                    store(g, add(load(g), *v));
+                }
+                j0 += width * LANES;
             }
         }
 
@@ -339,6 +364,7 @@ pub mod avx2 {
     type V = __m256;
     const LANES: usize = 8;
     const MR: usize = 6;
+    const WIDE_MR: usize = 0;
 
     #[inline]
     #[target_feature(enable = "avx2,fma")]
@@ -405,6 +431,7 @@ pub mod avx512 {
     type V = __m512;
     const LANES: usize = 16;
     const MR: usize = 8;
+    const WIDE_MR: usize = 6;
 
     #[inline]
     #[target_feature(enable = "avx512f")]

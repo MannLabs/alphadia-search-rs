@@ -296,7 +296,10 @@ fn test_output_layer_matches_scalar_for_saturated_logits() {
         // Given logits from about -200 to 200, where exp(-|logit|) underflows
         let mut rng = StdRng::seed_from_u64(8);
         let (rows, k) = (45, 16);
-        let a: Vec<f32> = random(&mut rng, rows * k).iter().map(|v| v * 25.0).collect();
+        let a: Vec<f32> = random(&mut rng, rows * k)
+            .iter()
+            .map(|v| v * 25.0)
+            .collect();
         let w = random(&mut rng, k);
         let y: Vec<f32> = (0..rows).map(|r| (r % 3 == 0) as u8 as f32).collect();
 

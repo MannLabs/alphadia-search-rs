@@ -120,7 +120,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       # Install the toolchain first: otherwise the pip build lets rustup install it on
       # the fly, which intermittently fails on a clippy conflict with the runner's toolchain
-      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: dtolnay/rust-toolchain@1.89.0
         with:
           components: clippy, rustfmt
       - name: Install Python dependencies

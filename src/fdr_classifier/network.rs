@@ -24,6 +24,8 @@ const ADAM_EPS: f32 = 1e-8;
 /// Row chunks are multiples of the 4-row SIMD kernel tile.
 const ROW_ALIGN: usize = 4;
 const PREDICT_CHUNK_ROWS: usize = 4096;
+/// Rows per task of the parallel row shuffle.
+const GATHER_ROWS: usize = 8192;
 const BN_MOMENTUM: f32 = 0.1;
 const BN_EPS: f32 = 1e-5;
 
@@ -372,11 +374,16 @@ pub fn train(
     order.shuffle(&mut rng);
     let mut x_shuffled = vec![0.0f32; x.len()];
     let mut y_shuffled = vec![0.0f32; n_rows];
-    for (i, &r) in order.iter().enumerate() {
-        x_shuffled[i * n_features..(i + 1) * n_features]
-            .copy_from_slice(&x[r * n_features..(r + 1) * n_features]);
-        y_shuffled[i] = y[r];
-    }
+    x_shuffled
+        .par_chunks_mut(GATHER_ROWS * n_features)
+        .zip(y_shuffled.par_chunks_mut(GATHER_ROWS))
+        .zip(order.par_chunks(GATHER_ROWS))
+        .for_each(|((x_rows, y_rows), rows)| {
+            for ((x_row, y_row), &r) in x_rows.chunks_exact_mut(n_features).zip(y_rows).zip(rows) {
+                x_row.copy_from_slice(&x[r * n_features..(r + 1) * n_features]);
+                *y_row = y[r];
+            }
+        });
 
     let batch_size = config.batch_size.min(n_rows);
     let n_batches = (n_rows / batch_size).max(1);

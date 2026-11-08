@@ -19,11 +19,15 @@
 //! instruction set only when the CPU supports it, which is what makes the `unsafe` calls below
 //! sound. No kernel allocates.
 
-/// Expands `$body` once per index `0..16`, with `$i` a `const usize` inside it. Bodies guard
-/// themselves with `if $i < BOUND` on a const generic, which the compiler folds away, so a
-/// loop over a tile dimension is unrolled exactly to that dimension.
+/// Expands `$body` once per index below the cap (4 for vectors of a tile row, 16 for rows), with
+/// `$i` a `const usize` inside it. Bodies guard themselves with `if $i < BOUND` on a const
+/// generic, which the compiler folds away, so a loop over a tile dimension is unrolled exactly
+/// to that dimension.
 macro_rules! unroll {
-    ($i:ident => $body:block) => {
+    ($i:ident < 4 => $body:block) => {
+        unroll!(@ $i $body 0 1 2 3)
+    };
+    ($i:ident < 16 => $body:block) => {
         unroll!(@ $i $body 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
     };
     (@ $i:ident $body:block $($n:literal)*) => {
@@ -41,6 +45,9 @@ macro_rules! unroll {
 macro_rules! dense_kernels {
     (feature = $feature:literal) => {
         use crate::mlp::Activation;
+
+        // the caps of `unroll!`
+        const _: () = assert!(NV <= 4 && WIDE_NV <= 4 && MR <= 16 && WIDE_MR <= 16 && LANES <= 16);
 
         /// Columns of a full tile of the default shape.
         const NC: usize = NV * LANES;
@@ -119,18 +126,18 @@ macro_rules! dense_kernels {
             let mut acc = [[zero(); W]; M];
             if EPILOGUE == EPILOGUE_LINEAR || EPILOGUE == EPILOGUE_RELU {
                 let mut bias = [zero(); W];
-                unroll!(Q => { if Q < W {
+                unroll!(Q < 4 => { if Q < W {
                     bias[Q] = load_cols::<MASKED>(aux.add(Q * LANES), masks[Q]);
                 }});
                 acc = [bias; M];
             }
             if EPILOGUE == EPILOGUE_ACCUMULATE {
-                unroll!(I => { if I < M { unroll!(Q => { if Q < W {
+                unroll!(I < 16 => { if I < M { unroll!(Q < 4 => { if Q < W {
                     acc[I][Q] = load_cols::<MASKED>(c.add(I * ldc + Q * LANES), masks[Q]);
                 }}); }});
             }
             let mut a_rows = [a; M];
-            unroll!(I => { if I < M {
+            unroll!(I < 16 => { if I < M {
                 a_rows[I] = if PANEL { a.add(I) } else { a.add(I * lda) };
             }});
             let a_step = if PANEL { lda } else { 1 };
@@ -140,12 +147,12 @@ macro_rules! dense_kernels {
                     let p = $p;
                     let b_row = b.add(p * ldb);
                     let mut bv = [zero(); W];
-                    unroll!(Q => { if Q < W {
+                    unroll!(Q < 4 => { if Q < W {
                         bv[Q] = load_cols::<MASKED>(b_row.add(Q * LANES), masks[Q]);
                     }});
-                    unroll!(I => { if I < M {
+                    unroll!(I < 16 => { if I < M {
                         let av = splat(*a_rows[I].add(p * a_step));
-                        unroll!(Q => { if Q < W {
+                        unroll!(Q < 4 => { if Q < W {
                             acc[I][Q] = fma(av, bv[Q], acc[I][Q]);
                         }});
                     }});
@@ -154,14 +161,14 @@ macro_rules! dense_kernels {
             let unroll = if PANEL { UNROLL_PANEL } else { UNROLL_ROWS };
             let mut p = 0;
             while p + unroll <= kk {
-                unroll!(U => { if U < unroll { step!(p + U) } });
+                unroll!(U < 4 => { if U < unroll { step!(p + U) } });
                 p += unroll;
             }
             while p < kk {
                 step!(p);
                 p += 1;
             }
-            unroll!(I => { if I < M { unroll!(Q => { if Q < W {
+            unroll!(I < 16 => { if I < M { unroll!(Q < 4 => { if Q < W {
                 let value = match EPILOGUE {
                     EPILOGUE_RELU => relu(acc[I][Q]),
                     EPILOGUE_RELU_MASK => keep_positive(
@@ -332,23 +339,23 @@ macro_rules! dense_kernels {
             let mut acc = [[zero(); W]; R];
             let mut r = 0;
             while r + R <= rows {
-                unroll!(U => { if U < R { unroll!(Q => { if Q < W {
+                unroll!(U < 4 => { if U < R { unroll!(Q < 4 => { if Q < W {
                     let v = load_cols::<MASKED>(dz.add((r + U) * ld + Q * LANES), masks[Q]);
                     acc[U][Q] = add(acc[U][Q], v);
                 }}); }});
                 r += R;
             }
             while r < rows {
-                unroll!(Q => { if Q < W {
+                unroll!(Q < 4 => { if Q < W {
                     let v = load_cols::<MASKED>(dz.add(r * ld + Q * LANES), masks[Q]);
                     acc[0][Q] = add(acc[0][Q], v);
                 }});
                 r += 1;
             }
-            unroll!(Q => { if Q < W {
+            unroll!(Q < 4 => { if Q < W {
                 let g = grad_b.add(Q * LANES);
                 let mut sum = load_cols::<MASKED>(g, masks[Q]);
-                unroll!(U => { if U < R {
+                unroll!(U < 4 => { if U < R {
                     sum = add(sum, acc[U][Q]);
                 }});
                 store_cols::<MASKED>(g, sum, masks[Q]);
@@ -371,7 +378,7 @@ macro_rules! dense_kernels {
             let mut acc = [zero(); L];
             let full = k - k % LANES;
             let tail = tail_mask(k - full);
-            unroll!(I => { if I < L && (FULL || I < count) {
+            unroll!(I < 16 => { if I < L && (FULL || I < count) {
                 let row = a.add(I * k);
                 let mut p = 0;
                 while p < full {

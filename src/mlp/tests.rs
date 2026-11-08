@@ -1,4 +1,5 @@
-use super::scalar::*;
+use super::reference;
+use super::reference::bce_with_logits;
 use super::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -30,19 +31,24 @@ fn for_each_backend(check: impl Fn()) {
     crate::simd::clear_backend();
 }
 
-// (rows, k, n): fast-path shapes of the FDR network, row tails, and a scalar fallback
-const SHAPES: [(usize, usize, usize); 6] = [
+// (rows, k, n): fast-path shapes of the FDR network, row tails, and odd shapes that exercise every
+// row and column tail tile of the portable kernels, and an empty reduction
+const SHAPES: [(usize, usize, usize); 10] = [
     (64, 48, 128),
     (8, 40, 32),
     (130, 128, 64),
     (7, 64, 32),
     (257, 32, 16),
     (9, 5, 7),
+    (7, 3, 29),
+    (2, 17, 1),
+    (1, 1, 2),
+    (3, 0, 5),
 ];
 
 #[test]
 #[serial]
-fn test_dense_forward_matches_scalar() {
+fn test_dense_forward_matches_reference() {
     for_each_backend(|| {
         // Given random layers of several shapes
         let mut rng = StdRng::seed_from_u64(1);
@@ -56,7 +62,7 @@ fn test_dense_forward_matches_scalar() {
                 let mut out = vec![0.0; rows * n];
                 dense_forward(&x, rows, k, &wt, n, &bias, activation, &mut out);
                 let mut expected = vec![0.0; rows * n];
-                dense_forward_scalar(&x, rows, k, &wt, n, &bias, activation, &mut expected);
+                reference::dense_forward(&x, rows, k, &wt, n, &bias, activation, &mut expected);
 
                 // Then both agree
                 assert_close(&out, &expected);
@@ -67,7 +73,7 @@ fn test_dense_forward_matches_scalar() {
 
 #[test]
 #[serial]
-fn test_dense_backward_input_matches_scalar() {
+fn test_dense_backward_input_matches_reference() {
     for_each_backend(|| {
         // Given random gradients, weights and previous activations
         let mut rng = StdRng::seed_from_u64(2);
@@ -80,7 +86,7 @@ fn test_dense_backward_input_matches_scalar() {
             let mut d_prev = vec![0.0; rows * k];
             dense_backward_input(&dz, rows, n, &w, k, &a_prev, &mut d_prev);
             let mut expected = vec![0.0; rows * k];
-            dense_backward_input_scalar(&dz, rows, n, &w, k, &a_prev, &mut expected);
+            reference::dense_backward_input(&dz, rows, n, &w, k, &a_prev, &mut expected);
 
             // Then both agree and inactive units get no gradient
             assert_close(&d_prev, &expected);
@@ -95,7 +101,7 @@ fn test_dense_backward_input_matches_scalar() {
 
 #[test]
 #[serial]
-fn test_dense_weight_grad_accumulates_like_scalar() {
+fn test_dense_weight_grad_accumulates_like_reference() {
     for_each_backend(|| {
         // Given non-zero gradient buffers to accumulate into
         let mut rng = StdRng::seed_from_u64(3);
@@ -109,7 +115,15 @@ fn test_dense_weight_grad_accumulates_like_scalar() {
             let (mut grad_wt, mut grad_b) = (grad_wt_start.clone(), grad_b_start.clone());
             dense_weight_grad(&a_prev, rows, k, &dz, n, &mut grad_wt, &mut grad_b);
             let (mut expected_wt, mut expected_b) = (grad_wt_start, grad_b_start);
-            dense_weight_grad_scalar(&a_prev, rows, k, &dz, n, &mut expected_wt, &mut expected_b);
+            reference::dense_weight_grad(
+                &a_prev,
+                rows,
+                k,
+                &dz,
+                n,
+                &mut expected_wt,
+                &mut expected_b,
+            );
 
             // Then both agree
             assert_close(&grad_wt, &expected_wt);
@@ -120,11 +134,11 @@ fn test_dense_weight_grad_accumulates_like_scalar() {
 
 #[test]
 #[serial]
-fn test_output_layer_matches_scalar() {
+fn test_output_layer_matches_reference() {
     for_each_backend(|| {
         // Given a final hidden layer and binary labels
         let mut rng = StdRng::seed_from_u64(4);
-        for (rows, k) in [(33, 32), (8, 6)] {
+        for (rows, k) in [(33, 32), (8, 6), (5, 37), (3, 1)] {
             let a = random(&mut rng, rows * k);
             let w = random(&mut rng, k);
             let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
@@ -144,7 +158,7 @@ fn test_output_layer_matches_scalar() {
                 &mut grad_b,
             );
             let (mut e_dz, mut e_grad_w, mut e_grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
-            let e_loss = output_layer_train_scalar(
+            let e_loss = reference::output_layer_train(
                 &a,
                 rows,
                 k,
@@ -159,7 +173,7 @@ fn test_output_layer_matches_scalar() {
             let mut logits = vec![0.0; rows];
             output_layer_logits(&a, rows, k, &w, 0.3, &mut logits);
             let mut e_logits = vec![0.0; rows];
-            output_layer_logits_scalar(&a, rows, k, &w, 0.3, &mut e_logits);
+            reference::output_layer_logits(&a, rows, k, &w, 0.3, &mut e_logits);
 
             // Then loss, gradients and logits agree
             assert_close(&[loss], &[e_loss]);
@@ -182,7 +196,7 @@ fn test_output_layer_gradient_matches_finite_difference() {
 
     // When comparing the analytic weight gradient with a central difference of the loss
     let (mut dz, mut grad_w, mut grad_b) = (vec![0.0; k], vec![0.0; k], 0.0);
-    output_layer_train_scalar(
+    reference::output_layer_train(
         &a,
         1,
         k,

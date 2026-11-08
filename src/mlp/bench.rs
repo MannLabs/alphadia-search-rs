@@ -62,7 +62,10 @@ fn bench_kernels() {
         }
     }
     println!("GFLOP/s, {rows} rows, one thread");
-    println!("{:10} {:>10} {:>8} {:>8} {:>8}", "backend", "k x n", "fwd", "bwd_in", "w_grad");
+    println!(
+        "{:10} {:>10} {:>8} {:>8} {:>8}",
+        "backend", "k x n", "fwd", "bwd_in", "w_grad"
+    );
     for (name, (forward, backward, weight_grad, output)) in backends {
         if name != "reference" {
             crate::simd::set_backend(name).unwrap();
@@ -77,7 +80,16 @@ fn bench_kernels() {
             let (mut gw, mut gb) = (vec![0.0f32; k * n], vec![0.0f32; n]);
             let flops = 2 * rows * k * n;
             let f = gflops(flops, || {
-                forward(black_box(&x), rows, k, &wt, n, &bias, Activation::Relu, &mut out)
+                forward(
+                    black_box(&x),
+                    rows,
+                    k,
+                    &wt,
+                    n,
+                    &bias,
+                    Activation::Relu,
+                    &mut out,
+                )
             });
             let b = gflops(flops, || {
                 backward(black_box(&dz), rows, n, &wt, k, &x, &mut d_prev)
@@ -85,13 +97,27 @@ fn bench_kernels() {
             let g = gflops(flops, || {
                 weight_grad(black_box(&x), rows, k, &dz, n, &mut gw, &mut gb)
             });
-            println!("{name:10} {:>10} {f:8.2} {b:8.2} {g:8.2}", format!("{k}x{n}"));
+            println!(
+                "{name:10} {:>10} {f:8.2} {b:8.2} {g:8.2}",
+                format!("{k}x{n}")
+            );
         }
         let k = 32;
         let (a, w, y) = (vec![0.5f32; rows * k], vec![0.01f32; k], vec![1.0f32; rows]);
         let (mut dz, mut gw, mut gb) = (vec![0.0f32; rows * k], vec![0.0f32; k], 0.0f32);
         let o = gflops(4 * rows * k, || {
-            black_box(output(black_box(&a), rows, k, &w, 0.1, &y, 1.0, &mut dz, &mut gw, &mut gb));
+            black_box(output(
+                black_box(&a),
+                rows,
+                k,
+                &w,
+                0.1,
+                &y,
+                1.0,
+                &mut dz,
+                &mut gw,
+                &mut gb,
+            ));
         });
         println!("{name:10} {:>10} output_train {o:.2}", "32x1");
     }

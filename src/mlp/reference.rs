@@ -2,7 +2,6 @@
 //! every backend against, including the portable kernels in `scalar`. Keep these obviously correct
 //! rather than fast.
 
-use super::scalar::bce_with_logits;
 use super::Activation;
 
 #[allow(clippy::too_many_arguments)]
@@ -82,6 +81,11 @@ pub fn dense_weight_grad(
             }
         }
     }
+}
+
+/// Numerically stable `log(1 + exp(-|z|)) + max(z, 0) - y z`.
+pub fn bce_with_logits(logit: f32, y: f32) -> f32 {
+    logit.max(0.0) - logit * y + (-logit.abs()).exp().ln_1p()
 }
 
 #[allow(clippy::too_many_arguments)]

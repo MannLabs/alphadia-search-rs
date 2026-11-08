@@ -2,9 +2,12 @@
 //!
 //! All matrices are row-major `f32`. A dense layer with `k` inputs and `n` outputs keeps its
 //! weights transposed, `wt[k x n]`, so the forward pass streams contiguous weight rows.
-//! The kernels dispatch through the SIMD backend (scalar reference, NEON, AVX2 or AVX-512).
+//! The kernels dispatch through the SIMD backend (portable, NEON, AVX2 or AVX-512);
+//! the tests compare each against the naive loops in `reference`.
 
 pub mod neon;
+#[cfg(test)]
+mod reference;
 pub mod scalar;
 #[cfg(target_arch = "x86_64")]
 pub mod x86;
@@ -127,3 +130,5 @@ fn check_len(values: &[f32], expected: usize, name: &str) {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod bench;

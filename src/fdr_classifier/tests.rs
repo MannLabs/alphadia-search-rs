@@ -349,6 +349,8 @@ fn test_cosine_schedule_and_averaging_change_the_fit_and_still_learn() {
 }
 
 #[test]
+// serial: it compares two trainings bit for bit, so no other test may switch the SIMD backend in between
+#[serial_test::serial]
 fn test_average_of_one_minibatch_is_the_last_parameters() {
     // Given one epoch of one minibatch
     let mut rng = StdRng::seed_from_u64(9);

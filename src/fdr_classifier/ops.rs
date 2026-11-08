@@ -7,6 +7,7 @@
 //! The bias/ReLU/mask passes of the BLAS backend are branch-free selects: a conditional store
 //! does not vectorise and mispredicts on the random ReLU pattern.
 
+#[cfg(target_os = "macos")]
 use crate::mlp::{self, Activation};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,34 +64,8 @@ impl Backend {
     }
 }
 
-/// out[rows x n] = max(bias + x[rows x k] @ wt[k x n], 0)
-#[allow(clippy::too_many_arguments)]
-pub fn dense_forward_relu(
-    backend: Backend,
-    x: &[f32],
-    rows: usize,
-    k: usize,
-    wt: &[f32],
-    n: usize,
-    bias: &[f32],
-    out: &mut [f32],
-) {
-    match backend {
-        Backend::Simd => mlp::dense_forward(x, rows, k, wt, n, bias, Activation::Relu, out),
-        #[cfg(target_os = "macos")]
-        Backend::Accelerate => {
-            accelerate::sgemm(false, false, rows, n, k, x, k, wt, n, 0.0, out, n);
-            for row in out[..rows * n].chunks_exact_mut(n) {
-                for (v, &b) in row.iter_mut().zip(bias) {
-                    *v = (*v + b).max(0.0);
-                }
-            }
-        }
-    }
-}
-
-/// The per-layer kernels of a training step on Accelerate; the output layer stays on the
-/// SIMD kernels (a matrix-vector product).
+/// The kernels of the FDR network on Apple's BLAS; the output layer stays on the SIMD
+/// kernels (a matrix-vector product).
 #[cfg(target_os = "macos")]
 pub struct Accelerate;
 
@@ -118,19 +93,18 @@ impl mlp::LayerKernels for Accelerate {
         }
     }
 
-    /// d_prev[rows x k] = (dz[rows x n] @ W) * (a_prev > 0)
+    /// d_prev[rows x k] = (dz[rows x n] @ w[n x k]) * (a_prev > 0)
     fn dense_backward_input(
         &self,
         dz: &[f32],
         rows: usize,
         n: usize,
-        _w: &[f32],
-        wt: &[f32],
+        w: &[f32],
         k: usize,
         a_prev: &[f32],
         d_prev: &mut [f32],
     ) {
-        accelerate::sgemm(false, true, rows, k, n, dz, n, wt, n, 0.0, d_prev, k);
+        accelerate::sgemm(false, false, rows, k, n, dz, n, w, k, 0.0, d_prev, k);
         for (d, &a) in d_prev[..rows * k].iter_mut().zip(&a_prev[..rows * k]) {
             *d = if a > 0.0 { *d } else { 0.0 };
         }
@@ -169,6 +143,18 @@ impl mlp::LayerKernels for Accelerate {
         grad_b: &mut f32,
     ) {
         mlp::output_layer_train(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b);
+    }
+
+    fn output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    ) {
+        mlp::output_layer_logits(a, rows, k, w, b, logits);
     }
 }
 

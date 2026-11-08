@@ -95,28 +95,13 @@ pub trait SimdBackend: Send + Sync {
         logits: &mut [f32],
     );
 
-    /// See [`crate::mlp::train_chunk`]; by default composed of the per-layer kernels above.
-    #[allow(clippy::too_many_arguments)]
-    fn mlp_train_chunk(
-        &self,
-        net: &crate::mlp::Network,
-        x: &[f32],
-        y: &[f32],
-        rows: usize,
-        loss_scale: f32,
-        ws: &mut crate::mlp::TrainWorkspace,
-        grad: &mut [f32],
-        input_grad: Option<&mut [f32]>,
-    ) {
-        crate::mlp::train_chunk_layered(self, net, x, y, rows, loss_scale, ws, grad, input_grad)
-    }
-
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
     fn priority(&self) -> Rank;
 }
 
+/// Every SIMD backend of the registry provides the layer kernels of [`crate::mlp::Network`].
 impl<T: SimdBackend + ?Sized> crate::mlp::LayerKernels for T {
     fn dense_forward(
         &self,
@@ -138,7 +123,6 @@ impl<T: SimdBackend + ?Sized> crate::mlp::LayerKernels for T {
         rows: usize,
         n: usize,
         w: &[f32],
-        _wt: &[f32],
         k: usize,
         a_prev: &[f32],
         d_prev: &mut [f32],
@@ -173,6 +157,18 @@ impl<T: SimdBackend + ?Sized> crate::mlp::LayerKernels for T {
         grad_b: &mut f32,
     ) {
         self.mlp_output_layer_train(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b)
+    }
+
+    fn output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    ) {
+        self.mlp_output_layer_logits(a, rows, k, w, b, logits)
     }
 }
 

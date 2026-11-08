@@ -1,6 +1,5 @@
 use super::reference;
 use super::reference::bce_with_logits;
-use super::fused::{self, Dense};
 use super::*;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -146,7 +145,15 @@ fn test_output_layer_matches_reference() {
     for_each_backend(|| {
         // Given a final hidden layer and binary labels
         let mut rng = StdRng::seed_from_u64(4);
-        for (rows, k) in [(33, 32), (8, 6), (5, 37), (3, 1), (16, 16), (37, 40), (100, 23)] {
+        for (rows, k) in [
+            (33, 32),
+            (8, 6),
+            (5, 37),
+            (3, 1),
+            (16, 16),
+            (37, 40),
+            (100, 23),
+        ] {
             let a = random(&mut rng, rows * k);
             let w = random(&mut rng, k);
             let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
@@ -352,33 +359,29 @@ fn test_output_layer_matches_reference_for_saturated_logits() {
     });
 }
 
-/// A random network with `dims` and its backward weight copy.
-fn random_network(rng: &mut StdRng, dims: &[usize]) -> (Vec<f32>, Vec<f32>) {
-    let size = Network::param_count(dims);
-    let params: Vec<f32> = random(rng, size).iter().map(|v| v * 0.5).collect();
-    let mut back = vec![0.0; size];
-    Network::backward_weights(dims, &params, &mut back);
-    (params, back)
+/// A random network with `dims`.
+fn random_network(rng: &mut StdRng, dims: &[usize]) -> Network {
+    let params: Vec<f32> = random(rng, Network::param_count(dims))
+        .iter()
+        .map(|v| v * 0.5)
+        .collect();
+    Network::new(dims, &params)
 }
 
-/// Gradients of one `train_chunk` call with the selected backend: (params, input).
-fn chunk_gradients(
-    dims: &[usize],
-    params: &[f32],
-    back: &[f32],
+/// Gradients of one `train_chunk` call: (parameters, on top of 0.25 each; input).
+fn chunk_gradients<K: LayerKernels + ?Sized>(
+    kernels: &K,
+    net: &Network,
     x: &[f32],
     y: &[f32],
 ) -> (Vec<f32>, Vec<f32>) {
-    let rows = y.len();
-    let net = Network::new(dims, params, back);
-    let mut ws = TrainWorkspace::new(dims);
-    let mut grad = vec![0.25; params.len()];
-    let mut input_grad = vec![0.0; rows * dims[0]];
-    train_chunk(
-        &net,
+    let mut ws = TrainWorkspace::new(net);
+    let mut grad = vec![0.25; net.params().len()];
+    let mut input_grad = vec![0.0; x.len()];
+    net.train_chunk(
+        kernels,
         x,
         y,
-        rows,
         0.5,
         &mut ws,
         &mut grad,
@@ -387,75 +390,43 @@ fn chunk_gradients(
     (grad, input_grad)
 }
 
-// network shapes: the FDR network, odd widths (scalar fallbacks), one hidden layer
+// network shapes: the FDR network, odd widths (masked tails), one hidden layer
 const NETWORKS: [&[usize]; 3] = [&[40, 128, 64, 32, 1], &[7, 48, 17, 1], &[16, 32, 1]];
 
 #[test]
 #[serial]
-fn test_train_chunk_matches_scalar_on_every_backend() {
-    let mut rng = StdRng::seed_from_u64(6);
+fn test_train_chunk_matches_reference_on_every_backend() {
+    let mut rng = StdRng::seed_from_u64(9);
     for dims in NETWORKS {
         // Given a random network and more rows than one row block, with a ragged tail
-        let rows = 2 * TRAIN_ROW_BLOCK + 13;
-        let (params, back) = random_network(&mut rng, dims);
+        let rows = 2 * network::TRAIN_ROW_BLOCK + 13;
+        let net = random_network(&mut rng, dims);
         let x = random(&mut rng, rows * dims[0]);
         let y: Vec<f32> = (0..rows).map(|r| (r % 3 == 0) as u8 as f32).collect();
-        crate::simd::set_backend("scalar").unwrap();
-        let (expected, expected_input) = chunk_gradients(dims, &params, &back, &x, &y);
+        let (expected, expected_input) = chunk_gradients(&reference::Kernels, &net, &x, &y);
 
         for_each_backend(|| {
             // When training one chunk with each backend
-            let (grad, input_grad) = chunk_gradients(dims, &params, &back, &x, &y);
+            let (grad, input_grad) = chunk_gradients(crate::simd::get_backend(), &net, &x, &y);
 
-            // Then the gradients agree with the scalar reference
+            // Then the gradients agree with the reference kernels
             assert_close(&grad, &expected);
             assert_close(&input_grad, &expected_input);
         });
     }
 }
 
-/// Layer-by-layer reference of [`fused::Network::logits`] with the scalar kernels.
-fn network_reference(
-    x: &[f32],
-    rows: usize,
-    k: usize,
-    hidden: &[Dense],
-    w_out: &[f32],
-    b_out: f32,
-) -> Vec<f32> {
-    let (mut input, mut inputs) = (x.to_vec(), k);
-    for layer in hidden {
-        let mut out = vec![0.0; rows * layer.n];
-        reference::dense_forward(
-            &input,
-            rows,
-            inputs,
-            layer.wt,
-            layer.n,
-            layer.bias,
-            Activation::Relu,
-            &mut out,
-        );
-        (input, inputs) = (out, layer.n);
-    }
-    let mut logits = vec![0.0; rows];
-    reference::output_layer_logits(&input, rows, inputs, w_out, b_out, &mut logits);
-    logits
-}
-
 #[test]
-#[serial]
 fn test_train_chunk_gradient_matches_finite_difference() {
     // Given a small network and a few rows
-    let mut rng = StdRng::seed_from_u64(7);
+    let mut rng = StdRng::seed_from_u64(10);
     let dims = [3, 5, 4, 1];
-    let (params, back) = random_network(&mut rng, &dims);
+    let net = random_network(&mut rng, &dims);
+    let params = net.params().to_vec();
     let rows = 6;
     let x = random(&mut rng, rows * dims[0]);
     let y: Vec<f32> = (0..rows).map(|r| (r % 2) as f32).collect();
-    crate::simd::set_backend("scalar").unwrap();
-    let (grad, input_grad) = chunk_gradients(&dims, &params, &back, &x, &y);
-    crate::simd::clear_backend();
+    let (grad, input_grad) = chunk_gradients(&reference::Kernels, &net, &x, &y);
 
     // When comparing with central differences of the summed loss (scaled by 0.5)
     let loss = |params: &[f32], x: &[f32]| -> f64 {
@@ -513,6 +484,27 @@ fn test_train_chunk_gradient_matches_finite_difference() {
 }
 
 #[test]
+fn test_network_update_keeps_the_backward_weights_in_step() {
+    // Given a network
+    let mut rng = StdRng::seed_from_u64(11);
+    let dims = [6, 20, 9, 1];
+    let mut net = random_network(&mut rng, &dims);
+    let x = random(&mut rng, 30 * dims[0]);
+    let y: Vec<f32> = (0..30).map(|r| (r % 2) as f32).collect();
+
+    // When changing its parameters in place
+    let shifted: Vec<f32> = net.params().iter().map(|p| p * 0.7 - 0.01).collect();
+    net.update(|params| params.copy_from_slice(&shifted));
+
+    // Then it trains like a network built from the new parameters
+    let fresh = Network::new(&dims, &shifted);
+    let (grad, input_grad) = chunk_gradients(&reference::Kernels, &net, &x, &y);
+    let (e_grad, e_input_grad) = chunk_gradients(&reference::Kernels, &fresh, &x, &y);
+    assert_eq!(grad, e_grad);
+    assert_eq!(input_grad, e_input_grad);
+}
+
+#[test]
 fn test_aligned_buffer_starts_on_a_cache_line() {
     for len in [0, 1, 17, 15617] {
         // Given a buffer copied from a slice
@@ -527,49 +519,35 @@ fn test_aligned_buffer_starts_on_a_cache_line() {
 
 #[test]
 #[serial]
-fn test_network_logits_match_the_layer_by_layer_reference() {
-    for_each_backend(|| {
-        // Given networks of the FDR shape, odd feature counts and widths that need padding,
-        // a single row, and row counts that leave partial blocks and chunks
-        let mut rng = StdRng::seed_from_u64(6);
-        let cases: [(usize, usize, &[usize]); 6] = [
-            (1000, 40, &[128, 64, 32]),
-            (1, 40, &[128, 64, 32]),
-            (8195, 13, &[128, 64, 32]),
-            (77, 5, &[33, 7]),
-            (130, 1, &[300]),
-            (9, 3, &[1, 1, 1]),
-        ];
-        for (rows, k, widths) in cases {
-            let x = random(&mut rng, rows * k);
-            let (mut wts, mut biases, mut inputs) = (Vec::new(), Vec::new(), k);
-            for &n in widths {
-                wts.push(random(&mut rng, inputs * n));
-                biases.push(random(&mut rng, n));
-                inputs = n;
-            }
-            let hidden: Vec<Dense> = widths
-                .iter()
-                .enumerate()
-                .map(|(l, &n)| Dense {
-                    wt: &wts[l],
-                    bias: &biases[l],
-                    n,
-                })
-                .collect();
-            let w_out = random(&mut rng, inputs);
+fn test_network_logits_match_the_reference() {
+    // Given networks of the FDR shape, odd feature counts and widths that need padding,
+    // a single row, and row counts that leave partial blocks and chunks
+    let mut rng = StdRng::seed_from_u64(12);
+    let cases: [(usize, &[usize]); 6] = [
+        (1000, &[40, 128, 64, 32, 1]),
+        (1, &[40, 128, 64, 32, 1]),
+        (8195, &[13, 128, 64, 32, 1]),
+        (77, &[5, 33, 7, 1]),
+        (130, &[1, 300, 1]),
+        (9, &[3, 1, 1, 1, 1]),
+    ];
+    for (rows, dims) in cases {
+        let net = random_network(&mut rng, dims);
+        let x = random(&mut rng, rows * dims[0]);
+        let mut expected = vec![0.0; rows];
+        net.logits(&reference::Kernels, &x, &mut expected);
+        let mut layered = vec![0.0; rows];
+        reference::logits(&net, &x, &mut layered);
+        // the reference kernels on the padded blocks compute the naive network
+        assert_close(&expected, &layered);
 
-            // When predicting fused, in parallel and on one thread
-            let network = fused::Network::new(k, &hidden, &w_out, 0.2);
+        for_each_backend(|| {
+            // When predicting with each backend
             let mut logits = vec![0.0; rows];
-            network.logits(&x, &mut logits);
-            let mut serial = vec![0.0; rows];
-            network.logits_serial(&x, &mut serial);
+            net.logits(crate::simd::get_backend(), &x, &mut logits);
 
-            // Then both match the layer-by-layer reference
-            let expected = network_reference(&x, rows, k, &hidden, &w_out, 0.2);
+            // Then the logits match the reference
             assert_close(&logits, &expected);
-            assert_close(&serial, &expected);
-        }
-    });
+        });
+    }
 }

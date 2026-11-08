@@ -2,10 +2,12 @@
 //!
 //! All matrices are row-major `f32`. A dense layer with `k` inputs and `n` outputs keeps its
 //! weights transposed, `wt[k x n]`, so the forward pass streams contiguous weight rows.
-//! The kernels dispatch through the SIMD backend (scalar reference or NEON).
+//! The kernels dispatch through the SIMD backend (scalar reference, NEON, AVX2 or AVX-512).
 
 pub mod neon;
 pub mod scalar;
+#[cfg(target_arch = "x86_64")]
+pub mod x86;
 
 /// What a forward kernel applies to `x @ wt` before storing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

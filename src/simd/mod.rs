@@ -5,6 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub enum Rank {
     Scalar = 0,
     #[allow(dead_code)]
+    Avx2 = 1,
+    #[allow(dead_code)]
+    Avx512 = 3,
+    #[allow(dead_code)]
     Neon = 2,
 }
 
@@ -100,19 +104,31 @@ pub trait SimdBackend: Send + Sync {
 // Import backend implementations
 mod neon;
 mod scalar;
+#[cfg(target_arch = "x86_64")]
+mod x86;
 
 #[cfg(target_arch = "aarch64")]
 use neon::NeonBackend;
 use scalar::ScalarBackend;
+#[cfg(target_arch = "x86_64")]
+use x86::{Avx2Backend, Avx512Backend};
 
 // Static backend instances
 static SCALAR: ScalarBackend = ScalarBackend;
+#[cfg(target_arch = "x86_64")]
+static AVX2: Avx2Backend = Avx2Backend;
+#[cfg(target_arch = "x86_64")]
+static AVX512: Avx512Backend = Avx512Backend;
 #[cfg(target_arch = "aarch64")]
 static NEON: NeonBackend = NeonBackend;
 
 // Backend registry
 static BACKENDS: &[&dyn SimdBackend] = &[
     &SCALAR,
+    #[cfg(target_arch = "x86_64")]
+    &AVX2,
+    #[cfg(target_arch = "x86_64")]
+    &AVX512,
     #[cfg(target_arch = "aarch64")]
     &NEON,
 ];

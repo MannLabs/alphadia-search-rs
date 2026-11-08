@@ -288,3 +288,50 @@ fn test_kernels_match_scalar_at_any_buffer_offset() {
         }
     });
 }
+
+#[test]
+#[serial]
+fn test_output_layer_matches_scalar_for_saturated_logits() {
+    for_each_backend(|| {
+        // Given logits from about -200 to 200, where exp(-|logit|) underflows
+        let mut rng = StdRng::seed_from_u64(8);
+        let (rows, k) = (45, 16);
+        let a: Vec<f32> = random(&mut rng, rows * k).iter().map(|v| v * 25.0).collect();
+        let w = random(&mut rng, k);
+        let y: Vec<f32> = (0..rows).map(|r| (r % 3 == 0) as u8 as f32).collect();
+
+        // When running the fused output layer with the dispatched backend and the reference
+        let (mut dz, mut grad_w, mut grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
+        let loss = output_layer_train(
+            &a,
+            rows,
+            k,
+            &w,
+            -0.2,
+            &y,
+            1.0,
+            &mut dz,
+            &mut grad_w,
+            &mut grad_b,
+        );
+        let (mut e_dz, mut e_grad_w, mut e_grad_b) = (vec![0.0; rows * k], vec![0.0; k], 0.0);
+        let e_loss = output_layer_train_scalar(
+            &a,
+            rows,
+            k,
+            &w,
+            -0.2,
+            &y,
+            1.0,
+            &mut e_dz,
+            &mut e_grad_w,
+            &mut e_grad_b,
+        );
+
+        // Then loss and gradients agree
+        assert_close(&[loss], &[e_loss]);
+        assert_close(&dz, &e_dz);
+        assert_close(&grad_w, &e_grad_w);
+        assert_close(&[grad_b], &[e_grad_b]);
+    });
+}

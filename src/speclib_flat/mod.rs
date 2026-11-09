@@ -327,11 +327,8 @@ impl SpecLibFlat {
         let mut sorted = vec![f32::NAN; self.precursor_idx.len()];
         let mut seen = vec![false; self.precursor_idx.len()];
         for (idx, &value) in precursor_idx.iter().zip(mobility) {
-            if !value.is_nan() && (value.is_infinite() || value <= 0.0) {
-                return Err(format!(
-                    "mobility {value} of precursor_idx {idx} is not positive and finite"
-                ));
-            }
+            crate::traits::check_mobility(value)
+                .map_err(|e| format!("precursor_idx {idx}: {e}"))?;
             let position = self
                 .precursor_idx
                 .binary_search(idx)

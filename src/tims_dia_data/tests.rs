@@ -4,39 +4,75 @@ use crate::traits::{DIADataTrait, MobilityFilter};
 
 const FRAGMENT_MZ: f32 = 600.0;
 
-/// One window group over 4 scans (1/K0 1.3, 1.2, 1.1, 1.0). Scans 0-2 isolate 400-500,
-/// scan 3 isolates 900-1000. Every scan has one peak at `FRAGMENT_MZ` in cycle 1,
-/// with intensity 10^scan so each scan's contribution is visible in the sum.
+/// Two window groups over 4 scans (1/K0 1.5, 1.25, 1.0, 0.75, exact in f32 so a mobility
+/// window can end exactly on a scan). Every scan of both groups has one peak at `FRAGMENT_MZ`.
+/// - group 0: scans 0-2 isolate 400-500, scan 3 isolates 900-1000; peaks in cycle 1 with
+///   intensity 10^scan, so each scan's contribution is visible in the sum.
+/// - group 1: every scan isolates 700-800; peaks in cycle 2 with intensity 2 * 10^scan.
 fn tims_data() -> TimsDIAData {
-    let mz_index = MZIndex::global();
-    let mut obs = TimsQuadrupoleObservation::new(vec![
-        Some([400.0, 500.0]),
-        Some([400.0, 500.0]),
-        Some([400.0, 500.0]),
-        Some([900.0, 1000.0]),
-    ]);
-    let bin = mz_index.find_closest_index(FRAGMENT_MZ);
-    obs.slice_starts = (0..=mz_index.len())
-        .map(|i| if i <= bin { 0 } else { 4 })
-        .collect();
-    obs.cycle_indices = vec![1; 4];
-    obs.scan_indices = vec![0, 1, 2, 3];
-    obs.intensities = vec![1.0, 10.0, 100.0, 1000.0];
+    let group_0 = observation(
+        vec![
+            Some([400.0, 500.0]),
+            Some([400.0, 500.0]),
+            Some([400.0, 500.0]),
+            Some([900.0, 1000.0]),
+        ],
+        1,
+        [1.0, 10.0, 100.0, 1000.0],
+    );
+    let group_1 = observation(vec![Some([700.0, 800.0]); 4], 2, [2.0, 20.0, 200.0, 2000.0]);
 
     TimsDIAData {
         rt_index: RTIndex::from_rt(Array1::from_vec(vec![0.0, 1.0, 2.0])),
-        quadrupole_observations: vec![obs],
-        scan_mobility: vec![1.3, 1.2, 1.1, 1.0],
+        quadrupole_observations: vec![group_0, group_1],
+        scan_mobility: vec![1.5, 1.25, 1.0, 0.75],
         rt_values: Array1::zeros(0),
         cycle: Array4::zeros((0, 0, 0, 0)),
     }
 }
 
+/// One window group with one peak at `FRAGMENT_MZ` on each of its 4 scans, all in `cycle`.
+fn observation(
+    scan_windows: Vec<Option<[f32; 2]>>,
+    cycle: u16,
+    intensities: [f32; 4],
+) -> TimsQuadrupoleObservation {
+    let mz_index = MZIndex::global();
+    let mut obs = TimsQuadrupoleObservation::new(scan_windows);
+    let bin = mz_index.find_closest_index(FRAGMENT_MZ);
+    obs.slice_starts = (0..=mz_index.len())
+        .map(|i| if i <= bin { 0 } else { 4 })
+        .collect();
+    obs.cycle_indices = vec![cycle; 4];
+    obs.scan_indices = vec![0, 1, 2, 3];
+    obs.intensities = intensities.to_vec();
+    obs
+}
+
+/// The XIC of `FRAGMENT_MZ` over all 3 cycles.
 fn xic(data: &TimsDIAData, precursor_mz: f32, mobility: MobilityFilter) -> Vec<f32> {
-    DenseXICObservation::new(data, precursor_mz, mobility, 0, 3, 10.0, &[FRAGMENT_MZ])
-        .dense_xic
-        .row(0)
-        .to_vec()
+    xic_cycles(data, precursor_mz, mobility, 0, 3)
+}
+
+fn xic_cycles(
+    data: &TimsDIAData,
+    precursor_mz: f32,
+    mobility: MobilityFilter,
+    cycle_start: usize,
+    cycle_stop: usize,
+) -> Vec<f32> {
+    DenseXICObservation::new(
+        data,
+        precursor_mz,
+        mobility,
+        cycle_start,
+        cycle_stop,
+        10.0,
+        &[FRAGMENT_MZ],
+    )
+    .dense_xic
+    .row(0)
+    .to_vec()
 }
 
 #[test]
@@ -52,7 +88,7 @@ fn test_without_mobility_all_isolating_scans_count() {
 fn test_mobility_filter_keeps_only_scans_in_range() {
     let data = tims_data();
     let mobility = MobilityFilter::Window {
-        mobility: 1.2,
+        mobility: 1.25,
         tolerance: 0.05,
     };
     assert_eq!(xic(&data, 450.0, mobility), vec![0.0, 10.0, 0.0]);
@@ -62,7 +98,7 @@ fn test_mobility_filter_keeps_only_scans_in_range() {
 fn test_scans_not_isolating_the_precursor_are_ignored() {
     let data = tims_data();
     let mobility = MobilityFilter::Window {
-        mobility: 1.0,
+        mobility: 0.75,
         tolerance: 0.05,
     };
     // scan 3 is in mobility range but isolates 900-1000, not 450
@@ -74,7 +110,7 @@ fn test_scans_not_isolating_the_precursor_are_ignored() {
 fn test_precursor_outside_all_windows_has_no_observation() {
     let data = tims_data();
     assert!(data
-        .select_observations(700.0, MobilityFilter::Any)
+        .select_observations(600.0, MobilityFilter::Any)
         .is_empty());
     let selected = data.select_observations(450.0, MobilityFilter::Any);
     assert_eq!(selected.len(), 1);
@@ -84,10 +120,66 @@ fn test_precursor_outside_all_windows_has_no_observation() {
 #[test]
 fn test_no_library_mobility_or_an_infinite_tolerance_does_not_restrict_scans() {
     let data = tims_data();
-    for (mobility, tolerance) in [(f32::NAN, 0.05), (1.2, f32::INFINITY)] {
+    for (mobility, tolerance) in [(f32::NAN, 0.05), (1.25, f32::INFINITY)] {
         let filter = MobilityFilter::from_library(mobility, tolerance).unwrap();
         assert_eq!(xic(&data, 450.0, filter), vec![0.0, 111.0, 0.0]);
     }
+}
+
+#[test]
+fn test_each_observation_reads_its_own_peaks() {
+    let data = tims_data();
+    let selected = data.select_observations(750.0, MobilityFilter::Any);
+    assert_eq!(selected.len(), 1);
+    assert_eq!(selected[0].0, 1);
+    assert_eq!(
+        xic(&data, 750.0, MobilityFilter::Any),
+        vec![0.0, 0.0, 2222.0]
+    );
+}
+
+#[test]
+fn test_xic_cycles_are_relative_to_cycle_start() {
+    let data = tims_data();
+    assert_eq!(
+        xic_cycles(&data, 450.0, MobilityFilter::Any, 1, 3),
+        vec![111.0, 0.0]
+    );
+    assert_eq!(
+        xic_cycles(&data, 750.0, MobilityFilter::Any, 1, 3),
+        vec![0.0, 2222.0]
+    );
+    assert_eq!(
+        xic_cycles(&data, 750.0, MobilityFilter::Any, 2, 3),
+        vec![2222.0]
+    );
+}
+
+#[test]
+fn test_mobility_window_edges_are_inclusive() {
+    let data = tims_data();
+    // 1.25 ± 0.25 is exactly [1.0, 1.5]: scans 0 and 2 sit on its edges
+    let upper = MobilityFilter::Window {
+        mobility: 1.25,
+        tolerance: 0.25,
+    };
+    assert_eq!(xic(&data, 750.0, upper), vec![0.0, 0.0, 222.0]);
+    // 0.875 ± 0.125 is exactly [0.75, 1.0]: scans 2 and 3, the last scan
+    let lower = MobilityFilter::Window {
+        mobility: 0.875,
+        tolerance: 0.125,
+    };
+    assert_eq!(xic(&data, 750.0, lower), vec![0.0, 0.0, 2200.0]);
+}
+
+#[test]
+fn test_panic_message_keeps_the_panic_text() {
+    let payload: Box<dyn std::any::Any + Send> = Box::new("bad metadata");
+    assert_eq!(panic_message(payload.as_ref()), "bad metadata");
+    let payload: Box<dyn std::any::Any + Send> = Box::new(String::from("bad frame"));
+    assert_eq!(panic_message(payload.as_ref()), "bad frame");
+    let payload: Box<dyn std::any::Any + Send> = Box::new(42);
+    assert_eq!(panic_message(payload.as_ref()), "no panic message");
 }
 
 mod fill_group {
@@ -117,7 +209,7 @@ mod fill_group {
 fn test_zero_mobility_tolerance_keeps_the_matching_scan() {
     let data = tims_data();
     let mobility = MobilityFilter::Window {
-        mobility: 1.2,
+        mobility: 1.25,
         tolerance: 0.0,
     };
     assert_eq!(xic(&data, 450.0, mobility), vec![0.0, 10.0, 0.0]);

@@ -54,8 +54,9 @@ impl<'a> TofBinner<'a> {
 /// One peak before sorting: (m/z bin, cycle, scan, intensity).
 type Staged = (u32, u16, u16, f32);
 
-/// Builds one observation per window group, one group at a time, so only that
-/// group's staging buffer (12 bytes per peak) is alive next to the finished ones.
+/// Builds one observation per window group, one group at a time, so only that group's
+/// staged peaks are alive next to the finished ones: 12 bytes per peak, and up to twice
+/// that while `fill_group` merges its frames into one buffer.
 /// Peaks that land on the same (m/z bin, cycle, scan) are summed.
 pub fn build_observations(
     path: &TimsTofPath,
@@ -133,8 +134,8 @@ fn merge_duplicates(sorted: &mut Vec<Staged>) {
     sorted.shrink_to_fit();
 }
 
-/// All raw peaks of every frame. The scan count is taken from the first frame of the run;
-/// peaks on scans beyond it have no isolation window and are left out.
+/// All raw peaks of every frame. The run's first frame sets the scan count (`num_scans`); a
+/// frame with more scans is an error rather than peaks silently left out.
 fn stage_frames(
     reader: &TdfFrameReader,
     frames: &[&Ms2Frame],
@@ -147,11 +148,19 @@ fn stage_frames(
             let ions = reader
                 .get_ions(frame.frame_index)
                 .map_err(|e| e.to_string())?;
+            if ions.scan_count() > num_scans {
+                return Err(format!(
+                    "frame {} has {} scans but the run's first frame has {num_scans}",
+                    frame.frame_index,
+                    ions.scan_count()
+                ));
+            }
             let mut staged = Vec::with_capacity(ions.tof_indices().len());
-            for scan in 0..ions.scan_count().min(num_scans) {
+            for scan in 0..ions.scan_count() {
                 for (tof, intensity) in ions.read_scan(scan) {
                     let bin = binner.bin(u32::from(tof));
                     if bin != OUT_OF_RANGE {
+                        // TimsDIAData::read checks that every scan index fits in u16
                         staged.push((bin, frame.cycle, scan as u16, u32::from(intensity) as f32));
                     }
                 }

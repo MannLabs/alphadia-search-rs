@@ -17,6 +17,17 @@ pub fn check_mobility_tolerance(tolerance: f32) -> Result<f32, String> {
     }
 }
 
+/// Checks a library ion mobility (1/K0): NaN (the library has none) or finite and positive.
+pub fn check_mobility(mobility: f32) -> Result<f32, String> {
+    if mobility.is_nan() || (mobility.is_finite() && mobility > 0.0) {
+        Ok(mobility)
+    } else {
+        Err(format!(
+            "mobility must be NaN (none) or finite and positive, got {mobility}"
+        ))
+    }
+}
+
 /// Which ion mobility (1/K0) range a precursor's peaks may come from.
 ///
 /// Data without an ion mobility dimension ignores it.
@@ -36,15 +47,7 @@ impl MobilityFilter {
     /// rather than a silently dropped restriction.
     pub fn from_library(mobility: f32, tolerance: f32) -> Result<Self, String> {
         check_mobility_tolerance(tolerance)?;
-        if mobility.is_nan() {
-            return Ok(Self::Any);
-        }
-        if !(mobility.is_finite() && mobility > 0.0) {
-            return Err(format!(
-                "mobility must be finite and positive, got {mobility}"
-            ));
-        }
-        if tolerance == f32::INFINITY {
+        if check_mobility(mobility)?.is_nan() || tolerance == f32::INFINITY {
             return Ok(Self::Any);
         }
         Ok(Self::Window {
@@ -125,6 +128,15 @@ mod tests {
         assert_eq!(check_mobility_tolerance(f32::INFINITY), Ok(f32::INFINITY));
         assert!(check_mobility_tolerance(-0.01).is_err());
         assert!(check_mobility_tolerance(f32::NAN).is_err());
+    }
+
+    #[test]
+    fn test_mobility_must_be_nan_or_finite_and_positive() {
+        assert_eq!(check_mobility(0.9), Ok(0.9));
+        assert!(check_mobility(f32::NAN).unwrap().is_nan());
+        for mobility in [0.0, -1.0, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(check_mobility(mobility).is_err());
+        }
     }
 
     #[test]

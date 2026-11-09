@@ -49,8 +49,12 @@ impl TimsDIAData {
     pub fn from_bruker(path: &str, py: Python<'_>) -> PyResult<Self> {
         py.detach(|| {
             // timsrust can panic on malformed metadata; report it like any read error
-            std::panic::catch_unwind(|| Self::read(path))
-                .unwrap_or_else(|_| Err(format!("timsrust failed to read {path}")))
+            std::panic::catch_unwind(|| Self::read(path)).unwrap_or_else(|payload| {
+                Err(format!(
+                    "timsrust failed to read {path}: {}",
+                    panic_message(payload.as_ref())
+                ))
+            })
         })
         .map_err(PyValueError::new_err)
     }
@@ -111,6 +115,15 @@ impl TimsDIAData {
     }
 }
 
+/// The text of a caught panic, when it carries one.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("no panic message")
+}
+
 impl TimsDIAData {
     pub fn read(path: &str) -> Result<Self, String> {
         let path = TimsTofPath::new(path).map_err(|e| e.to_string())?;
@@ -120,6 +133,11 @@ impl TimsDIAData {
             .get_ions(first)
             .map_err(|e| e.to_string())?
             .scan_count();
+        if num_scans > usize::from(u16::MAX) + 1 {
+            return Err(format!(
+                "{num_scans} scans per frame; more than 65,536 are not supported"
+            ));
+        }
 
         let layout = RunLayout::read(&path, &reader, num_scans)?;
         let quadrupole_observations = builder::build_observations(&path, &reader, &layout)?;

@@ -24,6 +24,7 @@ use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
 pub mod detection;
+pub mod faint;
 pub mod ms1;
 pub mod parameters;
 pub mod shadow;
@@ -67,7 +68,7 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
         let ms1_observations = dia_data.ms1_observations();
-        let detection_prior = self.detection_prior(dia_data, lib, candidates);
+        let (detection_prior, faint_model) = self.detection_model(dia_data, lib, candidates);
 
         // Parallel iteration over candidates to score each one
         let scored_candidates: Vec<CandidateFeature> = candidates
@@ -87,6 +88,7 @@ impl PeakGroupScoring {
                         candidate,
                         &ms1_observations,
                         detection_prior,
+                        &faint_model,
                     ),
                     None => {
                         eprintln!(
@@ -115,47 +117,91 @@ impl PeakGroupScoring {
         feature_collection
     }
 
-    /// The run's mean flank hit rate of a fragment channel, over a sample of the candidates (targets and decoys alike).
-    fn detection_prior<T: DIADataTrait + Sync>(
+    /// The detection XIC of a candidate and the apex column in it; None if its precursor is not in the library.
+    fn detection_xic<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidate: &Candidate,
+    ) -> Option<(Precursor, numpy::ndarray::Array2<f32>, usize)> {
+        let num_cycles = dia_data.rt_index().rt.len();
+        let precursor = lib.get_precursor_by_idx_filtered(
+            candidate.precursor_idx,
+            true,
+            true,
+            self.params.top_k_fragments,
+        )?;
+        let (start, stop) = detection::window(candidate.cycle_center, num_cycles);
+        let xic = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            start,
+            stop,
+            self.params.mass_tolerance,
+            &precursor.fragment_mz,
+        );
+        Some((precursor, xic.dense_xic, candidate.cycle_center - start))
+    }
+
+    /// Run-wide inputs of the detection features, from the candidates alone (targets and decoys alike): the mean flank
+    /// hit rate of a fragment channel and the log2-intensity density of flank hits over a sample of the candidates, and
+    /// the detection curve fitted on the candidates with the highest selection scores.
+    fn detection_model<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
-    ) -> f32 {
-        let num_cycles = dia_data.rt_index().rt.len();
+    ) -> (f32, faint::FaintModel) {
         let step = (candidates.len() / DETECTION_PRIOR_SAMPLE).max(1);
         let sample: Vec<&Candidate> = candidates.iter().step_by(step).collect();
-        let (hits, scans) = sample
+        let flank_columns: Vec<(Vec<u32>, u32, Vec<f64>)> = sample
             .par_iter()
             .filter_map(|candidate| {
-                let precursor = lib.get_precursor_by_idx_filtered(
-                    candidate.precursor_idx,
-                    true,
-                    true,
-                    self.params.top_k_fragments,
-                )?;
-                let (start, stop) = detection::window(candidate.cycle_center, num_cycles);
-                let xic = DenseXICObservation::new(
-                    dia_data,
-                    precursor.mz,
-                    start,
-                    stop,
-                    self.params.mass_tolerance,
-                    &precursor.fragment_mz,
-                );
-                let (flank_hits, flank_scans) =
-                    detection::flank_counts(&xic.dense_xic, candidate.cycle_center - start);
-                Some((
-                    flank_hits.iter().map(|&h| h as u64).sum::<u64>(),
-                    flank_scans as u64 * flank_hits.len() as u64,
-                ))
+                let (_, xic, apex_col) = self.detection_xic(dia_data, lib, candidate)?;
+                let (flank_hits, flank_scans) = detection::flank_counts(&xic, apex_col);
+                let log2_hits = detection::flank_hit_intensities(&xic, apex_col)
+                    .into_iter()
+                    .map(|v| (v as f64).log2())
+                    .collect();
+                Some((flank_hits, flank_scans, log2_hits))
             })
-            .reduce(|| (0, 0), |a, b| (a.0 + b.0, a.1 + b.1));
-        if scans == 0 {
+            .collect();
+        let (hits, scans) =
+            flank_columns
+                .iter()
+                .fold((0u64, 0u64), |acc, (flank_hits, flank_scans, _)| {
+                    (
+                        acc.0 + flank_hits.iter().map(|&h| h as u64).sum::<u64>(),
+                        acc.1 + *flank_scans as u64 * flank_hits.len() as u64,
+                    )
+                });
+        let b0 = if scans == 0 {
             0.0
         } else {
             hits as f32 / scans as f32
+        };
+        let log2_hits: Vec<f64> = flank_columns.into_iter().flat_map(|(_, _, v)| v).collect();
+        let background = faint::BackgroundDensity::from_log2(&log2_hits);
+
+        let mut by_score: Vec<&Candidate> = candidates.iter().collect();
+        let n_fit = faint::FIT_CANDIDATES.min(by_score.len());
+        if n_fit > 0 && n_fit < by_score.len() {
+            by_score.select_nth_unstable_by(n_fit - 1, |a, b| b.score.total_cmp(&a.score));
         }
+        let fit_set: Vec<Vec<faint::ApexFragment>> = by_score[..n_fit]
+            .par_iter()
+            .filter_map(|candidate| {
+                let (precursor, xic, apex_col) = self.detection_xic(dia_data, lib, candidate)?;
+                let rates = detection::background_rates(&xic, apex_col, b0);
+                faint::apex_fragments(&xic, apex_col, &precursor.fragment_intensity, &rates)
+            })
+            .collect();
+        let curve = faint::fit_curve(&fit_set, &background);
+        println!(
+            "Detection model: flank hit rate {:.3}, detection limit 2^{:.2}, width {:.2}, scatter {:.2} (log2)",
+            b0, curve.limit, curve.width, curve.scatter
+        );
+        (b0, faint::FaintModel { curve, background })
     }
 
     /// Generic candidate scoring function that works with any type implementing DIADataTrait
@@ -167,6 +213,7 @@ impl PeakGroupScoring {
         candidate: &Candidate,
         ms1_observations: &[usize],
         detection_prior: f32,
+        faint_model: &faint::FaintModel,
     ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
@@ -457,12 +504,22 @@ impl PeakGroupScoring {
             mass_tolerance,
             &precursor.fragment_mz,
         );
+        let detection_apex = candidate.cycle_center - detection_start;
         let detection_features = detection::detection_features(
             &detection_xic.dense_xic,
-            candidate.cycle_center - detection_start,
+            detection_apex,
             &precursor.fragment_intensity,
             detection_prior,
         );
+        let faint_features = faint::apex_fragments(
+            &detection_xic.dense_xic,
+            detection_apex,
+            &precursor.fragment_intensity,
+            &detection::background_rates(&detection_xic.dense_xic, detection_apex, detection_prior),
+        )
+        .map_or_else(faint::FaintFeatures::missing, |fragments| {
+            faint::faint_features(&fragments, faint_model)
+        });
 
         // Create and return candidate feature
         Some(
@@ -523,7 +580,8 @@ impl PeakGroupScoring {
             )
             .with_ms1(&ms1_features)
             .with_shadow(&shadow_features)
-            .with_detection(&detection_features),
+            .with_detection(&detection_features)
+            .with_faint(&faint_features),
         )
     }
 }

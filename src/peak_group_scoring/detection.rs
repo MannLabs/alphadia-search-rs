@@ -67,6 +67,26 @@ pub fn flank_counts(xic: &Array2<f32>, apex_col: usize) -> (Vec<u32>, u32) {
     (hits, flank.len() as u32)
 }
 
+/// Intensities of all flank hits of a detection XIC whose apex is column `apex_col`.
+pub fn flank_hit_intensities(xic: &Array2<f32>, apex_col: usize) -> Vec<f32> {
+    let mut out = Vec::new();
+    for c in 0..xic.ncols() {
+        if (FLANK_MIN..=FLANK_MAX).contains(&c.abs_diff(apex_col)) {
+            out.extend(xic.column(c).iter().filter(|&&v| v > 0.0));
+        }
+    }
+    out
+}
+
+/// Each fragment channel's background hit rate: its flank hit share, shrunk towards the run's rate `b0`.
+pub fn background_rates(xic: &Array2<f32>, apex_col: usize, b0: f32) -> Vec<f32> {
+    let (flank_hits, flank_scans) = flank_counts(xic, apex_col);
+    flank_hits
+        .iter()
+        .map(|&k| clamp((k as f32 + PRIOR_WEIGHT * b0) / (flank_scans as f32 + PRIOR_WEIGHT)))
+        .collect()
+}
+
 fn clamp(p: f32) -> f32 {
     p.clamp(MIN_PROBABILITY, 1.0 - MIN_PROBABILITY)
 }
@@ -91,11 +111,7 @@ pub fn detection_features(
         return DetectionFeatures::missing();
     }
 
-    let (flank_hits, flank_scans) = flank_counts(xic, apex_col);
-    let background: Vec<f32> = flank_hits
-        .iter()
-        .map(|&k| clamp((k as f32 + PRIOR_WEIGHT * b0) / (flank_scans as f32 + PRIOR_WEIGHT)))
-        .collect();
+    let background = background_rates(xic, apex_col, b0);
 
     let scans: Vec<(usize, f32)> = [
         (apex_col.checked_sub(1), NEIGHBOUR_WEIGHT),

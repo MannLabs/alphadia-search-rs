@@ -71,6 +71,9 @@ pub const FEATURE_NAMES: &[&str] = &[
     "det_llr",
     "det_llr_hits",
     "det_bg_surprise",
+    "det_faint_llr",
+    "det_faint_hits",
+    "det_faint_miss",
 ];
 
 #[derive(Debug, Clone)]
@@ -144,6 +147,9 @@ pub struct CandidateFeature {
     pub det_llr: f32,
     pub det_llr_hits: f32,
     pub det_bg_surprise: f32,
+    pub det_faint_llr: f32,
+    pub det_faint_hits: f32,
+    pub det_faint_miss: f32,
 }
 
 impl CandidateFeature {
@@ -273,6 +279,9 @@ impl CandidateFeature {
             det_llr: 0.0,
             det_llr_hits: 0.0,
             det_bg_surprise: 0.0,
+            det_faint_llr: 0.0,
+            det_faint_hits: 0.0,
+            det_faint_miss: 0.0,
         }
     }
 
@@ -310,6 +319,14 @@ impl CandidateFeature {
         self.det_llr = detection.det_llr;
         self.det_llr_hits = detection.det_llr_hits;
         self.det_bg_surprise = detection.det_bg_surprise;
+        self
+    }
+
+    /// The candidate with its faint-detection features set.
+    pub fn with_faint(mut self, faint: &crate::peak_group_scoring::faint::FaintFeatures) -> Self {
+        self.det_faint_llr = faint.det_faint_llr;
+        self.det_faint_hits = faint.det_faint_hits;
+        self.det_faint_miss = faint.det_faint_miss;
         self
     }
 }
@@ -414,6 +431,9 @@ impl CandidateFeatureCollection {
         let mut det_llr = Array1::<f32>::zeros(n);
         let mut det_llr_hits = Array1::<f32>::zeros(n);
         let mut det_bg_surprise = Array1::<f32>::zeros(n);
+        let mut det_faint_llr = Array1::<f32>::zeros(n);
+        let mut det_faint_hits = Array1::<f32>::zeros(n);
+        let mut det_faint_miss = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -485,6 +505,9 @@ impl CandidateFeatureCollection {
             det_llr[i] = feature.det_llr;
             det_llr_hits[i] = feature.det_llr_hits;
             det_bg_surprise[i] = feature.det_bg_surprise;
+            det_faint_llr[i] = feature.det_faint_llr;
+            det_faint_hits[i] = feature.det_faint_hits;
+            det_faint_miss[i] = feature.det_faint_miss;
         }
 
         let dict = PyDict::new(py);
@@ -630,6 +653,9 @@ impl CandidateFeatureCollection {
         dict.set_item("det_llr", det_llr.into_pyarray(py))?;
         dict.set_item("det_llr_hits", det_llr_hits.into_pyarray(py))?;
         dict.set_item("det_bg_surprise", det_bg_surprise.into_pyarray(py))?;
+        dict.set_item("det_faint_llr", det_faint_llr.into_pyarray(py))?;
+        dict.set_item("det_faint_hits", det_faint_hits.into_pyarray(py))?;
+        dict.set_item("det_faint_miss", det_faint_miss.into_pyarray(py))?;
 
         Ok(dict.into())
     }

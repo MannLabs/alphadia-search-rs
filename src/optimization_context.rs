@@ -1,17 +1,17 @@
-//! The tolerances a search runs with, as found by the optimization of a raw file.
+//! The search parameters a search runs with, as found by the optimization of a raw file.
 //!
-//! An immutable snapshot: the search parameter optimization produces a new one whenever it changes a tolerance.
+//! An immutable snapshot: the search parameter optimization produces a new one whenever it changes a parameter.
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-/// Tolerances for selecting and scoring peak groups.
+/// Search parameters for selecting and scoring peak groups.
 ///
 /// Values are `f64` so that a snapshot reproduces the values it was created from exactly; the search casts them to
 /// the precision it computes in.
 #[pyclass(frozen, eq, from_py_object)]
 #[derive(Clone, Debug, PartialEq)]
-pub struct SearchTolerances {
+pub struct OptimizationContext {
     /// Retention time tolerance in seconds.
     #[pyo3(get)]
     pub rt_error: f64,
@@ -38,7 +38,7 @@ pub struct SearchTolerances {
     pub score_cutoff: f64,
 }
 
-impl SearchTolerances {
+impl OptimizationContext {
     #[allow(clippy::too_many_arguments)]
     pub fn try_new(
         rt_error: f64,
@@ -88,7 +88,7 @@ impl SearchTolerances {
 }
 
 #[pymethods]
-impl SearchTolerances {
+impl OptimizationContext {
     #[new]
     #[pyo3(signature = (
         *,
@@ -127,7 +127,7 @@ impl SearchTolerances {
 
     fn __repr__(&self) -> String {
         format!(
-            "SearchTolerances(rt_error={}, ms1_error={}, ms2_error={}, mobility_error={}, fwhm_rt={}, \
+            "OptimizationContext(rt_error={}, ms1_error={}, ms2_error={}, mobility_error={}, fwhm_rt={}, \
              fwhm_mobility={}, num_candidates={}, score_cutoff={})",
             self.rt_error,
             self.ms1_error,
@@ -145,14 +145,14 @@ impl SearchTolerances {
 mod tests {
     use super::*;
 
-    fn valid() -> SearchTolerances {
-        SearchTolerances::try_new(120.0, 30.0, 15.0, 0.1, 5.0, 0.01, 3, 0.0).unwrap()
+    fn valid() -> OptimizationContext {
+        OptimizationContext::try_new(120.0, 30.0, 15.0, 0.1, 5.0, 0.01, 3, 0.0).unwrap()
     }
 
-    fn with(modify: impl FnOnce(&mut SearchTolerances)) -> Result<SearchTolerances, String> {
+    fn with(modify: impl FnOnce(&mut OptimizationContext)) -> Result<OptimizationContext, String> {
         let mut t = valid();
         modify(&mut t);
-        SearchTolerances::try_new(
+        OptimizationContext::try_new(
             t.rt_error,
             t.ms1_error,
             t.ms2_error,
@@ -167,22 +167,22 @@ mod tests {
     #[test]
     fn test_try_new_keeps_the_values() {
         // given / when
-        let tolerances = valid();
+        let context = valid();
 
         // then
-        assert_eq!(tolerances.rt_error, 120.0);
-        assert_eq!(tolerances.ms1_error, 30.0);
-        assert_eq!(tolerances.ms2_error, 15.0);
-        assert_eq!(tolerances.mobility_error, 0.1);
-        assert_eq!(tolerances.fwhm_rt, 5.0);
-        assert_eq!(tolerances.fwhm_mobility, 0.01);
-        assert_eq!(tolerances.num_candidates, 3);
-        assert_eq!(tolerances.score_cutoff, 0.0);
+        assert_eq!(context.rt_error, 120.0);
+        assert_eq!(context.ms1_error, 30.0);
+        assert_eq!(context.ms2_error, 15.0);
+        assert_eq!(context.mobility_error, 0.1);
+        assert_eq!(context.fwhm_rt, 5.0);
+        assert_eq!(context.fwhm_mobility, 0.01);
+        assert_eq!(context.num_candidates, 3);
+        assert_eq!(context.score_cutoff, 0.0);
     }
 
     #[test]
     fn test_try_new_rejects_non_positive_tolerances() {
-        let cases: [(&str, fn(&mut SearchTolerances)); 4] = [
+        let cases: [(&str, fn(&mut OptimizationContext)); 4] = [
             ("rt_error", |t| t.rt_error = 0.0),
             ("ms1_error", |t| t.ms1_error = -1.0),
             ("ms2_error", |t| t.ms2_error = 0.0),

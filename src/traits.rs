@@ -2,24 +2,45 @@ use crate::mz_index::MZIndex;
 use crate::rt_index::RTIndex;
 use numpy::ndarray::ArrayViewMut1;
 
-/// Ion mobility (1/K0) of a precursor and how far from it a peak may lie.
+/// Which ion mobility (1/K0) range a precursor's peaks may come from.
 ///
-/// Data without an ion mobility dimension ignores it. Data with one restricts peaks to
-/// `mobility ± tolerance` only when `mobility` is finite and positive and `tolerance` is
-/// finite and not negative; otherwise (e.g. NaN for a library without mobility) it applies no
-/// mobility restriction.
-#[derive(Clone, Copy, Debug)]
-pub struct MobilityFilter {
-    pub mobility: f32,
-    pub tolerance: f32,
+/// Data without an ion mobility dimension ignores it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MobilityFilter {
+    /// No mobility restriction: every scan that isolated the precursor counts.
+    Any,
+    /// Only peaks whose scan lies within `mobility ± tolerance`.
+    Window { mobility: f32, tolerance: f32 },
 }
 
 impl MobilityFilter {
-    /// No mobility restriction: every scan that isolated the precursor counts.
-    pub const ANY: Self = Self {
-        mobility: f32::NAN,
-        tolerance: f32::INFINITY,
-    };
+    /// The filter for a library mobility: `Any` when the library has none (NaN) or the tolerance
+    /// is infinite, otherwise a window of `tolerance` around it.
+    ///
+    /// A NaN or negative tolerance, or a mobility that is infinite or not positive, is an error
+    /// rather than a silently dropped restriction.
+    pub fn from_library(mobility: f32, tolerance: f32) -> Result<Self, String> {
+        if tolerance.is_nan() || tolerance < 0.0 {
+            return Err(format!(
+                "mobility tolerance must not be NaN or negative, got {tolerance}"
+            ));
+        }
+        if mobility.is_nan() {
+            return Ok(Self::Any);
+        }
+        if !(mobility.is_finite() && mobility > 0.0) {
+            return Err(format!(
+                "mobility must be finite and positive, got {mobility}"
+            ));
+        }
+        if tolerance == f32::INFINITY {
+            return Ok(Self::Any);
+        }
+        Ok(Self::Window {
+            mobility,
+            tolerance,
+        })
+    }
 }
 
 /// The scan restriction of one quadrupole observation for one precursor.
@@ -81,4 +102,52 @@ pub trait QuadrupoleObservationTrait {
         mass_tolerance: f32,
         mz: f32,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MobilityFilter;
+
+    #[test]
+    fn test_from_library_without_mobility_is_any() {
+        assert_eq!(
+            MobilityFilter::from_library(f32::NAN, 0.05),
+            Ok(MobilityFilter::Any)
+        );
+    }
+
+    #[test]
+    fn test_from_library_makes_a_window() {
+        assert_eq!(
+            MobilityFilter::from_library(1.0, 0.05),
+            Ok(MobilityFilter::Window {
+                mobility: 1.0,
+                tolerance: 0.05
+            })
+        );
+        assert!(MobilityFilter::from_library(1.0, 0.0).is_ok());
+    }
+
+    #[test]
+    fn test_from_library_with_an_infinite_tolerance_is_any() {
+        assert_eq!(
+            MobilityFilter::from_library(1.0, f32::INFINITY),
+            Ok(MobilityFilter::Any)
+        );
+    }
+
+    #[test]
+    fn test_from_library_rejects_a_bad_tolerance_even_without_mobility() {
+        for tolerance in [-0.05, f32::NAN] {
+            assert!(MobilityFilter::from_library(1.0, tolerance).is_err());
+            assert!(MobilityFilter::from_library(f32::NAN, tolerance).is_err());
+        }
+    }
+
+    #[test]
+    fn test_from_library_rejects_a_bad_mobility() {
+        for mobility in [0.0, -1.0, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(MobilityFilter::from_library(mobility, 0.05).is_err());
+        }
+    }
 }

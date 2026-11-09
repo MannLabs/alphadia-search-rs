@@ -159,8 +159,13 @@ which `fill_xic_slice` and `fill_xic_and_mz_slice` apply while summing peaks.
 - Data with an ion mobility dimension (timsTOF) can use the filter to keep only peaks whose scan lies
   within `mobility ± tolerance` and isolated the precursor.
 
-Selection, scoring and quantification pass `MobilityFilter::ANY` (no restriction) for now; a NaN
-mobility also means no restriction.
+`MobilityFilter` is either `Any` (no restriction) or `Window { mobility, tolerance }`. Build it from a
+library mobility with `MobilityFilter::from_library(mobility, tolerance)`: a NaN mobility (the library
+has none) or an infinite tolerance gives `Any`, and a NaN or negative tolerance, or a mobility that
+is not finite and positive, is an error.
+
+Selection, scoring and quantification all take the filter from `Precursor::mobility_filter()`, which
+returns `Any` until precursors carry a library mobility.
 
 # Benefits
 

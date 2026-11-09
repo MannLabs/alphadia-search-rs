@@ -146,7 +146,7 @@ fn test_get_valid_observations() {
 
     // without a mobility dimension select_observations ignores the mobility filter
     use crate::traits::{DIADataTrait, MobilityFilter};
-    let narrow = MobilityFilter {
+    let narrow = MobilityFilter::Window {
         mobility: 1.0,
         tolerance: 0.0,
     };
@@ -157,7 +157,7 @@ fn test_get_valid_observations() {
             .map(|obs_idx| (obs_idx, ()))
             .collect();
         assert_eq!(
-            dia_data.select_observations(mz, MobilityFilter::ANY),
+            dia_data.select_observations(mz, MobilityFilter::Any),
             expected
         );
         assert_eq!(dia_data.select_observations(mz, narrow), expected);

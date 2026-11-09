@@ -41,7 +41,7 @@ fn test_basic_creation() {
     let obs = DenseXICObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         12,
         20.0,
@@ -64,7 +64,7 @@ fn test_optimized_data_creation() {
     let obs = DenseXICObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         20.0,
@@ -87,7 +87,7 @@ fn test_empty_fragments() {
     let obs = DenseXICObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         12,
         20.0,
@@ -110,7 +110,7 @@ fn test_metadata_storage() {
     let obs = DenseXICObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         15,
         50.0,
@@ -135,7 +135,7 @@ fn test_multiple_fragments() {
     let obs = DenseXICObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         12,
         20.0,
@@ -158,7 +158,7 @@ fn test_dense_xic_mz_basic_creation() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         12,
         20.0,
@@ -184,7 +184,7 @@ fn test_dense_xic_mz_intensity_values() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         1000.0,
@@ -233,7 +233,7 @@ fn test_dense_xic_mz_weighted_average() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         250.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         5,
         6,
         2000.0,
@@ -282,7 +282,7 @@ fn test_dense_xic_mz_zero_intensity_handling() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         300.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         0,
         2,
         2000.0,
@@ -310,7 +310,7 @@ fn test_dense_xic_mz_no_matching_fragments() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         12,
         20.0,
@@ -336,7 +336,7 @@ fn test_dense_xic_mz_multiple_fragments() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         20.0,
@@ -367,7 +367,7 @@ fn test_dense_xic_mz_single_cycle_single_fragment() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         20.0,
@@ -390,7 +390,7 @@ fn test_dense_xic_mz_overlapping_tolerance_windows() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         1000.0,
@@ -412,7 +412,7 @@ fn test_dense_xic_mz_out_of_mz_index_range() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         20.0,
@@ -435,7 +435,7 @@ fn test_dense_xic_mz_exact_tolerance_boundary() {
     let obs = DenseXICMZObservation::new(
         &dia_data,
         200.0,
-        MobilityFilter::ANY,
+        MobilityFilter::Any,
         10,
         11,
         400.0,
@@ -453,8 +453,9 @@ mod scan_filter {
     use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
     use numpy::ndarray::ArrayViewMut1;
 
-    /// Adds its scan filter to the first cycle, so a test can see which filter reached it.
-    struct FilterEcho;
+    /// Adds its own value plus its scan filter to the first cycle, so a test can see which
+    /// observation was read and which filter reached it.
+    struct FilterEcho(f32);
 
     impl QuadrupoleObservationTrait for FilterEcho {
         type ScanFilter = f32;
@@ -469,7 +470,7 @@ mod scan_filter {
             _mass_tolerance: f32,
             _mz: f32,
         ) {
-            dense_xic[0] += *scan_filter;
+            dense_xic[0] += self.0 + *scan_filter;
         }
 
         fn fill_xic_and_mz_slice(
@@ -483,12 +484,13 @@ mod scan_filter {
             _mass_tolerance: f32,
             _mz: f32,
         ) {
-            dense_xic[0] += *scan_filter;
-            dense_mz[0] = *scan_filter;
+            dense_xic[0] += self.0 + *scan_filter;
+            dense_mz[0] += self.0 + *scan_filter;
         }
     }
 
-    /// Two observations of which only the second is selected, with the mobility tolerance as its filter.
+    /// Two different observations, both selected: the first with the mobility tolerance as its
+    /// filter, the second with the mobility itself.
     struct MobilityEcho {
         observations: Vec<FilterEcho>,
         rt_index: RTIndex,
@@ -497,7 +499,7 @@ mod scan_filter {
     impl MobilityEcho {
         fn new() -> Self {
             Self {
-                observations: vec![FilterEcho, FilterEcho],
+                observations: vec![FilterEcho(10.0), FilterEcho(20.0)],
                 rt_index: RTIndex::new(),
             }
         }
@@ -511,7 +513,13 @@ mod scan_filter {
             _precursor_mz: f32,
             mobility: MobilityFilter,
         ) -> Vec<(usize, f32)> {
-            vec![(1, mobility.tolerance)]
+            match mobility {
+                MobilityFilter::Window {
+                    mobility,
+                    tolerance,
+                } => vec![(0, tolerance), (1, mobility)],
+                MobilityFilter::Any => panic!("the tests pass a window"),
+            }
         }
 
         fn mz_index(&self) -> &MZIndex {
@@ -531,10 +539,14 @@ mod scan_filter {
         }
     }
 
-    const MOBILITY: MobilityFilter = MobilityFilter {
+    const MOBILITY: MobilityFilter = MobilityFilter::Window {
         mobility: 1.0,
         tolerance: 0.25,
     };
+
+    // (10.0 + 0.25) + (20.0 + 1.0). Reading observation 0 twice gives 21.25, and reusing the
+    // first filter for both observations gives 30.5.
+    const EXPECTED: f32 = 31.25;
 
     #[test]
     fn test_xic_gets_the_scan_filter_of_each_selected_observation() {
@@ -547,8 +559,8 @@ mod scan_filter {
             10.0,
             &[300.0, 400.0],
         );
-        assert_eq!(obs.contributing_obs_indices, vec![1]);
-        assert_eq!(obs.dense_xic.column(0).to_vec(), vec![0.25, 0.25]);
+        assert_eq!(obs.contributing_obs_indices, vec![0, 1]);
+        assert_eq!(obs.dense_xic.column(0).to_vec(), vec![EXPECTED, EXPECTED]);
         assert_eq!(obs.dense_xic.column(1).to_vec(), vec![0.0, 0.0]);
     }
 
@@ -556,8 +568,8 @@ mod scan_filter {
     fn test_xic_mz_gets_the_scan_filter_of_each_selected_observation() {
         let obs =
             DenseXICMZObservation::new(&MobilityEcho::new(), 500.0, MOBILITY, 0, 2, 10.0, &[300.0]);
-        assert_eq!(obs.contributing_obs_indices, vec![1]);
-        assert_eq!(obs.dense_xic[[0, 0]], 0.25);
-        assert_eq!(obs.dense_mz[[0, 0]], 0.25);
+        assert_eq!(obs.contributing_obs_indices, vec![0, 1]);
+        assert_eq!(obs.dense_xic[[0, 0]], EXPECTED);
+        assert_eq!(obs.dense_mz[[0, 0]], EXPECTED);
     }
 }

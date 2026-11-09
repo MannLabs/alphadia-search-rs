@@ -8,7 +8,7 @@ use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::{DIADataTrait, MobilityFilter};
+use crate::traits::DIADataTrait;
 
 pub struct PeakGroupObservation {
     /// fragment XICs: fragments x cycles
@@ -39,7 +39,7 @@ impl PeakGroupObservation {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
-            MobilityFilter::ANY,
+            precursor.mobility_filter(),
             candidate.cycle_start,
             candidate.cycle_stop,
             mass_tolerance,

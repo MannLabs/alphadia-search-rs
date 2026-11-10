@@ -71,6 +71,11 @@ pub const FEATURE_NAMES: &[&str] = &[
     "det_llr",
     "det_llr_hits",
     "det_bg_surprise",
+    "coiso_expect",
+    "coiso_n_channels",
+    "coiso_det_gain",
+    "coiso_det_nb_own",
+    "coiso_det_nb_prim",
 ];
 
 #[derive(Debug, Clone)]
@@ -144,6 +149,11 @@ pub struct CandidateFeature {
     pub det_llr: f32,
     pub det_llr_hits: f32,
     pub det_bg_surprise: f32,
+    pub coiso_expect: f32,
+    pub coiso_n_channels: f32,
+    pub coiso_det_gain: f32,
+    pub coiso_det_nb_own: f32,
+    pub coiso_det_nb_prim: f32,
 }
 
 impl CandidateFeature {
@@ -273,6 +283,11 @@ impl CandidateFeature {
             det_llr: 0.0,
             det_llr_hits: 0.0,
             det_bg_surprise: 0.0,
+            coiso_expect: 0.0,
+            coiso_n_channels: 0.0,
+            coiso_det_gain: 0.0,
+            coiso_det_nb_own: 0.0,
+            coiso_det_nb_prim: 0.0,
         }
     }
 
@@ -310,6 +325,19 @@ impl CandidateFeature {
         self.det_llr = detection.det_llr;
         self.det_llr_hits = detection.det_llr_hits;
         self.det_bg_surprise = detection.det_bg_surprise;
+        self
+    }
+
+    /// The candidate with its isotope co-isolation features set.
+    pub fn with_coisolation(
+        mut self,
+        coisolation: &crate::peak_group_scoring::coisolation::CoisolationFeatures,
+    ) -> Self {
+        self.coiso_expect = coisolation.coiso_expect;
+        self.coiso_n_channels = coisolation.coiso_n_channels;
+        self.coiso_det_gain = coisolation.coiso_det_gain;
+        self.coiso_det_nb_own = coisolation.coiso_det_nb_own;
+        self.coiso_det_nb_prim = coisolation.coiso_det_nb_prim;
         self
     }
 }
@@ -414,6 +442,11 @@ impl CandidateFeatureCollection {
         let mut det_llr = Array1::<f32>::zeros(n);
         let mut det_llr_hits = Array1::<f32>::zeros(n);
         let mut det_bg_surprise = Array1::<f32>::zeros(n);
+        let mut coiso_expect = Array1::<f32>::zeros(n);
+        let mut coiso_n_channels = Array1::<f32>::zeros(n);
+        let mut coiso_det_gain = Array1::<f32>::zeros(n);
+        let mut coiso_det_nb_own = Array1::<f32>::zeros(n);
+        let mut coiso_det_nb_prim = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -485,6 +518,11 @@ impl CandidateFeatureCollection {
             det_llr[i] = feature.det_llr;
             det_llr_hits[i] = feature.det_llr_hits;
             det_bg_surprise[i] = feature.det_bg_surprise;
+            coiso_expect[i] = feature.coiso_expect;
+            coiso_n_channels[i] = feature.coiso_n_channels;
+            coiso_det_gain[i] = feature.coiso_det_gain;
+            coiso_det_nb_own[i] = feature.coiso_det_nb_own;
+            coiso_det_nb_prim[i] = feature.coiso_det_nb_prim;
         }
 
         let dict = PyDict::new(py);
@@ -630,6 +668,11 @@ impl CandidateFeatureCollection {
         dict.set_item("det_llr", det_llr.into_pyarray(py))?;
         dict.set_item("det_llr_hits", det_llr_hits.into_pyarray(py))?;
         dict.set_item("det_bg_surprise", det_bg_surprise.into_pyarray(py))?;
+        dict.set_item("coiso_expect", coiso_expect.into_pyarray(py))?;
+        dict.set_item("coiso_n_channels", coiso_n_channels.into_pyarray(py))?;
+        dict.set_item("coiso_det_gain", coiso_det_gain.into_pyarray(py))?;
+        dict.set_item("coiso_det_nb_own", coiso_det_nb_own.into_pyarray(py))?;
+        dict.set_item("coiso_det_nb_prim", coiso_det_nb_prim.into_pyarray(py))?;
 
         Ok(dict.into())
     }

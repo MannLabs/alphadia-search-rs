@@ -15,7 +15,7 @@ use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, intensity_ion_series, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::utils::{
     calculate_fragment_mz_and_errors, calculate_median, calculate_std,
     calculate_weighted_mean_absolute_error, count_values_above, create_ranked_mask,
@@ -23,6 +23,7 @@ use crate::utils::{
 use crate::SpecLibFlat;
 use numpy::ndarray::Axis;
 
+pub mod coisolation;
 pub mod detection;
 pub mod ms1;
 pub mod parameters;
@@ -68,6 +69,13 @@ impl PeakGroupScoring {
         let start_time = Instant::now();
         let ms1_observations = dia_data.ms1_observations();
         let detection_prior = self.detection_prior(dia_data, lib, candidates);
+        let ms2_windows: Vec<(usize, [f32; 2])> = dia_data
+            .quadrupole_observations()
+            .iter()
+            .enumerate()
+            .map(|(idx, obs)| (idx, obs.isolation_window()))
+            .filter(|(_, window)| window[1] >= 0.0)
+            .collect();
 
         // Parallel iteration over candidates to score each one
         let scored_candidates: Vec<CandidateFeature> = candidates
@@ -86,6 +94,7 @@ impl PeakGroupScoring {
                         &precursor,
                         candidate,
                         &ms1_observations,
+                        &ms2_windows,
                         detection_prior,
                     ),
                     None => {
@@ -166,6 +175,7 @@ impl PeakGroupScoring {
         precursor: &Precursor,
         candidate: &Candidate,
         ms1_observations: &[usize],
+        ms2_windows: &[(usize, [f32; 2])],
         detection_prior: f32,
     ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
@@ -463,6 +473,38 @@ impl PeakGroupScoring {
             &precursor.fragment_intensity,
             detection_prior,
         );
+        // the precursor charge comes with the MS1 isotopes, which the final extraction sets
+        let coisolation_features = match lib.get_isotopes_by_idx(candidate.precursor_idx) {
+            Some((charge, _, _)) => {
+                let primary = dia_data.get_valid_observations(precursor.mz);
+                let (channels, expect) = coisolation::plan_channels(
+                    precursor.mz,
+                    charge,
+                    &precursor.fragment_mz,
+                    &precursor.fragment_charge,
+                    &precursor.fragment_intensity,
+                    ms2_windows,
+                    &primary,
+                );
+                let channel_xic = coisolation::channel_xic(
+                    dia_data,
+                    &channels,
+                    detection_start,
+                    detection_stop,
+                    mass_tolerance,
+                );
+                coisolation::coisolation_features(
+                    &detection_xic.dense_xic,
+                    &channel_xic,
+                    candidate.cycle_center - detection_start,
+                    &channels,
+                    &precursor.fragment_intensity,
+                    expect,
+                    detection_prior,
+                )
+            }
+            None => coisolation::CoisolationFeatures::missing(),
+        };
 
         // Create and return candidate feature
         Some(
@@ -523,7 +565,8 @@ impl PeakGroupScoring {
             )
             .with_ms1(&ms1_features)
             .with_shadow(&shadow_features)
-            .with_detection(&detection_features),
+            .with_detection(&detection_features)
+            .with_coisolation(&coisolation_features),
         )
     }
 }

@@ -17,7 +17,7 @@ pub const FLANK_MIN: usize = 4;
 /// Flank scans end this many cycles from the apex.
 pub const FLANK_MAX: usize = 9;
 /// Pseudo-scans of the run-wide rate b0 added to each channel's flank count.
-const PRIOR_WEIGHT: f32 = 2.0;
+pub const PRIOR_WEIGHT: f32 = 2.0;
 /// Expected signal on the two scans next to the apex relative to the apex scan.
 const NEIGHBOUR_WEIGHT: f32 = 0.1;
 /// Bounds that keep the log-likelihoods finite.
@@ -71,24 +71,28 @@ fn clamp(p: f32) -> f32 {
     p.clamp(MIN_PROBABILITY, 1.0 - MIN_PROBABILITY)
 }
 
-/// Detection features of one candidate.
-///
-/// `xic`: [fragment, cycle] over `window(apex, ...)`, `apex_col`: the apex column in it, `library_intensity`: per
-/// fragment, `b0`: the run's mean flank hit rate.
-pub fn detection_features(
+/// The signal scales (expected ion counts of the strongest fragment) over which the detection likelihood is maximised.
+pub fn scales() -> Vec<f32> {
+    let log_step = (MAX_SCALE / MIN_SCALE).ln() / (NUM_SCALES - 1) as f32;
+    (0..NUM_SCALES)
+        .map(|s| MIN_SCALE * (log_step * s as f32).exp())
+        .collect()
+}
+
+/// Per signal scale of `scales()`: the hit/miss log-likelihood ratio and its hit terms. Empty for invalid inputs.
+fn terms_by_scale(
     xic: &Array2<f32>,
     apex_col: usize,
     library_intensity: &[f32],
     b0: f32,
-) -> DetectionFeatures {
+) -> Vec<(f32, f32)> {
     let n_fragments = xic.nrows();
     if n_fragments == 0 || apex_col >= xic.ncols() || library_intensity.len() != n_fragments {
-        return DetectionFeatures::missing();
+        return Vec::new();
     }
     let top = library_intensity.iter().cloned().fold(0.0f32, f32::max);
-    let total: f32 = library_intensity.iter().sum();
     if top <= 0.0 {
-        return DetectionFeatures::missing();
+        return Vec::new();
     }
 
     let (flank_hits, flank_scans) = flank_counts(xic, apex_col);
@@ -106,34 +110,77 @@ pub fn detection_features(
     .filter_map(|(c, g)| c.filter(|&c| c < xic.ncols()).map(|c| (c, g)))
     .collect();
 
-    let log_step = (MAX_SCALE / MIN_SCALE).ln() / (NUM_SCALES - 1) as f32;
-    let mut best = (f32::NEG_INFINITY, 0.0f32);
-    for s in 0..NUM_SCALES {
-        let scale = MIN_SCALE * (log_step * s as f32).exp();
-        let mut llr = 0.0f32;
-        let mut hits = 0.0f32;
-        for f in 0..n_fragments {
-            let b = background[f];
-            let relative = library_intensity[f] / top;
-            for &(c, g) in &scans {
-                let p1 = clamp(1.0 - (1.0 - b) * (-scale * relative * g).exp());
-                if xic[[f, c]] > 0.0 {
-                    let term = (p1 / b).ln();
-                    llr += term;
-                    hits += term;
-                } else {
-                    llr += ((1.0 - p1) / (1.0 - b)).ln();
+    scales()
+        .into_iter()
+        .map(|scale| {
+            let mut llr = 0.0f32;
+            let mut hits = 0.0f32;
+            for f in 0..n_fragments {
+                let b = background[f];
+                let relative = library_intensity[f] / top;
+                for &(c, g) in &scans {
+                    let p1 = clamp(1.0 - (1.0 - b) * (-scale * relative * g).exp());
+                    if xic[[f, c]] > 0.0 {
+                        let term = (p1 / b).ln();
+                        llr += term;
+                        hits += term;
+                    } else {
+                        llr += ((1.0 - p1) / (1.0 - b)).ln();
+                    }
                 }
             }
-        }
-        if llr > best.0 {
-            best = (llr, hits);
-        }
-    }
+            (llr, hits)
+        })
+        .collect()
+}
 
-    let det_bg_surprise = (0..n_fragments)
+/// The hit/miss log-likelihood ratio of `detection_features` per signal scale of `scales()` (empty for invalid inputs).
+pub fn llr_by_scale(
+    xic: &Array2<f32>,
+    apex_col: usize,
+    library_intensity: &[f32],
+    b0: f32,
+) -> Vec<f32> {
+    terms_by_scale(xic, apex_col, library_intensity, b0)
+        .into_iter()
+        .map(|(llr, _)| llr)
+        .collect()
+}
+
+/// Detection features of one candidate.
+///
+/// `xic`: [fragment, cycle] over `window(apex, ...)`, `apex_col`: the apex column in it, `library_intensity`: per
+/// fragment, `b0`: the run's mean flank hit rate.
+pub fn detection_features(
+    xic: &Array2<f32>,
+    apex_col: usize,
+    library_intensity: &[f32],
+    b0: f32,
+) -> DetectionFeatures {
+    let by_scale = terms_by_scale(xic, apex_col, library_intensity, b0);
+    if by_scale.is_empty() {
+        return DetectionFeatures::missing();
+    }
+    let best = by_scale
+        .into_iter()
+        .fold((f32::NEG_INFINITY, 0.0f32), |best, t| {
+            if t.0 > best.0 {
+                t
+            } else {
+                best
+            }
+        });
+
+    let total: f32 = library_intensity.iter().sum();
+    let (flank_hits, flank_scans) = flank_counts(xic, apex_col);
+    let det_bg_surprise = (0..xic.nrows())
         .filter(|&f| xic[[f, apex_col]] > 0.0)
-        .map(|f| library_intensity[f] / total * -background[f].ln())
+        .map(|f| {
+            let b = clamp(
+                (flank_hits[f] as f32 + PRIOR_WEIGHT * b0) / (flank_scans as f32 + PRIOR_WEIGHT),
+            );
+            library_intensity[f] / total * -b.ln()
+        })
         .sum();
 
     DetectionFeatures {

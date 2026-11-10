@@ -800,3 +800,24 @@ fn test_speclib_flat_isotopes_unlisted_precursor_has_none() {
     assert!(speclib.get_isotopes_by_idx(3).is_none());
     assert_eq!(speclib.get_isotopes_by_idx(7).unwrap().2, &[1.0, 0.5]);
 }
+
+#[test]
+fn test_speclib_flat_next_ions_follow_precursor_idx() {
+    let mut speclib = two_precursor_speclib();
+    assert!(speclib.get_next_ions_by_idx(3).is_empty());
+
+    speclib.set_next_ions_from_vecs(&[7, 3], 3, &[710.0, 0.0, 720.0, 310.0, 320.0, 330.0]);
+
+    assert_eq!(speclib.get_next_ions_by_idx(3), vec![310.0, 320.0, 330.0]);
+    assert_eq!(speclib.get_next_ions_by_idx(7), vec![710.0, 720.0]);
+    assert!(speclib.get_next_ions_by_idx(5).is_empty());
+}
+
+#[test]
+fn test_speclib_flat_next_ions_unlisted_precursor_has_none() {
+    let mut speclib = two_precursor_speclib();
+    speclib.set_next_ions_from_vecs(&[7], 2, &[710.0, 720.0]);
+
+    assert!(speclib.get_next_ions_by_idx(3).is_empty());
+    assert_eq!(speclib.get_next_ions_by_idx(7), vec![710.0, 720.0]);
+}

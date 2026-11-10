@@ -79,6 +79,13 @@ pub struct SpecLibFlat {
 
     /// Number of isotopes per precursor in `precursor_isotope_intensity`
     num_isotopes: usize,
+
+    /// Library m/z of the fragments ranked just below the flattened top fragments, `num_next_ions` per precursor
+    /// (0 = none), sorted according to precursor_idx order; empty until `set_next_ions` is called
+    next_ion_mz_library: Vec<f32>,
+
+    /// Number of next-ion slots per precursor in `next_ion_mz_library`
+    num_next_ions: usize,
 }
 
 /// (m/z used for extraction, library m/z, library intensity, charge) of a fragment.
@@ -111,6 +118,8 @@ impl SpecLibFlat {
             precursor_ms1_mz: Vec::new(),
             precursor_isotope_intensity: Vec::new(),
             num_isotopes: 0,
+            next_ion_mz_library: Vec::new(),
+            num_next_ions: 0,
         }
     }
 
@@ -174,6 +183,22 @@ impl SpecLibFlat {
             &ms1_mz.as_array().to_vec(),
             isotope_intensity.ncols(),
             &isotope_intensity.iter().copied().collect::<Vec<f32>>(),
+        );
+    }
+
+    /// Set the library m/z of each precursor's next ions ([precursor, slot], 0 = empty slot) for the next-ion features.
+    ///
+    /// Precursors not listed have no next ions, so their next-ion features take the missing values.
+    fn set_next_ions(
+        &mut self,
+        precursor_idx: PyReadonlyArray1<'_, usize>,
+        mz_library: PyReadonlyArray2<'_, f32>,
+    ) {
+        let mz_library = mz_library.as_array();
+        self.set_next_ions_from_vecs(
+            &precursor_idx.as_array().to_vec(),
+            mz_library.ncols(),
+            &mz_library.iter().copied().collect::<Vec<f32>>(),
         );
     }
 
@@ -401,6 +426,8 @@ impl SpecLibFlat {
             precursor_ms1_mz: Vec::new(),
             precursor_isotope_intensity: Vec::new(),
             num_isotopes: 0,
+            next_ion_mz_library: Vec::new(),
+            num_next_ions: 0,
         }
     }
 
@@ -465,6 +492,39 @@ impl SpecLibFlat {
                         &isotope_intensity[row * num_isotopes..(row + 1) * num_isotopes],
                     );
             }
+        }
+    }
+
+    /// `mz_library` is row-major [precursor, slot] with `num_slots` columns.
+    pub fn set_next_ions_from_vecs(
+        &mut self,
+        precursor_idx: &[usize],
+        num_slots: usize,
+        mz_library: &[f32],
+    ) {
+        self.num_next_ions = num_slots;
+        self.next_ion_mz_library = vec![0.0; self.precursor_idx.len() * num_slots];
+        for (row, &idx) in precursor_idx.iter().enumerate() {
+            if let Ok(array_index) = self.precursor_idx.binary_search(&idx) {
+                self.next_ion_mz_library[array_index * num_slots..(array_index + 1) * num_slots]
+                    .copy_from_slice(&mz_library[row * num_slots..(row + 1) * num_slots]);
+            }
+        }
+    }
+
+    /// Library m/z of a precursor's next ions (empty slots dropped), if `set_next_ions` provided any.
+    pub fn get_next_ions_by_idx(&self, precursor_idx: usize) -> Vec<f32> {
+        if self.num_next_ions == 0 {
+            return Vec::new();
+        }
+        match self.precursor_idx.binary_search(&precursor_idx) {
+            Ok(array_index) => self.next_ion_mz_library
+                [array_index * self.num_next_ions..(array_index + 1) * self.num_next_ions]
+                .iter()
+                .copied()
+                .filter(|&mz| mz > 0.0)
+                .collect(),
+            Err(_) => Vec::new(),
         }
     }
 

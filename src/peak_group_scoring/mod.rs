@@ -25,6 +25,7 @@ use numpy::ndarray::Axis;
 
 pub mod detection;
 pub mod ms1;
+pub mod next_ions;
 pub mod parameters;
 pub mod shadow;
 pub mod tests;
@@ -464,6 +465,25 @@ impl PeakGroupScoring {
             detection_prior,
         );
 
+        let next_mz = next_ions::calibrate(
+            &lib.get_next_ions_by_idx(candidate.precursor_idx),
+            &precursor.fragment_mz,
+            &precursor.fragment_mz_library,
+        );
+        let next_ion_features = if next_mz.is_empty() || candidate.cycle_center >= num_cycles {
+            next_ions::NextIonFeatures::missing()
+        } else {
+            let apex_xic = DenseXICObservation::new(
+                dia_data,
+                precursor.mz,
+                candidate.cycle_center,
+                candidate.cycle_center + 1,
+                mass_tolerance,
+                &next_ions::probe_mz(&next_mz),
+            );
+            next_ions::next_ion_features(apex_xic.dense_xic.as_slice().unwrap(), next_mz.len())
+        };
+
         // Create and return candidate feature
         Some(
             CandidateFeature::new(
@@ -523,7 +543,8 @@ impl PeakGroupScoring {
             )
             .with_ms1(&ms1_features)
             .with_shadow(&shadow_features)
-            .with_detection(&detection_features),
+            .with_detection(&detection_features)
+            .with_next_ions(&next_ion_features),
         )
     }
 }

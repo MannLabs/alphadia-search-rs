@@ -6,9 +6,13 @@ use pyo3::types::PyDict;
 fn test_get_feature_names() {
     let feature_names = CandidateFeatureCollection::get_feature_names();
 
-    // Verify we have the expected number of f32 features (51 MS2 + 10 MS1 + 3 fragment shadow + 3 fragment detection)
-    assert_eq!(feature_names.len(), 67);
+    // Verify we have the expected number of f32 features (51 MS2 + 10 MS1 + 3 fragment shadow + 3 fragment detection
+    // + 3 next ions)
+    assert_eq!(feature_names.len(), 70);
     for name in [
+        "next_ion_hits",
+        "next_ion_hits_z",
+        "next_ion_count",
         "shadow_lib_share",
         "shadow_clean_libw_corr",
         "shadow_corr_sum6",

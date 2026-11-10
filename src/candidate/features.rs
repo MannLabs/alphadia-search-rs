@@ -71,6 +71,9 @@ pub const FEATURE_NAMES: &[&str] = &[
     "det_llr",
     "det_llr_hits",
     "det_bg_surprise",
+    "next_ion_hits",
+    "next_ion_hits_z",
+    "next_ion_count",
 ];
 
 #[derive(Debug, Clone)]
@@ -144,6 +147,9 @@ pub struct CandidateFeature {
     pub det_llr: f32,
     pub det_llr_hits: f32,
     pub det_bg_surprise: f32,
+    pub next_ion_hits: f32,
+    pub next_ion_hits_z: f32,
+    pub next_ion_count: f32,
 }
 
 impl CandidateFeature {
@@ -273,6 +279,9 @@ impl CandidateFeature {
             det_llr: 0.0,
             det_llr_hits: 0.0,
             det_bg_surprise: 0.0,
+            next_ion_hits: 0.0,
+            next_ion_hits_z: 0.0,
+            next_ion_count: 0.0,
         }
     }
 
@@ -310,6 +319,17 @@ impl CandidateFeature {
         self.det_llr = detection.det_llr;
         self.det_llr_hits = detection.det_llr_hits;
         self.det_bg_surprise = detection.det_bg_surprise;
+        self
+    }
+
+    /// The candidate with its next-ion features set.
+    pub fn with_next_ions(
+        mut self,
+        next_ions: &crate::peak_group_scoring::next_ions::NextIonFeatures,
+    ) -> Self {
+        self.next_ion_hits = next_ions.next_ion_hits;
+        self.next_ion_hits_z = next_ions.next_ion_hits_z;
+        self.next_ion_count = next_ions.next_ion_count;
         self
     }
 }
@@ -414,6 +434,9 @@ impl CandidateFeatureCollection {
         let mut det_llr = Array1::<f32>::zeros(n);
         let mut det_llr_hits = Array1::<f32>::zeros(n);
         let mut det_bg_surprise = Array1::<f32>::zeros(n);
+        let mut next_ion_hits = Array1::<f32>::zeros(n);
+        let mut next_ion_hits_z = Array1::<f32>::zeros(n);
+        let mut next_ion_count = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -485,6 +508,9 @@ impl CandidateFeatureCollection {
             det_llr[i] = feature.det_llr;
             det_llr_hits[i] = feature.det_llr_hits;
             det_bg_surprise[i] = feature.det_bg_surprise;
+            next_ion_hits[i] = feature.next_ion_hits;
+            next_ion_hits_z[i] = feature.next_ion_hits_z;
+            next_ion_count[i] = feature.next_ion_count;
         }
 
         let dict = PyDict::new(py);
@@ -630,6 +656,9 @@ impl CandidateFeatureCollection {
         dict.set_item("det_llr", det_llr.into_pyarray(py))?;
         dict.set_item("det_llr_hits", det_llr_hits.into_pyarray(py))?;
         dict.set_item("det_bg_surprise", det_bg_surprise.into_pyarray(py))?;
+        dict.set_item("next_ion_hits", next_ion_hits.into_pyarray(py))?;
+        dict.set_item("next_ion_hits_z", next_ion_hits_z.into_pyarray(py))?;
+        dict.set_item("next_ion_count", next_ion_count.into_pyarray(py))?;
 
         Ok(dict.into())
     }

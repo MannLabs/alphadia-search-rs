@@ -36,6 +36,11 @@ pub struct DetectionFeatures {
     pub det_llr_hits: f32,
     /// library-share-weighted sum over the fragments hit at the apex scan of -ln(background rate)
     pub det_bg_surprise: f32,
+    /// `det_llr` with each channel's background b = 1 - (1 - b_flank)(1 - u), u the fragment's spatial ubiquity at the
+    /// apex cycle (`ubiquity`): a hit on an ion lit in many other windows at that moment is expected anyway
+    pub det_llr_spatial: f32,
+    /// library-weighted mean spatial ubiquity of the fragments hit at the apex scan or its two neighbours
+    pub det_hit_ubiquity_mean: f32,
 }
 
 impl DetectionFeatures {
@@ -71,15 +76,51 @@ fn clamp(p: f32) -> f32 {
     p.clamp(MIN_PROBABILITY, 1.0 - MIN_PROBABILITY)
 }
 
+/// Hit/miss log-likelihood ratio and its hit terms at the best signal scale, for per-fragment background rates.
+fn best_llr(
+    xic: &Array2<f32>,
+    scans: &[(usize, f32)],
+    library_intensity: &[f32],
+    top: f32,
+    background: &[f32],
+) -> (f32, f32) {
+    let log_step = (MAX_SCALE / MIN_SCALE).ln() / (NUM_SCALES - 1) as f32;
+    let mut best = (f32::NEG_INFINITY, 0.0f32);
+    for s in 0..NUM_SCALES {
+        let scale = MIN_SCALE * (log_step * s as f32).exp();
+        let mut llr = 0.0f32;
+        let mut hits = 0.0f32;
+        for (f, &b) in background.iter().enumerate() {
+            let relative = library_intensity[f] / top;
+            for &(c, g) in scans {
+                let p1 = clamp(1.0 - (1.0 - b) * (-scale * relative * g).exp());
+                if xic[[f, c]] > 0.0 {
+                    let term = (p1 / b).ln();
+                    llr += term;
+                    hits += term;
+                } else {
+                    llr += ((1.0 - p1) / (1.0 - b)).ln();
+                }
+            }
+        }
+        if llr > best.0 {
+            best = (llr, hits);
+        }
+    }
+    best
+}
+
 /// Detection features of one candidate.
 ///
 /// `xic`: [fragment, cycle] over `window(apex, ...)`, `apex_col`: the apex column in it, `library_intensity`: per
-/// fragment, `b0`: the run's mean flank hit rate.
+/// fragment, `b0`: the run's mean flank hit rate, `ubiquity`: per fragment the spatial ubiquity at the apex cycle
+/// (None leaves the spatial features at 0).
 pub fn detection_features(
     xic: &Array2<f32>,
     apex_col: usize,
     library_intensity: &[f32],
     b0: f32,
+    ubiquity: Option<&[f32]>,
 ) -> DetectionFeatures {
     let n_fragments = xic.nrows();
     if n_fragments == 0 || apex_col >= xic.ncols() || library_intensity.len() != n_fragments {
@@ -106,40 +147,37 @@ pub fn detection_features(
     .filter_map(|(c, g)| c.filter(|&c| c < xic.ncols()).map(|c| (c, g)))
     .collect();
 
-    let log_step = (MAX_SCALE / MIN_SCALE).ln() / (NUM_SCALES - 1) as f32;
-    let mut best = (f32::NEG_INFINITY, 0.0f32);
-    for s in 0..NUM_SCALES {
-        let scale = MIN_SCALE * (log_step * s as f32).exp();
-        let mut llr = 0.0f32;
-        let mut hits = 0.0f32;
-        for f in 0..n_fragments {
-            let b = background[f];
-            let relative = library_intensity[f] / top;
-            for &(c, g) in &scans {
-                let p1 = clamp(1.0 - (1.0 - b) * (-scale * relative * g).exp());
-                if xic[[f, c]] > 0.0 {
-                    let term = (p1 / b).ln();
-                    llr += term;
-                    hits += term;
-                } else {
-                    llr += ((1.0 - p1) / (1.0 - b)).ln();
-                }
-            }
-        }
-        if llr > best.0 {
-            best = (llr, hits);
-        }
-    }
+    let best = best_llr(xic, &scans, library_intensity, top, &background);
 
     let det_bg_surprise = (0..n_fragments)
         .filter(|&f| xic[[f, apex_col]] > 0.0)
         .map(|f| library_intensity[f] / total * -background[f].ln())
         .sum();
 
+    let (det_llr_spatial, det_hit_ubiquity_mean) = match ubiquity {
+        Some(u) if u.len() == n_fragments => {
+            let spatial: Vec<f32> = background
+                .iter()
+                .zip(u)
+                .map(|(&b, &u)| clamp(1.0 - (1.0 - b) * (1.0 - u)))
+                .collect();
+            let llr = best_llr(xic, &scans, library_intensity, top, &spatial).0;
+            let (weighted, weight) = (0..n_fragments)
+                .filter(|&f| scans.iter().any(|&(c, _)| xic[[f, c]] > 0.0))
+                .fold((0.0f32, 0.0f32), |(wu, w), f| {
+                    (wu + library_intensity[f] * u[f], w + library_intensity[f])
+                });
+            (llr, if weight > 0.0 { weighted / weight } else { 0.0 })
+        }
+        _ => (0.0, 0.0),
+    };
+
     DetectionFeatures {
         det_llr: best.0,
         det_llr_hits: best.1,
         det_bg_surprise,
+        det_llr_spatial,
+        det_hit_ubiquity_mean,
     }
 }
 
@@ -182,8 +220,8 @@ mod tests {
         for f in 0..8 {
             xic[[f, 9]] = 300.0;
         }
-        let hit = detection_features(&xic, 9, &library(), 0.09);
-        let none = detection_features(&empty(), 9, &library(), 0.09);
+        let hit = detection_features(&xic, 9, &library(), 0.09, None);
+        let none = detection_features(&empty(), 9, &library(), 0.09, None);
         assert!(hit.det_llr > 5.0);
         assert!(hit.det_llr > none.det_llr);
         assert!(hit.det_llr_hits > 0.0);
@@ -202,8 +240,8 @@ mod tests {
                 busy[[f, c]] = 300.0;
             }
         }
-        let q = detection_features(&quiet, 9, &library(), 0.09);
-        let b = detection_features(&busy, 9, &library(), 0.09);
+        let q = detection_features(&quiet, 9, &library(), 0.09, None);
+        let b = detection_features(&busy, 9, &library(), 0.09, None);
         assert!(q.det_llr > b.det_llr);
         assert!(q.det_bg_surprise > b.det_bg_surprise);
     }
@@ -216,19 +254,66 @@ mod tests {
             weak_missing[[f, 9]] = 300.0;
             strong_missing[[11 - f, 9]] = 300.0;
         }
-        let w = detection_features(&weak_missing, 9, &library(), 0.09);
-        let s = detection_features(&strong_missing, 9, &library(), 0.09);
+        let w = detection_features(&weak_missing, 9, &library(), 0.09, None);
+        let s = detection_features(&strong_missing, 9, &library(), 0.09, None);
         assert!(w.det_llr > s.det_llr);
+    }
+
+    #[test]
+    fn spatial_llr_equals_det_llr_without_ubiquity() {
+        let mut xic = empty();
+        for f in 0..5 {
+            xic[[f, 9]] = 300.0;
+        }
+        xic[[2, 1]] = 300.0;
+        let zero = vec![0.0f32; 12];
+        let d = detection_features(&xic, 9, &library(), 0.09, Some(&zero));
+        assert!((d.det_llr_spatial - d.det_llr).abs() < 1e-3 * d.det_llr.abs());
+        assert_eq!(d.det_hit_ubiquity_mean, 0.0);
+        let off = detection_features(&xic, 9, &library(), 0.09, None);
+        assert_eq!(off.det_llr, d.det_llr);
+        assert_eq!(off.det_llr_spatial, 0.0);
+    }
+
+    #[test]
+    fn hits_on_ubiquitous_ions_count_less() {
+        let mut xic = empty();
+        for f in 0..5 {
+            xic[[f, 9]] = 300.0;
+        }
+        let mut ubiquity = vec![0.0f32; 12];
+        for u in ubiquity.iter_mut().take(5) {
+            *u = 0.4;
+        }
+        let d = detection_features(&xic, 9, &library(), 0.09, Some(&ubiquity));
+        assert!(d.det_llr_spatial < d.det_llr);
+        assert!((d.det_hit_ubiquity_mean - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn hit_ubiquity_is_library_weighted_over_hits_next_to_the_apex() {
+        let mut xic = empty();
+        xic[[0, 9]] = 300.0;
+        xic[[11, 10]] = 300.0;
+        xic[[5, 0]] = 300.0; // flank only, not a hit
+        let mut ubiquity = vec![0.0f32; 12];
+        ubiquity[0] = 0.1;
+        ubiquity[11] = 0.5;
+        ubiquity[5] = 0.9;
+        let lib = library();
+        let d = detection_features(&xic, 9, &lib, 0.09, Some(&ubiquity));
+        let expected = (lib[0] * 0.1 + lib[11] * 0.5) / (lib[0] + lib[11]);
+        assert!((d.det_hit_ubiquity_mean - expected).abs() < 1e-6);
     }
 
     #[test]
     fn invalid_inputs_give_missing_values() {
         assert_eq!(
-            detection_features(&empty(), 30, &library(), 0.09),
+            detection_features(&empty(), 30, &library(), 0.09, None),
             DetectionFeatures::missing()
         );
         assert_eq!(
-            detection_features(&empty(), 9, &[1.0, 2.0], 0.09),
+            detection_features(&empty(), 9, &[1.0, 2.0], 0.09, None),
             DetectionFeatures::missing()
         );
     }

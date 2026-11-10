@@ -71,6 +71,8 @@ pub const FEATURE_NAMES: &[&str] = &[
     "det_llr",
     "det_llr_hits",
     "det_bg_surprise",
+    "det_llr_spatial",
+    "det_hit_ubiquity_mean",
 ];
 
 #[derive(Debug, Clone)]
@@ -144,6 +146,8 @@ pub struct CandidateFeature {
     pub det_llr: f32,
     pub det_llr_hits: f32,
     pub det_bg_surprise: f32,
+    pub det_llr_spatial: f32,
+    pub det_hit_ubiquity_mean: f32,
 }
 
 impl CandidateFeature {
@@ -273,6 +277,8 @@ impl CandidateFeature {
             det_llr: 0.0,
             det_llr_hits: 0.0,
             det_bg_surprise: 0.0,
+            det_llr_spatial: 0.0,
+            det_hit_ubiquity_mean: 0.0,
         }
     }
 
@@ -310,6 +316,8 @@ impl CandidateFeature {
         self.det_llr = detection.det_llr;
         self.det_llr_hits = detection.det_llr_hits;
         self.det_bg_surprise = detection.det_bg_surprise;
+        self.det_llr_spatial = detection.det_llr_spatial;
+        self.det_hit_ubiquity_mean = detection.det_hit_ubiquity_mean;
         self
     }
 }
@@ -414,6 +422,8 @@ impl CandidateFeatureCollection {
         let mut det_llr = Array1::<f32>::zeros(n);
         let mut det_llr_hits = Array1::<f32>::zeros(n);
         let mut det_bg_surprise = Array1::<f32>::zeros(n);
+        let mut det_llr_spatial = Array1::<f32>::zeros(n);
+        let mut det_hit_ubiquity_mean = Array1::<f32>::zeros(n);
 
         for (i, feature) in self.features.iter().enumerate() {
             precursor_idxs[i] = feature.precursor_idx as u64;
@@ -485,6 +495,8 @@ impl CandidateFeatureCollection {
             det_llr[i] = feature.det_llr;
             det_llr_hits[i] = feature.det_llr_hits;
             det_bg_surprise[i] = feature.det_bg_surprise;
+            det_llr_spatial[i] = feature.det_llr_spatial;
+            det_hit_ubiquity_mean[i] = feature.det_hit_ubiquity_mean;
         }
 
         let dict = PyDict::new(py);
@@ -630,6 +642,11 @@ impl CandidateFeatureCollection {
         dict.set_item("det_llr", det_llr.into_pyarray(py))?;
         dict.set_item("det_llr_hits", det_llr_hits.into_pyarray(py))?;
         dict.set_item("det_bg_surprise", det_bg_surprise.into_pyarray(py))?;
+        dict.set_item("det_llr_spatial", det_llr_spatial.into_pyarray(py))?;
+        dict.set_item(
+            "det_hit_ubiquity_mean",
+            det_hit_ubiquity_mean.into_pyarray(py),
+        )?;
 
         Ok(dict.into())
     }

@@ -134,6 +134,10 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         self.isolation_window
     }
 
+    fn peaks_of_bin(&self, mz_idx: usize) -> (&[u16], &[f32]) {
+        self.get_slice_data(mz_idx)
+    }
+
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,

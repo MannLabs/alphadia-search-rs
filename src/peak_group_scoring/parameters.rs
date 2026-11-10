@@ -10,6 +10,10 @@ pub struct ScoringParameters {
     pub top_k_fragments: usize,
     #[pyo3(get)]
     pub ms1_mass_tolerance: f32,
+    /// score the spatial ubiquity of the fragments (`det_llr_spatial`, `det_hit_ubiquity_mean`); it needs a
+    /// run-wide centroid index, so it is meant for the final extraction only
+    #[pyo3(get)]
+    pub spatial_ubiquity: bool,
 }
 
 #[pymethods]
@@ -23,6 +27,7 @@ impl ScoringParameters {
             top_k_fragments: 100,
             // maximum mass error for matching precursor isotopes in the MS1 scans, in ppm
             ms1_mass_tolerance: 10.0,
+            spatial_ubiquity: false,
         }
     }
 
@@ -35,6 +40,9 @@ impl ScoringParameters {
         }
         if let Some(value) = config.get_item("ms1_mass_tolerance")? {
             self.ms1_mass_tolerance = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("spatial_ubiquity")? {
+            self.spatial_ubiquity = value.extract::<bool>()?;
         }
         Ok(())
     }

@@ -37,6 +37,9 @@ pub trait DIADataTrait {
 pub trait QuadrupoleObservationTrait {
     fn isolation_window(&self) -> [f32; 2];
 
+    /// Cycle indices (ascending) and intensities of the centroids in one m/z bin of the global m/z index.
+    fn peaks_of_bin(&self, mz_idx: usize) -> (&[u16], &[f32]);
+
     fn fill_xic_slice(
         &self,
         mz_index: &MZIndex,

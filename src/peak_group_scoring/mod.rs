@@ -8,6 +8,7 @@ use crate::candidate::{
 use crate::constants::FragmentType;
 use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::dia_data::DIAData;
+use crate::peak_group_scoring::ubiquity::UbiquityIndex;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, calculate_dot_product, calculate_fragment_agreement_features,
     calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_inverse_mass_error,
@@ -28,6 +29,7 @@ pub mod ms1;
 pub mod parameters;
 pub mod shadow;
 pub mod tests;
+pub mod ubiquity;
 pub mod utils;
 pub use parameters::ScoringParameters;
 
@@ -68,6 +70,11 @@ impl PeakGroupScoring {
         let start_time = Instant::now();
         let ms1_observations = dia_data.ms1_observations();
         let detection_prior = self.detection_prior(dia_data, lib, candidates);
+        let ubiquity_index = if self.params.spatial_ubiquity {
+            UbiquityIndex::build(dia_data)
+        } else {
+            None
+        };
 
         // Parallel iteration over candidates to score each one
         let scored_candidates: Vec<CandidateFeature> = candidates
@@ -87,6 +94,7 @@ impl PeakGroupScoring {
                         candidate,
                         &ms1_observations,
                         detection_prior,
+                        ubiquity_index.as_ref(),
                     ),
                     None => {
                         eprintln!(
@@ -167,6 +175,7 @@ impl PeakGroupScoring {
         candidate: &Candidate,
         ms1_observations: &[usize],
         detection_prior: f32,
+        ubiquity_index: Option<&UbiquityIndex>,
     ) -> Option<CandidateFeature> {
         // Scoring implementation for individual candidate will be added here
         // For now, return the original score
@@ -457,11 +466,21 @@ impl PeakGroupScoring {
             mass_tolerance,
             &precursor.fragment_mz,
         );
+        let ubiquity = ubiquity_index.map(|index| {
+            index.fragment_ubiquity(
+                dia_data.mz_index(),
+                candidate.cycle_center,
+                precursor.mz,
+                &precursor.fragment_mz,
+                mass_tolerance,
+            )
+        });
         let detection_features = detection::detection_features(
             &detection_xic.dense_xic,
             candidate.cycle_center - detection_start,
             &precursor.fragment_intensity,
             detection_prior,
+            ubiquity.as_deref(),
         );
 
         // Create and return candidate feature

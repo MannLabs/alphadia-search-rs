@@ -32,7 +32,6 @@ pub enum Statistic {
 
 pub const DEFAULT_BIN_SECONDS: f64 = 30.0;
 pub const DEFAULT_MIN_CORRELATION: f64 = 0.8;
-pub const DEFAULT_MIN_OBSERVATIONS: usize = 3;
 pub const DEFAULT_MIN_IONS_PER_BIN: usize = 100;
 pub const DEFAULT_MIN_IONS_PER_RUN: usize = 500;
 
@@ -42,8 +41,6 @@ pub struct DriftParameters {
     pub bin_seconds: f64,
     /// Minimum mean cross-run correlation of a usable ion.
     pub min_correlation: f64,
-    /// Minimum number of runs a usable ion is observed in.
-    pub min_observations: usize,
     /// Minimum number of usable ions observed in the run per bin.
     pub min_ions_per_bin: usize,
     /// Minimum number of usable ions observed in a run; runs below it are not corrected.
@@ -55,7 +52,6 @@ impl DriftParameters {
     pub const DEFAULT: Self = Self {
         bin_seconds: DEFAULT_BIN_SECONDS,
         min_correlation: DEFAULT_MIN_CORRELATION,
-        min_observations: DEFAULT_MIN_OBSERVATIONS,
         min_ions_per_bin: DEFAULT_MIN_IONS_PER_BIN,
         min_ions_per_run: DEFAULT_MIN_IONS_PER_RUN,
         statistic: Statistic::Mode,
@@ -73,9 +69,6 @@ impl DriftParameters {
                 "min_correlation must be a number, got {}",
                 self.min_correlation
             ));
-        }
-        if self.min_observations == 0 {
-            return Err("min_observations must be at least 1".to_string());
         }
         if self.min_ions_per_bin == 0 {
             return Err("min_ions_per_bin must be at least 1".to_string());
@@ -213,7 +206,9 @@ impl<'a> IonRt<'a> {
 /// Reference level of every ion, NaN for an ion that is not usable.
 ///
 /// The correlation threshold excludes fragments dominated by interference, whose deviation
-/// does not reflect the drift of the run.
+/// does not reflect the drift of the run. The reference is the mean over all runs: with a
+/// median, one run of every ion sits exactly on its reference, and the resulting spike of
+/// zero deviations pulls the mode of every bin towards no correction.
 fn reference_levels(
     intensity: &[f32],
     correlation: &[f32],
@@ -238,13 +233,12 @@ fn reference_levels(
                         }
                     }
                 }
-                if levels.len() < parameters.min_observations
+                if levels.len() < n_runs
                     || correlation_sum / (levels.len() as f64) < parameters.min_correlation
                 {
                     return f64::NAN;
                 }
-                levels.sort_by(f64::total_cmp);
-                percentile_of_sorted(levels, 50.0)
+                levels.iter().sum::<f64>() / n_runs as f64
             },
         )
         .collect()
@@ -448,7 +442,7 @@ fn neighbourhood(index: usize, window: usize, len: usize) -> Range<usize> {
 }
 
 /// Linear interpolated percentile of sorted values, as `numpy.percentile` computes it.
-fn percentile_of_sorted(sorted: &[f64], percentile: f64) -> f64 {
+pub(super) fn percentile_of_sorted(sorted: &[f64], percentile: f64) -> f64 {
     let rank = percentile / 100.0 * (sorted.len() - 1) as f64;
     let lower = rank.floor() as usize;
     let upper = (lower + 1).min(sorted.len() - 1);
@@ -456,7 +450,7 @@ fn percentile_of_sorted(sorted: &[f64], percentile: f64) -> f64 {
 }
 
 /// Linear interpolation of `ys` at `x`, constant outside the range of the ascending `xs`.
-fn interpolate(x: f64, xs: &[f64], ys: &[f64]) -> f64 {
+pub(super) fn interpolate(x: f64, xs: &[f64], ys: &[f64]) -> f64 {
     let upper = xs.partition_point(|&value| value < x);
     if upper == 0 {
         return ys[0];

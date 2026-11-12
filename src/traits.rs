@@ -45,4 +45,7 @@ pub trait QuadrupoleObservationTrait {
         mass_tolerance: f32,
         mz: f32,
     );
+
+    /// Total intensity of all peaks of this isolation window per cycle (length = number of cycles).
+    fn cycle_intensity_sums(&self) -> Vec<f32>;
 }

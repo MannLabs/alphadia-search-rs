@@ -58,8 +58,11 @@ impl CalibrationEstimator {
     }
 
     /// Fit the underlying LOESS model and cache metrics. Leaves the estimator
-    /// unfitted (and returns `Err`) on degenerate input.
+    /// unfitted (and returns `Err`) on degenerate input, also when it was fitted
+    /// before: a failed refit must not leave the model of an earlier fit in place.
     pub fn fit(&mut self, input: &[f32], target: &[f32]) -> Result<(), String> {
+        self.is_fitted = false;
+        self.metrics = None;
         validate_pair(input, target)?;
 
         // Calibration corrects a near-identity mapping (target ≈ input, e.g.
@@ -127,13 +130,14 @@ impl CalibrationEstimator {
     /// Residual deviation at the given confidence interval (e.g. `0.95`), matching
     /// the Python `ci` method: mean of the absolute central-interval endpoints.
     ///
-    /// Returns `Ok(0.0)` when unfitted (the Python wrapper relies on this).
-    pub fn ci(&self, input: &[f32], target: &[f32], ci: f32) -> Result<f32, String> {
+    /// Returns `Ok(None)` when unfitted: there are no residuals to measure, and a
+    /// `0.0` would read as a perfect calibration.
+    pub fn ci(&self, input: &[f32], target: &[f32], ci: f32) -> Result<Option<f32>, String> {
         if !(0.0..=1.0).contains(&ci) {
             return Err(format!("confidence interval must be in [0, 1], got {ci}"));
         }
         if !self.is_fitted {
-            return Ok(0.0);
+            return Ok(None);
         }
         if input.is_empty() {
             return Err("cannot compute a confidence interval on empty input".to_string());
@@ -142,7 +146,7 @@ impl CalibrationEstimator {
         let lo = 100.0 * (1.0 - ci) / 2.0;
         let hi = 100.0 * (1.0 + ci) / 2.0;
         let bounds = percentiles(&dev.residual, &[lo, hi]);
-        Ok((bounds[0].abs() + bounds[1].abs()) / 2.0)
+        Ok(Some((bounds[0].abs() + bounds[1].abs()) / 2.0))
     }
 
     fn require_fitted(&self) -> Result<(), String> {

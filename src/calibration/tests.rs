@@ -183,8 +183,25 @@ fn test_unfitted_estimator_errors_instead_of_panicking() {
     let x = [1.0, 2.0, 3.0];
     assert!(est.predict(&x).is_err());
     assert!(est.deviation(&x, &x).is_err());
-    // `ci` deliberately reports 0.0 when unfitted (the Python wrapper relies on it).
-    assert_eq!(est.ci(&x, &x, 0.95), Ok(0.0));
+    assert_eq!(est.ci(&x, &x, 0.95), Ok(None));
+}
+
+#[test]
+fn test_failed_refit_leaves_the_estimator_unfitted() {
+    // given: an estimator fitted on valid data
+    let library: Vec<f32> = (200..=1200).map(|i| i as f32).collect();
+    let observed: Vec<f32> = library.iter().map(|&mz| mz * (1.0 + 5e-6)).collect();
+    let mut est = CalibrationEstimator::new(2, Some(1e6));
+    est.fit(&library, &observed).expect("fit should succeed");
+
+    // when: a refit fails
+    let result = est.fit(&[1.0, 2.0], &[1.0, 2.0, 3.0]);
+
+    // then: the model of the earlier fit is not used any more
+    assert!(result.is_err());
+    assert!(!est.is_fitted());
+    assert_eq!(est.metrics(), None);
+    assert_eq!(est.ci(&library, &observed, 0.95), Ok(None));
 }
 
 #[test]
@@ -207,7 +224,7 @@ fn test_ci_rejects_out_of_range() {
 
     assert!(est.ci(&library, &observed, -0.1).is_err());
     assert!(est.ci(&library, &observed, 1.5).is_err());
-    assert!(est.ci(&library, &observed, 0.95).is_ok());
+    assert!(est.ci(&library, &observed, 0.95).unwrap().is_some());
 }
 
 #[test]

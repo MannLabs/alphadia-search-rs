@@ -162,6 +162,7 @@ impl PeakGroupSelection {
         let dense_xic_obs = DenseXICObservation::new(
             dia_data,
             precursor.mz,
+            precursor.mobility_filter(),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

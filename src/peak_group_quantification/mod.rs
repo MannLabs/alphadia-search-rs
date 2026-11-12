@@ -99,6 +99,7 @@ impl PeakGroupQuantification {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            precursor.mobility_filter(),
             cycle_start,
             cycle_stop,
             self.params.tolerance_ppm,

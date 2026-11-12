@@ -148,6 +148,25 @@ cycles = &cycle_indices[0..2] = [40, 41]              // observed in cycles 40 a
 ints   = &intensities[0..2]   = [12_450.0, 18_820.0]
 ```
 
+# Ion mobility filter
+
+Callers pick observations with `DIADataTrait::select_observations(precursor_mz, mobility)`. Each
+selected observation comes with a `ScanFilter`, the associated type of `QuadrupoleObservationTrait`,
+which `fill_xic_slice` and `fill_xic_and_mz_slice` apply while summing peaks.
+
+- `DIAData` has no ion mobility dimension. Its `ScanFilter` is `()`, the mobility is ignored and the
+  selected observations are exactly those of `DIAData::get_valid_observations`.
+- Data with an ion mobility dimension (timsTOF) can use the filter to keep only peaks whose scan lies
+  within `mobility ± tolerance` and isolated the precursor.
+
+`MobilityFilter` is either `Any` (no restriction) or `Window { mobility, tolerance }`. Build it from a
+library mobility with `MobilityFilter::from_library(mobility, tolerance)`: a NaN mobility (the library
+has none) or an infinite tolerance gives `Any`, and a NaN or negative tolerance, or a mobility that
+is not finite and positive, is an error.
+
+Selection, scoring and quantification all take the filter from `Precursor::mobility_filter()`, which
+returns `Any` until precursors carry a library mobility.
+
 # Benefits
 
 - Memory and allocation optimized storage of sparse arrays instead of list of structs

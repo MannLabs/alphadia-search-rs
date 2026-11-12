@@ -1,3 +1,5 @@
+use crate::traits::{check_mobility_tolerance, DEFAULT_MOBILITY_TOLERANCE};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -7,6 +9,10 @@ pub struct QuantificationParameters {
     /// Mass tolerance in ppm for fragment matching
     #[pyo3(get, set)]
     pub tolerance_ppm: f32,
+
+    /// Maximum ion mobility (1/K0) deviation, ignored for data without mobility
+    #[pyo3(get)]
+    pub mobility_tolerance: f32,
 
     /// Maximum number of fragments to use for quantification per precursor
     #[pyo3(get, set)]
@@ -20,15 +26,26 @@ impl QuantificationParameters {
         Self {
             // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
             tolerance_ppm: 7.0,
+            mobility_tolerance: DEFAULT_MOBILITY_TOLERANCE,
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
             // very large number to capture them all by default
             top_k_fragments: 10000,
         }
     }
 
+    #[setter]
+    pub fn set_mobility_tolerance(&mut self, value: f32) -> PyResult<()> {
+        self.mobility_tolerance = check_mobility_tolerance(value).map_err(PyValueError::new_err)?;
+        Ok(())
+    }
+
     pub fn update(&mut self, config: &Bound<'_, PyDict>) -> PyResult<()> {
         if let Some(value) = config.get_item("tolerance_ppm")? {
             self.tolerance_ppm = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("mobility_tolerance")? {
+            self.mobility_tolerance =
+                check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;

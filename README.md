@@ -76,6 +76,7 @@ Omit the `--release` extension for a developer build.
 5. **Run tests:**
    ```bash
    cargo test                    # Rust tests
+   cargo test --features tims    # including timsTOF support (pulls in timsrust)
    python ./scripts/test_search.py  # Python integration test
    ```
 

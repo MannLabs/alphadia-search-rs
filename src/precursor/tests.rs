@@ -1,5 +1,6 @@
 use super::*;
 use crate::speclib_flat::filter_sort_fragments;
+use crate::traits::MobilityFilter;
 
 fn test_precursor() -> Precursor {
     Precursor {
@@ -8,6 +9,7 @@ fn test_precursor() -> Precursor {
         mz_library: 500.5,
         rt: 100.0,
         rt_library: 100.5,
+        mobility: f32::NAN,
         naa: 10,
         fragment_mz: vec![200.0, 300.0, 400.0, 500.0, 600.0],
         fragment_mz_library: vec![200.5, 300.5, 400.5, 500.5, 600.5],
@@ -123,6 +125,7 @@ fn test_ordering_preservation() {
         mz_library: 500.5,
         rt: 100.0,
         rt_library: 100.5,
+        mobility: f32::NAN,
         naa: 12,
         fragment_mz: vec![600.0, 200.0, 800.0, 100.0, 400.0],
         fragment_mz_library: vec![600.5, 200.5, 800.5, 100.5, 400.5],
@@ -168,6 +171,7 @@ fn test_top_k_larger_than_available() {
         mz_library: 500.5,
         rt: 100.0,
         rt_library: 100.5,
+        mobility: f32::NAN,
         naa: 8,
         fragment_mz: vec![300.0, 400.0],
         fragment_mz_library: vec![300.5, 400.5],
@@ -206,6 +210,7 @@ fn test_all_zero_intensities_filtered() {
         mz_library: 500.5,
         rt: 100.0,
         rt_library: 100.5,
+        mobility: f32::NAN,
         naa: 6,
         fragment_mz: vec![300.0, 400.0],
         fragment_mz_library: vec![300.5, 400.5],
@@ -234,4 +239,24 @@ fn test_all_zero_intensities_filtered() {
     );
     assert_eq!(mz, Vec::<f32>::new());
     assert_eq!(intensity, Vec::<f32>::new());
+}
+
+#[test]
+fn test_mobility_filter_carries_mobility_and_tolerance() {
+    let mut precursor = test_precursor();
+    precursor.mobility = 0.9;
+    assert_eq!(
+        precursor.mobility_filter(0.05),
+        MobilityFilter::Window {
+            mobility: 0.9,
+            tolerance: 0.05
+        }
+    );
+}
+
+#[test]
+fn test_mobility_filter_without_library_mobility_is_any() {
+    let mut precursor = test_precursor();
+    precursor.mobility = f32::NAN;
+    assert_eq!(precursor.mobility_filter(0.05), MobilityFilter::Any);
 }

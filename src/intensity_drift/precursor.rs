@@ -14,7 +14,10 @@ pub const DEFAULT_SIGMA_RT: f64 = 1.0;
 pub const DEFAULT_SIGMA_MASS: f64 = 1.0;
 pub const DEFAULT_MIN_POINTS_PER_CELL: usize = 30;
 pub const DEFAULT_MIN_REFERENCE_PER_RUN: usize = 200;
-pub const DEFAULT_MIN_RUN_FRACTION: f64 = 0.5;
+// a precursor missing in a run was mostly not detected there, so its other values are selected on
+// their own noise; a larger share keeps those rows out of the reference while one failed run of
+// six still leaves the others corrected
+pub const DEFAULT_MIN_RUN_FRACTION: f64 = 0.75;
 
 /// A single run has no cross-run reference.
 const MIN_RUNS: usize = 2;
@@ -770,7 +773,7 @@ mod tests {
             .map(|&n_runs| parameters.min_reference_runs(n_runs))
             .collect();
 
-        assert_eq!(min_runs, vec![2, 2, 3, 3, 50]);
+        assert_eq!(min_runs, vec![2, 3, 4, 5, 75]);
     }
 
     #[test]

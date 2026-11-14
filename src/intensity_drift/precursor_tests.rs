@@ -25,6 +25,9 @@ const N_PARTIAL_RUNS: usize = 6;
 /// Quantified precursors of the near-blank run, fewer than `min_reference_per_run`.
 const N_BLANK_RUN_PRECURSORS: usize = 50;
 const MISSING_SHARE: f64 = 0.4;
+/// The tests of rows missing at random admit precursors quantified in half of the runs, so that
+/// most reference rows are partial and the row-level rounds are exercised.
+const PARTIAL_ROW_RUN_FRACTION: f64 = 0.5;
 /// Draws of the tests with missing cells; their shares scatter more than those of complete
 /// tables.
 const N_MISSING_SEEDS: u64 = 16;
@@ -75,6 +78,7 @@ struct Tables {
     mass: Vec<f64>,
     /// Log2 drift of every cell.
     drift: Vec<f64>,
+    parameters: PrecursorDriftParameters,
 }
 
 impl Tables {
@@ -110,7 +114,13 @@ impl Tables {
             rt: rt.repeat(n_runs),
             mass,
             drift,
+            parameters: PrecursorDriftParameters::DEFAULT,
         }
+    }
+
+    fn with_min_run_fraction(mut self, min_run_fraction: f64) -> Self {
+        self.parameters.min_run_fraction = min_run_fraction;
+        self
     }
 
     fn correct(&self) -> (Vec<f64>, PrecursorDriftSummary) {
@@ -124,7 +134,7 @@ impl Tables {
             rt,
             &self.mass,
             self.n_runs,
-            &PrecursorDriftParameters::DEFAULT,
+            &self.parameters,
         );
         (corrected, summary)
     }
@@ -136,7 +146,7 @@ impl Tables {
             &self.rt,
             &self.mass,
             self.n_runs,
-            &PrecursorDriftParameters::DEFAULT,
+            &self.parameters,
             rounds,
             tolerance,
         );
@@ -406,8 +416,10 @@ fn test_removes_the_drift_with_cells_missing_at_random_as_from_complete_data() {
     let mut complete_total = 0.0;
     let mut missing_total = 0.0;
     for seed in 0..N_MISSING_SEEDS {
-        let complete = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
-        let mut missing = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
+        let complete = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed)
+            .with_min_run_fraction(PARTIAL_ROW_RUN_FRACTION);
+        let mut missing = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed)
+            .with_min_run_fraction(PARTIAL_ROW_RUN_FRACTION);
         missing.drop_at_random(MISSING_SHARE, seed + N_MISSING_SEEDS);
         let runs = complete.all_runs();
 
@@ -441,7 +453,8 @@ fn test_the_rounds_remove_the_bias_of_rows_missing_in_some_runs() {
     let mut single_total = 0.0;
     let mut rounds_total = 0.0;
     for seed in 0..N_MISSING_SEEDS {
-        let mut tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
+        let mut tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed)
+            .with_min_run_fraction(PARTIAL_ROW_RUN_FRACTION);
         tables.drop_at_random(MISSING_SHARE, seed + N_MISSING_SEEDS);
         let runs = tables.all_runs();
 

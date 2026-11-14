@@ -1,4 +1,7 @@
-use super::precursor::{correct_precursor_drift, PrecursorDriftParameters, PrecursorDriftSummary};
+use super::precursor::{
+    correct_precursor_drift, correct_precursor_drift_in_rounds, PrecursorDriftParameters,
+    PrecursorDriftSummary, ROW_LEVEL_ROUNDS,
+};
 
 const N_PRECURSORS: usize = 30_000;
 const GRADIENT_SECONDS: f64 = 1500.0;
@@ -17,6 +20,27 @@ const MIN_REMOVED_SHARE: f64 = 0.9;
 const N_SEEDS: u64 = 8;
 /// Maximum root mean square difference between the applied correction and the drift, in log2.
 const MAX_CORRECTION_ERROR_LOG2: f64 = 0.05;
+/// Runs of the partial-reference tests: three per condition, as in a small study.
+const N_PARTIAL_RUNS: usize = 6;
+/// Quantified precursors of the near-blank run, fewer than `min_reference_per_run`.
+const N_BLANK_RUN_PRECURSORS: usize = 50;
+const MISSING_SHARE: f64 = 0.4;
+/// Draws of the tests with missing cells; their shares scatter more than those of complete
+/// tables.
+const N_MISSING_SEEDS: u64 = 16;
+/// Maximum shortfall of the mean removed share with missing cells against the complete tables of
+/// the same draws. Over 48 draws the shortfall is 0.017 (standard error 0.008), 0.029 (0.010)
+/// against complete tables with as many reference precursors per run: the half-sample mode
+/// under-corrects a little on the deviations of incomplete rows, a cell mean does not (0.007).
+const MAX_MISSING_SHORTFALL: f64 = 0.05;
+/// Minimum gain of the alternating estimate over a single round with missing cells. A single
+/// round measures the deviations of incomplete rows from biased row levels: 0.83 against 0.92
+/// over 48 draws.
+const MIN_ROUNDS_GAIN: f64 = 0.04;
+/// The rounds of the alternating estimate never stop early.
+const NEVER_STOP: f64 = -1.0;
+/// Agreement of between-run log2 ratios of two estimates that must be equal.
+const RATIO_TOLERANCE_LOG2: f64 = 1e-9;
 
 /// SplitMix64 with Box-Muller normal draws.
 struct Random(u64);
@@ -105,63 +129,91 @@ impl Tables {
         (corrected, summary)
     }
 
-    /// Log2 correction of every cell, centred per run.
+    fn correct_in_rounds(&self, rounds: usize, tolerance: f64) -> Vec<f64> {
+        let mut corrected = self.intensity.clone();
+        correct_precursor_drift_in_rounds(
+            &mut corrected,
+            &self.rt,
+            &self.mass,
+            self.n_runs,
+            &PrecursorDriftParameters::DEFAULT,
+            rounds,
+            tolerance,
+        );
+        corrected
+    }
+
+    /// Marks `share` of the cells, drawn at random, as missing.
+    fn drop_at_random(&mut self, share: f64, seed: u64) {
+        let mut random = Random(seed);
+        for value in self.intensity.iter_mut() {
+            if random.uniform() < share {
+                *value = 0.0;
+            }
+        }
+    }
+
+    /// Log2 correction of every cell, NaN where the cell is missing.
     fn applied(&self, corrected: &[f64]) -> Vec<f64> {
-        let applied: Vec<f64> = self
-            .intensity
+        self.intensity
             .iter()
             .zip(corrected)
             .map(|(before, after)| (before / after).log2())
-            .collect();
-        self.centred_per_run(&applied)
-    }
-
-    /// The drift visible against the other runs: the drift of every cell minus its mean over
-    /// the runs, centred per run.
-    fn identifiable_drift(&self) -> Vec<f64> {
-        let n = self.n_precursors;
-        let relative: Vec<f64> = (0..self.n_runs * n)
-            .map(|cell| {
-                let precursor = cell % n;
-                let mean = (0..self.n_runs)
-                    .map(|run| self.drift[run * n + precursor])
-                    .sum::<f64>()
-                    / self.n_runs as f64;
-                self.drift[cell] - mean
-            })
-            .collect();
-        self.centred_per_run(&relative)
-    }
-
-    fn centred_per_run(&self, values: &[f64]) -> Vec<f64> {
-        values
-            .chunks_exact(self.n_precursors)
-            .flat_map(|run| {
-                let mean = run.iter().sum::<f64>() / run.len() as f64;
-                run.iter().map(move |value| value - mean)
-            })
             .collect()
     }
 
-    /// Share of the drift that is removed: the least squares coefficient of the applied
-    /// correction on the identifiable drift, over all cells.
-    fn removed_share(&self, corrected: &[f64]) -> f64 {
-        let truth = self.identifiable_drift();
+    /// Applied correction and the drift visible against `runs`, over the quantified cells of
+    /// `runs`, both centred per run. The visible drift of a cell is its drift minus the mean drift
+    /// of its precursor over `runs`.
+    fn applied_and_drift(&self, corrected: &[f64], runs: &[usize]) -> (Vec<f64>, Vec<f64>) {
+        let n = self.n_precursors;
         let applied = self.applied(corrected);
+        let mean_drift: Vec<f64> = (0..n)
+            .map(|precursor| {
+                runs.iter()
+                    .map(|&run| self.drift[run * n + precursor])
+                    .sum::<f64>()
+                    / runs.len() as f64
+            })
+            .collect();
+        let (mut all_applied, mut all_drift) = (Vec::new(), Vec::new());
+        for &run in runs {
+            let cells: Vec<usize> = (run * n..(run + 1) * n)
+                .filter(|&cell| applied[cell].is_finite())
+                .collect();
+            let run_applied: Vec<f64> = cells.iter().map(|&cell| applied[cell]).collect();
+            let run_drift: Vec<f64> = cells
+                .iter()
+                .map(|&cell| self.drift[cell] - mean_drift[cell % n])
+                .collect();
+            all_applied.extend(centred(&run_applied));
+            all_drift.extend(centred(&run_drift));
+        }
+        (all_applied, all_drift)
+    }
+
+    /// Share of the drift that is removed in `runs`: the least squares coefficient of the applied
+    /// correction on the visible drift, over the quantified cells.
+    fn removed_share(&self, corrected: &[f64], runs: &[usize]) -> f64 {
+        let (applied, truth) = self.applied_and_drift(corrected, runs);
         let along: f64 = applied.iter().zip(&truth).map(|(a, t)| a * t).sum();
         along / truth.iter().map(|t| t * t).sum::<f64>()
     }
 
-    /// Root mean square difference between the applied correction and the identifiable drift.
-    fn correction_error(&self, corrected: &[f64]) -> f64 {
-        let truth = self.identifiable_drift();
-        let applied = self.applied(corrected);
+    /// Root mean square difference between the applied correction and the visible drift in
+    /// `runs`.
+    fn correction_error(&self, corrected: &[f64], runs: &[usize]) -> f64 {
+        let (applied, truth) = self.applied_and_drift(corrected, runs);
         let squared: f64 = applied
             .iter()
             .zip(&truth)
             .map(|(a, t)| (a - t).powi(2))
             .sum();
         (squared / truth.len() as f64).sqrt()
+    }
+
+    fn all_runs(&self) -> Vec<usize> {
+        (0..self.n_runs).collect()
     }
 
     fn mean_log2(&self, values: &[f64], run: usize) -> f64 {
@@ -174,6 +226,11 @@ impl Tables {
     }
 }
 
+fn centred(values: &[f64]) -> Vec<f64> {
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    values.iter().map(|value| value - mean).collect()
+}
+
 /// Mean removed share over `N_SEEDS` draws of `n_runs` runs; asserts the correction error of
 /// every draw.
 fn mean_removed_share(n_runs: usize) -> f64 {
@@ -184,12 +241,13 @@ fn mean_removed_share(n_runs: usize) -> f64 {
         let (corrected, summary) = tables.correct();
 
         assert!(summary.corrected.iter().all(|&corrected| corrected));
-        let error = tables.correction_error(&corrected);
+        let runs = tables.all_runs();
+        let error = tables.correction_error(&corrected, &runs);
         assert!(
             error < MAX_CORRECTION_ERROR_LOG2,
             "{n_runs} runs, seed {seed}: error {error:.3}"
         );
-        total += tables.removed_share(&corrected);
+        total += tables.removed_share(&corrected, &runs);
     }
     total / N_SEEDS as f64
 }
@@ -292,4 +350,108 @@ fn test_places_a_precursor_without_rt_at_its_mean_rt() {
     let (without_rt, _) = tables.correct_with(&tables.intensity, &rt);
 
     assert_eq!(with_rt, without_rt);
+}
+
+#[test]
+fn test_complete_data_gives_the_between_run_ratios_of_a_single_round() {
+    let tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, 0);
+
+    let single_round = tables.correct_in_rounds(1, NEVER_STOP);
+    let all_rounds = tables.correct_in_rounds(ROW_LEVEL_ROUNDS, NEVER_STOP);
+
+    // a function of the precursor common to all runs leaves every between-run ratio unchanged
+    let difference: Vec<f64> = tables
+        .applied(&all_rounds)
+        .iter()
+        .zip(tables.applied(&single_round))
+        .map(|(all, single)| all - single)
+        .collect();
+    for (cell, value) in difference.iter().enumerate() {
+        let first_run = difference[cell % tables.n_precursors];
+        assert!(
+            (value - first_run).abs() < RATIO_TOLERANCE_LOG2,
+            "cell {cell}: {value} vs {first_run}"
+        );
+    }
+}
+
+#[test]
+fn test_leaves_a_near_blank_run_uncorrected_and_corrects_the_others() {
+    let other_runs: Vec<usize> = (1..N_PARTIAL_RUNS).collect();
+    let mut total = 0.0;
+    for seed in 0..N_SEEDS {
+        let mut tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
+        tables.intensity[N_BLANK_RUN_PRECURSORS..N_PRECURSORS].fill(0.0);
+
+        let (corrected, summary) = tables.correct();
+
+        assert!(!summary.corrected[0]);
+        assert_eq!(summary.max_abs_correction[0], 0.0);
+        assert_eq!(corrected[..N_PRECURSORS], tables.intensity[..N_PRECURSORS]);
+        assert!(summary.corrected[1..].iter().all(|&corrected| corrected));
+        let error = tables.correction_error(&corrected, &other_runs);
+        assert!(
+            error < MAX_CORRECTION_ERROR_LOG2,
+            "seed {seed}: error {error:.3}"
+        );
+        total += tables.removed_share(&corrected, &other_runs);
+    }
+    let share = total / N_SEEDS as f64;
+
+    assert!(share >= MIN_REMOVED_SHARE, "removed {share:.3}");
+}
+
+#[test]
+fn test_removes_the_drift_with_cells_missing_at_random_as_from_complete_data() {
+    let mut complete_total = 0.0;
+    let mut missing_total = 0.0;
+    for seed in 0..N_MISSING_SEEDS {
+        let complete = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
+        let mut missing = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
+        missing.drop_at_random(MISSING_SHARE, seed + N_MISSING_SEEDS);
+        let runs = complete.all_runs();
+
+        let (complete_corrected, _) = complete.correct();
+        let (missing_corrected, summary) = missing.correct();
+
+        assert!(summary.corrected.iter().all(|&corrected| corrected));
+        let error = missing.correction_error(&missing_corrected, &runs);
+        assert!(
+            error < MAX_CORRECTION_ERROR_LOG2,
+            "seed {seed}: error {error:.3}"
+        );
+        complete_total += complete.removed_share(&complete_corrected, &runs);
+        missing_total += missing.removed_share(&missing_corrected, &runs);
+    }
+    let complete_share = complete_total / N_MISSING_SEEDS as f64;
+    let missing_share = missing_total / N_MISSING_SEEDS as f64;
+
+    assert!(
+        missing_share >= MIN_REMOVED_SHARE,
+        "removed {missing_share:.3}"
+    );
+    assert!(
+        complete_share - missing_share < MAX_MISSING_SHORTFALL,
+        "removed {missing_share:.3} with missing cells, {complete_share:.3} without"
+    );
+}
+
+#[test]
+fn test_the_rounds_remove_the_bias_of_rows_missing_in_some_runs() {
+    let mut single_total = 0.0;
+    let mut rounds_total = 0.0;
+    for seed in 0..N_MISSING_SEEDS {
+        let mut tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed);
+        tables.drop_at_random(MISSING_SHARE, seed + N_MISSING_SEEDS);
+        let runs = tables.all_runs();
+
+        let single_round = tables.correct_in_rounds(1, NEVER_STOP);
+        let (all_rounds, _) = tables.correct();
+
+        single_total += tables.removed_share(&single_round, &runs);
+        rounds_total += tables.removed_share(&all_rounds, &runs);
+    }
+    let gain = (rounds_total - single_total) / N_MISSING_SEEDS as f64;
+
+    assert!(gain >= MIN_ROUNDS_GAIN, "gain {gain:.3}");
 }

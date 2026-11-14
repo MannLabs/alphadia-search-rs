@@ -1,5 +1,5 @@
 //! Precursor-level correction of the intensity drift along the retention time (RT) and the
-//! precursor mass. `DOCS.md` defines the terms used here and gives the algorithm.
+//! neutral precursor mass. `DOCS.md` defines the terms used here and gives the algorithm.
 //!
 //! The precursor table is small compared to the fragment tables, so the matrices hold `f64`.
 
@@ -14,9 +14,17 @@ pub const DEFAULT_SIGMA_RT: f64 = 1.0;
 pub const DEFAULT_SIGMA_MASS: f64 = 1.0;
 pub const DEFAULT_MIN_POINTS_PER_CELL: usize = 30;
 pub const DEFAULT_MIN_REFERENCE_PER_RUN: usize = 200;
+pub const DEFAULT_MIN_RUN_FRACTION: f64 = 0.5;
 
 /// A single run has no cross-run reference.
 const MIN_RUNS: usize = 2;
+/// A precursor quantified in a single run has no deviation from its row level.
+const MIN_REFERENCE_RUNS: usize = 2;
+/// Rounds of the alternating estimate of the row levels and the surfaces. Complete data is a
+/// fixed point after the first round, and a few rounds settle the row levels of incomplete rows.
+pub(super) const ROW_LEVEL_ROUNDS: usize = 3;
+/// The rounds stop once no row level changes by more than this, in log2.
+const ROW_LEVEL_TOLERANCE: f64 = 1e-6;
 /// The half-sample mode averages the values once at most this many are left.
 const HALF_SAMPLE_MODE_MIN_SIZE: usize = 3;
 /// Radius of the Gaussian kernel in standard deviations, as in `scipy.ndimage.gaussian_filter`.
@@ -39,6 +47,9 @@ pub struct PrecursorDriftParameters {
     pub min_points_per_cell: usize,
     /// Runs with fewer reference precursors are not corrected.
     pub min_reference_per_run: usize,
+    /// A reference precursor is quantified in at least this share of the runs, and in at least
+    /// two.
+    pub min_run_fraction: f64,
 }
 
 impl PrecursorDriftParameters {
@@ -51,6 +62,7 @@ impl PrecursorDriftParameters {
         sigma_mass: DEFAULT_SIGMA_MASS,
         min_points_per_cell: DEFAULT_MIN_POINTS_PER_CELL,
         min_reference_per_run: DEFAULT_MIN_REFERENCE_PER_RUN,
+        min_run_fraction: DEFAULT_MIN_RUN_FRACTION,
     };
 
     pub fn validate(&self) -> Result<(), String> {
@@ -69,7 +81,18 @@ impl PrecursorDriftParameters {
                 return Err(format!("{name} must be a non-negative number, got {value}"));
             }
         }
+        if !(0.0..=1.0).contains(&self.min_run_fraction) {
+            return Err(format!(
+                "min_run_fraction must be between 0 and 1, got {}",
+                self.min_run_fraction
+            ));
+        }
         Ok(())
+    }
+
+    /// Number of runs a reference precursor is quantified in, at least.
+    fn min_reference_runs(&self, n_runs: usize) -> usize {
+        ((self.min_run_fraction * n_runs as f64).ceil() as usize).max(MIN_REFERENCE_RUNS)
     }
 }
 
@@ -113,7 +136,7 @@ pub fn validate_precursor_shapes(
 ///
 /// * `intensity` — run-major `n_runs x n_precursors`, linear; 0 or NaN marks a missing cell.
 /// * `rt` — run-major `n_runs x n_precursors`, observed RT; NaN where unknown.
-/// * `mass` — mass of every precursor (m/z x charge).
+/// * `mass` — neutral mass of every precursor.
 ///
 /// The shapes must pass `validate_precursor_shapes`.
 pub fn correct_precursor_drift(
@@ -123,17 +146,45 @@ pub fn correct_precursor_drift(
     n_runs: usize,
     parameters: &PrecursorDriftParameters,
 ) -> PrecursorDriftSummary {
+    correct_precursor_drift_in_rounds(
+        intensity,
+        rt,
+        mass,
+        n_runs,
+        parameters,
+        ROW_LEVEL_ROUNDS,
+        ROW_LEVEL_TOLERANCE,
+    )
+}
+
+/// `correct_precursor_drift` with at most `rounds` rounds of the alternating estimate, stopping
+/// once no row level changes by more than `tolerance`.
+pub(super) fn correct_precursor_drift_in_rounds(
+    intensity: &mut [f64],
+    rt: &[f64],
+    mass: &[f64],
+    n_runs: usize,
+    parameters: &PrecursorDriftParameters,
+    rounds: usize,
+    tolerance: f64,
+) -> PrecursorDriftSummary {
     let n_precursors = mass.len();
     if n_runs < MIN_RUNS || n_precursors == 0 {
         return PrecursorDriftSummary::uncorrected(n_runs);
     }
     let rt = rt_with_mean_fallback(rt, n_precursors);
-    let reference = Reference::new(intensity, mass, n_precursors);
-    if reference.precursors.is_empty() {
+    let reference = Reference::new(
+        intensity,
+        mass,
+        n_precursors,
+        parameters.min_reference_runs(n_runs),
+    );
+    let n_reference = reference.precursors.len();
+    if n_reference == 0 {
         return PrecursorDriftSummary::uncorrected(n_runs);
     }
 
-    let n_strata = (reference.precursors.len()
+    let n_strata = (n_reference
         / (parameters.min_rt_bins_per_stratum * parameters.points_per_cell))
         .clamp(1, parameters.n_strata);
     let reference_mass: Vec<f64> = reference.precursors.iter().map(|&p| mass[p]).collect();
@@ -146,25 +197,50 @@ pub fn correct_precursor_drift(
         .iter()
         .map(|&value| strata.fractional_index(value))
         .collect();
+    let reference_stratum_index: Vec<f64> = reference
+        .precursors
+        .iter()
+        .map(|&precursor| stratum_index[precursor])
+        .collect();
+    let reference_rt: Vec<f64> = rt
+        .chunks_exact(n_precursors)
+        .flat_map(|run_rt| reference.precursors.iter().map(|&p| run_rt[p]))
+        .collect();
+
+    let mut offset = vec![0.0; n_runs * n_reference];
+    let mut row_level: Vec<f64> = Vec::new();
+    let mut surfaces: Vec<Option<Surface>> = Vec::new();
+    for _ in 0..rounds {
+        let next_row_level = reference.row_levels(&offset);
+        if !row_level.is_empty() && max_abs_difference(&row_level, &next_row_level) <= tolerance {
+            break;
+        }
+        row_level = next_row_level;
+        let deviation = reference.deviations(&row_level);
+        surfaces = reference_rt
+            .par_chunks_exact(n_reference)
+            .zip(deviation.par_chunks_exact(n_reference))
+            .map(|(run_rt, run_deviation)| {
+                Surface::estimate(
+                    run_rt,
+                    run_deviation,
+                    &reference_stratum,
+                    strata.centres.len(),
+                    parameters,
+                )
+            })
+            .collect();
+        offset = zero_sum_offsets(&surfaces, &reference_rt, &reference_stratum_index);
+    }
 
     let corrections: Vec<Option<Vec<f64>>> = intensity
         .par_chunks_exact(n_precursors)
         .zip(rt.par_chunks_exact(n_precursors))
-        .zip(
-            reference
-                .deviation
-                .par_chunks_exact(reference.precursors.len()),
-        )
-        .map(|((run_intensity, run_rt), run_deviation)| {
-            let surface = Surface::estimate(
-                run_rt,
-                run_deviation,
-                &reference.precursors,
-                &reference_stratum,
-                strata.centres.len(),
-                parameters,
-            )?;
-            Some(surface.corrections(run_intensity, run_rt, &stratum_index))
+        .zip(surfaces.par_iter())
+        .map(|((run_intensity, run_rt), surface)| {
+            surface
+                .as_ref()
+                .map(|surface| surface.corrections(run_intensity, run_rt, &stratum_index))
         })
         .collect();
 
@@ -189,6 +265,55 @@ pub fn correct_precursor_drift(
             }
         });
     summary
+}
+
+fn max_abs_difference(a: &[f64], b: &[f64]) -> f64 {
+    a.iter()
+        .zip(b)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f64::max)
+}
+
+/// Run-major offsets of the reference precursors: the surface of every run with a surface at
+/// the precursor's RT and stratum, minus the precursor's mean over those runs. The zero sum keeps
+/// the offsets from moving the row levels of complete rows, which would otherwise drift together
+/// with the surfaces from round to round. 0 in a run without a surface or a position.
+fn zero_sum_offsets(
+    surfaces: &[Option<Surface>],
+    reference_rt: &[f64],
+    reference_stratum_index: &[f64],
+) -> Vec<f64> {
+    let n_reference = reference_stratum_index.len();
+    let mut offset: Vec<f64> = surfaces
+        .par_iter()
+        .zip(reference_rt.par_chunks_exact(n_reference))
+        .flat_map_iter(|(surface, run_rt)| {
+            run_rt
+                .iter()
+                .zip(reference_stratum_index)
+                .map(move |(&rt, &stratum)| match surface {
+                    Some(surface) => surface.at_position(rt, stratum),
+                    None => f64::NAN,
+                })
+        })
+        .collect();
+    let n_runs = surfaces.len();
+    for precursor in 0..n_reference {
+        let cells = || (0..n_runs).map(|run| run * n_reference + precursor);
+        let (sum, count) = cells()
+            .map(|cell| offset[cell])
+            .filter(|value| value.is_finite())
+            .fold((0.0, 0), |(sum, count), value| (sum + value, count + 1));
+        let mean = if count == 0 { 0.0 } else { sum / count as f64 };
+        for cell in cells() {
+            offset[cell] = if offset[cell].is_finite() {
+                offset[cell] - mean
+            } else {
+                0.0
+            };
+        }
+    }
+    offset
 }
 
 /// `rt` with every NaN replaced by the mean RT of its precursor over the runs where it is known.
@@ -223,49 +348,71 @@ fn is_quantified(value: f64) -> bool {
     value.is_finite() && value > 0.0
 }
 
-/// Precursors quantified in every run with a finite mass, and their log2 deviations from their
-/// mean over the runs.
+/// Precursors with a finite mass quantified in at least the minimum number of runs, and their
+/// log2 quantities.
 struct Reference {
     precursors: Vec<usize>,
-    /// Run-major `n_runs x precursors.len()`.
-    deviation: Vec<f64>,
+    /// Run-major `n_runs x precursors.len()`, NaN where the precursor is not quantified.
+    log2: Vec<f64>,
 }
 
 impl Reference {
-    fn new(intensity: &[f64], mass: &[f64], n_precursors: usize) -> Self {
+    fn new(intensity: &[f64], mass: &[f64], n_precursors: usize, min_runs: usize) -> Self {
         let n_runs = intensity.len() / n_precursors;
         let precursors: Vec<usize> = (0..n_precursors)
             .filter(|&precursor| {
                 mass[precursor].is_finite()
                     && (0..n_runs)
-                        .all(|run| is_quantified(intensity[run * n_precursors + precursor]))
+                        .filter(|&run| is_quantified(intensity[run * n_precursors + precursor]))
+                        .count()
+                        >= min_runs
             })
             .collect();
+        let log2 = intensity
+            .chunks_exact(n_precursors)
+            .flat_map(|run_intensity| {
+                precursors.iter().map(|&precursor| {
+                    let value = run_intensity[precursor];
+                    if is_quantified(value) {
+                        value.log2()
+                    } else {
+                        f64::NAN
+                    }
+                })
+            })
+            .collect();
+        Self { precursors, log2 }
+    }
+
+    /// Row level of every precursor: the mean over its quantified runs of the log2 quantity
+    /// minus the run's offset. The offsets make the level of an incomplete row independent of
+    /// which runs it is missing in.
+    fn row_levels(&self, offset: &[f64]) -> Vec<f64> {
         // the mean, not the median: with a median the median run of every precursor sits
         // exactly on its reference and the spike of zero deviations captures the mode
-        let mean_log2: Vec<f64> = precursors
+        let n_reference = self.precursors.len();
+        let n_runs = self.log2.len() / n_reference;
+        (0..n_reference)
+            .map(|precursor| {
+                let (sum, count) = (0..n_runs)
+                    .map(|run| run * n_reference + precursor)
+                    .filter(|&cell| self.log2[cell].is_finite())
+                    .fold((0.0, 0), |(sum, count), cell| {
+                        (sum + self.log2[cell] - offset[cell], count + 1)
+                    });
+                sum / count as f64
+            })
+            .collect()
+    }
+
+    /// Run-major log2 quantity minus the row level, NaN where the precursor is not quantified.
+    fn deviations(&self, row_level: &[f64]) -> Vec<f64> {
+        let n_reference = self.precursors.len();
+        self.log2
             .iter()
-            .map(|&precursor| {
-                (0..n_runs)
-                    .map(|run| intensity[run * n_precursors + precursor].log2())
-                    .sum::<f64>()
-                    / n_runs as f64
-            })
-            .collect();
-        let deviation = (0..n_runs)
-            .flat_map(|run| {
-                precursors
-                    .iter()
-                    .zip(&mean_log2)
-                    .map(move |(&precursor, &mean)| {
-                        intensity[run * n_precursors + precursor].log2() - mean
-                    })
-            })
-            .collect();
-        Self {
-            precursors,
-            deviation,
-        }
+            .enumerate()
+            .map(|(cell, &value)| value - row_level[cell % n_reference])
+            .collect()
     }
 }
 
@@ -276,6 +423,8 @@ struct QuantileBins {
     edges: Vec<f64>,
     /// Median of the values in every bin, ascending.
     centres: Vec<f64>,
+    /// Index of every bin as a number, the positions `fractional_index` interpolates.
+    positions: Vec<f64>,
 }
 
 impl QuantileBins {
@@ -297,6 +446,7 @@ impl QuantileBins {
         let all_bins = Self {
             edges,
             centres: Vec::new(),
+            positions: Vec::new(),
         };
         let bin_of: Vec<usize> = sorted.iter().map(|&value| all_bins.assign(value)).collect();
         let mut edges: Vec<f64> = Vec::new();
@@ -309,7 +459,12 @@ impl QuantileBins {
             start = stop;
         }
         edges.push(f64::INFINITY);
-        Self { edges, centres }
+        let positions = (0..centres.len()).map(|bin| bin as f64).collect();
+        Self {
+            edges,
+            centres,
+            positions,
+        }
     }
 
     fn assign(&self, value: f64) -> usize {
@@ -329,8 +484,7 @@ impl QuantileBins {
         if self.centres.len() == 1 {
             return 0.0;
         }
-        let index: Vec<f64> = (0..self.centres.len()).map(|bin| bin as f64).collect();
-        interpolate(value, &self.centres, &index)
+        interpolate(value, &self.centres, &self.positions)
     }
 }
 
@@ -343,22 +497,22 @@ struct Surface {
 }
 
 impl Surface {
-    /// `None` for fewer than `min_reference_per_run` reference precursors with an RT in the run
-    /// or no cell with `min_points_per_cell` of them.
+    /// `None` for fewer than `min_reference_per_run` reference precursors quantified in the run
+    /// with an RT, or no cell with `min_points_per_cell` of them. `run_rt` and `run_deviation`
+    /// hold the reference precursors of the run.
     fn estimate(
         run_rt: &[f64],
         run_deviation: &[f64],
-        reference_precursors: &[usize],
         reference_stratum: &[usize],
         n_strata: usize,
         parameters: &PrecursorDriftParameters,
     ) -> Option<Self> {
-        let points: Vec<(f64, usize, f64)> = reference_precursors
+        let points: Vec<(f64, usize, f64)> = run_rt
             .iter()
             .zip(reference_stratum)
             .zip(run_deviation)
-            .map(|((&precursor, &stratum), &deviation)| (run_rt[precursor], stratum, deviation))
-            .filter(|&(rt, _, _)| rt.is_finite())
+            .map(|((&rt, &stratum), &deviation)| (rt, stratum, deviation))
+            .filter(|&(rt, _, deviation)| rt.is_finite() && deviation.is_finite())
             .collect();
         if points.len() < parameters.min_reference_per_run {
             return None;
@@ -396,6 +550,15 @@ impl Surface {
         })
     }
 
+    /// The surface at an RT and a fractional stratum index, NaN if either is not finite.
+    fn at_position(&self, rt: f64, stratum_index: f64) -> f64 {
+        if rt.is_finite() && stratum_index.is_finite() {
+            self.at(self.rt_bins.fractional_index(rt), stratum_index)
+        } else {
+            f64::NAN
+        }
+    }
+
     /// Centred correction of every quantified cell of the run with an RT and a mass, NaN for the
     /// other cells. The centring keeps the mean log2 level of the run.
     fn corrections(
@@ -409,8 +572,8 @@ impl Surface {
             .zip(run_rt)
             .zip(stratum_index)
             .map(|((&value, &rt), &stratum)| {
-                if is_quantified(value) && rt.is_finite() && stratum.is_finite() {
-                    self.at(self.rt_bins.fractional_index(rt), stratum)
+                if is_quantified(value) {
+                    self.at_position(rt, stratum)
                 } else {
                     f64::NAN
                 }
@@ -596,6 +759,30 @@ mod tests {
         assert_eq!(bins.assign(1.0), 0);
         assert_eq!(bins.assign(3.0), 1);
         assert_eq!(bins.assign(-10.0), 0);
+    }
+
+    #[test]
+    fn test_reference_runs_are_a_share_of_the_runs_and_at_least_two() {
+        let parameters = PrecursorDriftParameters::DEFAULT;
+
+        let min_runs: Vec<usize> = [2, 3, 5, 6, 100]
+            .iter()
+            .map(|&n_runs| parameters.min_reference_runs(n_runs))
+            .collect();
+
+        assert_eq!(min_runs, vec![2, 2, 3, 3, 50]);
+    }
+
+    #[test]
+    fn test_rejects_a_run_fraction_outside_zero_to_one() {
+        for min_run_fraction in [-0.1, 1.5, f64::NAN] {
+            let parameters = PrecursorDriftParameters {
+                min_run_fraction,
+                ..PrecursorDriftParameters::DEFAULT
+            };
+
+            assert!(parameters.validate().is_err());
+        }
     }
 
     #[test]

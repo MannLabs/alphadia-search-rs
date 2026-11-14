@@ -1,7 +1,7 @@
 //! Intensity drift correction. Removes the retention time dependent intensity drift of every
 //! run before label-free quantification, from the fragment intensities
 //! (`IntensityDriftCorrection`) or from the precursor quantities along the retention time and
-//! the precursor mass (`PrecursorDriftCorrection`).
+//! the neutral precursor mass (`PrecursorDriftCorrection`).
 //!
 //! Python does only the dataframe work: it turns the tables and the identifications into
 //! run-major matrices. All calculations occur here.
@@ -24,7 +24,8 @@ use numpy::{
 use precursor::{
     correct_precursor_drift, validate_precursor_shapes, PrecursorDriftParameters,
     DEFAULT_MIN_POINTS_PER_CELL, DEFAULT_MIN_REFERENCE_PER_RUN, DEFAULT_MIN_RT_BINS_PER_STRATUM,
-    DEFAULT_N_STRATA, DEFAULT_POINTS_PER_CELL, DEFAULT_SIGMA_MASS, DEFAULT_SIGMA_RT,
+    DEFAULT_MIN_RUN_FRACTION, DEFAULT_N_STRATA, DEFAULT_POINTS_PER_CELL, DEFAULT_SIGMA_MASS,
+    DEFAULT_SIGMA_RT,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -148,8 +149,11 @@ impl PrecursorDriftCorrection {
     /// * `sigma_mass` - smoothing along the mass strata, in strata; 0 disables it.
     /// * `min_points_per_cell` - a cell with fewer reference precursors gets no location of its own.
     /// * `min_reference_per_run` - runs with fewer reference precursors are not corrected.
+    /// * `min_run_fraction` - a reference precursor is quantified in at least this share of the
+    ///   runs, and in at least two.
     ///
-    /// Raises `ValueError` if a count is zero or a sigma is negative or not a number.
+    /// Raises `ValueError` if a count is zero, a sigma is negative or not a number, or
+    /// `min_run_fraction` is not between 0 and 1.
     #[new]
     #[pyo3(signature = (
         points_per_cell = DEFAULT_POINTS_PER_CELL,
@@ -159,6 +163,7 @@ impl PrecursorDriftCorrection {
         sigma_mass = DEFAULT_SIGMA_MASS,
         min_points_per_cell = DEFAULT_MIN_POINTS_PER_CELL,
         min_reference_per_run = DEFAULT_MIN_REFERENCE_PER_RUN,
+        min_run_fraction = DEFAULT_MIN_RUN_FRACTION,
     ))]
     fn new(
         points_per_cell: usize,
@@ -168,6 +173,7 @@ impl PrecursorDriftCorrection {
         sigma_mass: f64,
         min_points_per_cell: usize,
         min_reference_per_run: usize,
+        min_run_fraction: f64,
     ) -> PyResult<Self> {
         let params = PrecursorDriftParameters {
             points_per_cell,
@@ -177,6 +183,7 @@ impl PrecursorDriftCorrection {
             sigma_mass,
             min_points_per_cell,
             min_reference_per_run,
+            min_run_fraction,
         };
         params.validate().map_err(PyValueError::new_err)?;
         Ok(Self { params })

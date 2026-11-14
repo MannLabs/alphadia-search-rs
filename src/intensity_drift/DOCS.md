@@ -11,8 +11,8 @@ quantification. It removes only the shape of the drift: the mean log2 level of e
 the same and is left to the LFQ normalization. There are two corrections:
 
 - `IntensityDriftCorrection` corrects the fragment intensities along the RT.
-- `PrecursorDriftCorrection` corrects the precursor quantities along the RT and the precursor
-  mass.
+- `PrecursorDriftCorrection` corrects the precursor quantities along the RT and the neutral
+  precursor mass.
 
 Neither uses the sample design: the reference of every ion or precursor is its mean over the
 runs, never the median. With a median, one run of every ion or precursor sits exactly on its
@@ -80,7 +80,7 @@ The matrices are run-major and C-contiguous. They are borrowed, not copied.
 |-------------|--------------------------|-----------------------------------------------------------|
 | `intensity` | `(n_runs, n_precursors)` | linear precursor quantities, 0 or NaN marks a missing cell |
 | `rt`        | `(n_runs, n_precursors)` | observed precursor RT, NaN where unknown                  |
-| `mass`      | `(n_precursors,)`        | precursor mass (m/z times charge)                         |
+| `mass`      | `(n_precursors,)`        | neutral precursor mass                                    |
 
 `intensity` is corrected in place.
 
@@ -88,17 +88,24 @@ The matrices are run-major and C-contiguous. They are borrowed, not copied.
 
 A dict:
 
-- `corrected` — per run, whether the run was corrected. With fewer than two runs, or a run
-  with fewer than `min_reference_per_run` reference precursors, the run is left unchanged.
+- `corrected` — per run, whether the run was corrected. With fewer than two runs, every run is
+  left unchanged. A run with fewer than `min_reference_per_run` reference precursors
+  quantified in it is left unchanged; the other runs are still corrected.
 - `max_abs_correction` — per run, the largest absolute correction, in log2; 0 for a run that
   is not corrected.
 - `n_strata` — the number of mass strata used, 0 without reference precursors.
 
 ## Terms
 
-- *reference precursor*: a precursor quantified in every run with a finite mass.
-- *deviation*: log2 quantity of a reference precursor in a run minus its mean log2 quantity
-  over the runs.
+- *reference precursor*: a precursor with a finite mass quantified in at least
+  `ceil(min_run_fraction x n_runs)` runs, and in at least two.
+- *row level*: per reference precursor, the mean over the runs it is quantified in of its log2
+  quantity minus the offset of the run.
+- *offset*: the surface of a run at the RT and mass of a reference precursor, minus the mean of
+  the surfaces of all runs with a surface at that precursor (zero sum over the runs); 0 in a
+  run without a surface. All offsets are 0 before the first round.
+- *deviation*: log2 quantity of a reference precursor in a run where it is quantified minus its
+  row level.
 - *stratum*: a mass interval. The edges are quantiles of the reference masses, equal edges
   collapse, so every stratum holds reference precursors. Its centre is the median mass of its
   reference precursors. There are `n_strata` strata, fewer when the reference precursors
@@ -122,9 +129,20 @@ A dict:
 ## Algorithm
 
 1. A precursor without an RT in a run is placed at its mean RT over the other runs.
-2. Compute the deviations of the reference precursors and the strata.
-3. Per run, place the deviations of the reference precursors with an RT on the RT bin x
-   stratum grid and estimate the surface. A run without a cell holding `min_points_per_cell`
-   deviations is left unchanged.
-4. Divide every quantified cell with an RT and a mass by `2^correction`. The run keeps its
-   mean log2 level.
+2. Select the reference precursors and the strata.
+3. Estimate the row levels and the surfaces alternately, in at most three rounds:
+   1. Compute the row levels from the current offsets. Stop if no row level changed by more
+      than 1e-6 since the last round; the surfaces of the last round stay.
+   2. Per run, place the deviations of the reference precursors quantified in the run with an
+      RT on the RT bin x stratum grid and estimate the surface. A run with fewer than
+      `min_reference_per_run` of them, or without a cell holding `min_points_per_cell`, has no
+      surface.
+   3. Compute the offsets.
+
+   With a mean over all runs, a precursor missing in some runs would be measured against a
+   level that carries the drift of the runs it is quantified in. The offsets remove that drift
+   from the row levels. Complete rows do not move, as their offsets sum to zero, so with
+   complete data the second round reproduces the first and the rounds stop.
+4. Divide every quantified cell with an RT and a mass of a run with a surface by
+   `2^correction`. The run keeps its mean log2 level. Runs without a surface are left
+   unchanged.

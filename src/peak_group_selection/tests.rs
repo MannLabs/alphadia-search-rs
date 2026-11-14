@@ -180,3 +180,22 @@ fn test_rt_log_prior_moves_the_best_peak_towards_the_predicted_rt() {
     let (indices, _) = find_local_maxima(&score, 0);
     assert_eq!(indices[0], 5);
 }
+
+#[test]
+fn test_min_fragments_defaults_to_off() {
+    assert_eq!(SelectionParameters::new().min_fragments, 0);
+}
+
+#[test]
+fn test_fragments_with_signal_counts_fragments_around_the_apex() {
+    // 4 fragments over 7 cycles; apex at cycle 3, so cycles 2 to 4 count
+    let dense_xic = numpy::ndarray::arr2(&[
+        [0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0], // signal at the apex
+        [0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0], // signal one cycle before
+        [9.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9.0], // signal only away from the apex
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], // no signal
+    ]);
+    assert_eq!(fragments_with_signal(&dense_xic, 3), 2);
+    // An apex at the first cycle only looks at cycles 0 and 1
+    assert_eq!(fragments_with_signal(&dense_xic, 0), 1);
+}

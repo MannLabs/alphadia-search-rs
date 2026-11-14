@@ -22,6 +22,8 @@ pub struct SelectionParameters {
     pub rt_prior_scale: f32,
     #[pyo3(get)]
     pub rt_prior_df: f32,
+    #[pyo3(get)]
+    pub min_fragments: usize,
 }
 
 #[pymethods]
@@ -47,6 +49,8 @@ impl SelectionParameters {
             // retention time. Its log density, zero at the predicted RT, is added to the selection score. 0 turns it off.
             rt_prior_scale: 0.0,
             rt_prior_df: 0.0,
+            // A peak group needs signal of at least this number of fragments within one cycle of its apex. 0 is off.
+            min_fragments: 0,
         }
     }
 
@@ -77,6 +81,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("rt_prior_df")? {
             self.rt_prior_df = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("min_fragments")? {
+            self.min_fragments = value.extract::<usize>()?;
         }
         Ok(())
     }

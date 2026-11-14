@@ -1,4 +1,4 @@
-use numpy::ndarray::Array1;
+use numpy::ndarray::{s, Array1, Array2};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::cmp::min;
@@ -52,6 +52,19 @@ fn add_rt_log_prior(
         let deviation = (rt[start + j] - predicted_rt) / scale;
         *value += exponent * (1.0 + deviation * deviation / df).ln();
     }
+}
+
+/// Count the fragments with signal within one cycle of the apex, as `num_profiles_filtered` of the scoring does.
+///
+/// `dense_xic` holds one row per fragment and one column per cycle; `apex` is a column index.
+fn fragments_with_signal(dense_xic: &Array2<f32>, apex: usize) -> usize {
+    let start = apex.saturating_sub(1);
+    let stop = min(apex + 2, dense_xic.ncols());
+    dense_xic
+        .rows()
+        .into_iter()
+        .filter(|row| row.slice(s![start..stop]).iter().any(|&value| value > 0.0))
+        .count()
 }
 
 fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32>) {
@@ -205,14 +218,22 @@ impl PeakGroupSelection {
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);
 
-        // Take top maxima (they're already sorted by value in descending order)
-        let max_count = std::cmp::min(candidate_count, local_maxima_indices.len());
-
+        // The maxima are sorted by score in descending order. Take the best ones with enough fragments.
         let mut candidates = Vec::new();
 
-        for i in 0..max_count {
-            let cycle_center_idx = local_maxima_indices[i];
-            let score = local_maxima_values[i];
+        for (&cycle_center_idx, &score) in local_maxima_indices.iter().zip(&local_maxima_values) {
+            if candidates.len() == candidate_count {
+                break;
+            }
+            if self.params.min_fragments > 0
+                && fragments_with_signal(
+                    &dense_xic_obs.dense_xic,
+                    cycle_center_idx - cycle_start_idx,
+                ) < self.params.min_fragments
+            {
+                continue;
+            }
+            let i = candidates.len();
 
             let (cycle_start_idx, cycle_stop_idx) = candidate_cycle_limits(
                 cycle_center_idx,

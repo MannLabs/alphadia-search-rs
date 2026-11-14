@@ -14,10 +14,11 @@ pub const DEFAULT_SIGMA_RT: f64 = 1.0;
 pub const DEFAULT_SIGMA_MASS: f64 = 1.0;
 pub const DEFAULT_MIN_POINTS_PER_CELL: usize = 30;
 pub const DEFAULT_MIN_REFERENCE_PER_RUN: usize = 200;
-// a precursor missing in a run was mostly not detected there, so its other values are selected on
-// their own noise; a larger share keeps those rows out of the reference while one failed run of
-// six still leaves the others corrected
-pub const DEFAULT_MIN_RUN_FRACTION: f64 = 0.75;
+// the reference that fills every mass stratum (10,000): a smaller one gets fewer strata and
+// resolves a mass-dependent drift too coarsely, e.g. 2,500 reference precursors in two strata
+// remove ~55 % of the drift of the tests, 5,000 in four ~83 %, 10,000 in eight ~90 %
+pub const DEFAULT_MIN_REFERENCE_PRECURSORS: usize =
+    DEFAULT_N_STRATA * DEFAULT_MIN_RT_BINS_PER_STRATUM * DEFAULT_POINTS_PER_CELL;
 
 /// A single run has no cross-run reference.
 const MIN_RUNS: usize = 2;
@@ -50,9 +51,9 @@ pub struct PrecursorDriftParameters {
     pub min_points_per_cell: usize,
     /// Runs with fewer reference precursors are not corrected.
     pub min_reference_per_run: usize,
-    /// A reference precursor is quantified in at least this share of the runs, and in at least
-    /// two.
-    pub min_run_fraction: f64,
+    /// The reference precursors are those quantified in every run if at least this many
+    /// qualify, else in the largest number of runs that this many reach, and in at least two.
+    pub min_reference_precursors: usize,
 }
 
 impl PrecursorDriftParameters {
@@ -65,7 +66,7 @@ impl PrecursorDriftParameters {
         sigma_mass: DEFAULT_SIGMA_MASS,
         min_points_per_cell: DEFAULT_MIN_POINTS_PER_CELL,
         min_reference_per_run: DEFAULT_MIN_REFERENCE_PER_RUN,
-        min_run_fraction: DEFAULT_MIN_RUN_FRACTION,
+        min_reference_precursors: DEFAULT_MIN_REFERENCE_PRECURSORS,
     };
 
     pub fn validate(&self) -> Result<(), String> {
@@ -84,18 +85,7 @@ impl PrecursorDriftParameters {
                 return Err(format!("{name} must be a non-negative number, got {value}"));
             }
         }
-        if !(0.0..=1.0).contains(&self.min_run_fraction) {
-            return Err(format!(
-                "min_run_fraction must be between 0 and 1, got {}",
-                self.min_run_fraction
-            ));
-        }
         Ok(())
-    }
-
-    /// Number of runs a reference precursor is quantified in, at least.
-    fn min_reference_runs(&self, n_runs: usize) -> usize {
-        ((self.min_run_fraction * n_runs as f64).ceil() as usize).max(MIN_REFERENCE_RUNS)
     }
 }
 
@@ -107,6 +97,9 @@ pub struct PrecursorDriftSummary {
     pub max_abs_correction: Vec<f64>,
     /// Number of mass strata used, 0 if there was no reference precursor.
     pub n_strata: usize,
+    /// Number of runs every reference precursor is quantified in, at least; 0 if there was no
+    /// reference precursor.
+    pub reference_runs: usize,
 }
 
 impl PrecursorDriftSummary {
@@ -115,6 +108,7 @@ impl PrecursorDriftSummary {
             corrected: vec![false; n_runs],
             max_abs_correction: vec![0.0; n_runs],
             n_strata: 0,
+            reference_runs: 0,
         }
     }
 }
@@ -180,7 +174,7 @@ pub(super) fn correct_precursor_drift_in_rounds(
         intensity,
         mass,
         n_precursors,
-        parameters.min_reference_runs(n_runs),
+        parameters.min_reference_precursors,
     );
     let n_reference = reference.precursors.len();
     if n_reference == 0 {
@@ -251,6 +245,7 @@ pub(super) fn correct_precursor_drift_in_rounds(
         corrected: corrections.iter().map(Option::is_some).collect(),
         max_abs_correction: vec![0.0; n_runs],
         n_strata: strata.centres.len(),
+        reference_runs: reference.runs,
     };
     intensity
         .par_chunks_exact_mut(n_precursors)
@@ -351,25 +346,53 @@ fn is_quantified(value: f64) -> bool {
     value.is_finite() && value > 0.0
 }
 
-/// Precursors with a finite mass quantified in at least the minimum number of runs, and their
-/// log2 quantities.
+/// Number of runs a reference precursor is quantified in, at least, from the number of runs
+/// every candidate precursor is quantified in: `n_runs` if at least `min_precursors` candidates
+/// are quantified in every run, else the largest number of runs at least `min_precursors` of them
+/// reach, and never fewer than `MIN_REFERENCE_RUNS`.
+fn reference_runs(quantified_runs: &[usize], n_runs: usize, min_precursors: usize) -> usize {
+    let mut histogram = vec![0_usize; n_runs + 1];
+    for &runs in quantified_runs {
+        histogram[runs] += 1;
+    }
+    let mut reached = 0;
+    let mut runs = n_runs;
+    loop {
+        reached += histogram[runs];
+        if reached >= min_precursors || runs <= MIN_REFERENCE_RUNS {
+            return runs;
+        }
+        runs -= 1;
+    }
+}
+
+/// Precursors with a finite mass quantified in at least `runs` runs, chosen by `reference_runs`,
+/// and their log2 quantities.
 struct Reference {
     precursors: Vec<usize>,
+    runs: usize,
     /// Run-major `n_runs x precursors.len()`, NaN where the precursor is not quantified.
     log2: Vec<f64>,
 }
 
 impl Reference {
-    fn new(intensity: &[f64], mass: &[f64], n_precursors: usize, min_runs: usize) -> Self {
+    fn new(intensity: &[f64], mass: &[f64], n_precursors: usize, min_precursors: usize) -> Self {
         let n_runs = intensity.len() / n_precursors;
-        let precursors: Vec<usize> = (0..n_precursors)
-            .filter(|&precursor| {
-                mass[precursor].is_finite()
-                    && (0..n_runs)
+        let quantified_runs: Vec<usize> = (0..n_precursors)
+            .into_par_iter()
+            .map(|precursor| {
+                if mass[precursor].is_finite() {
+                    (0..n_runs)
                         .filter(|&run| is_quantified(intensity[run * n_precursors + precursor]))
                         .count()
-                        >= min_runs
+                } else {
+                    0
+                }
             })
+            .collect();
+        let runs = reference_runs(&quantified_runs, n_runs, min_precursors);
+        let precursors: Vec<usize> = (0..n_precursors)
+            .filter(|&precursor| quantified_runs[precursor] >= runs)
             .collect();
         let log2 = intensity
             .chunks_exact(n_precursors)
@@ -384,7 +407,11 @@ impl Reference {
                 })
             })
             .collect();
-        Self { precursors, log2 }
+        Self {
+            precursors,
+            runs,
+            log2,
+        }
     }
 
     /// Row level of every precursor: the mean over its quantified runs of the log2 quantity
@@ -764,28 +791,38 @@ mod tests {
         assert_eq!(bins.assign(-10.0), 0);
     }
 
-    #[test]
-    fn test_reference_runs_are_a_share_of_the_runs_and_at_least_two() {
-        let parameters = PrecursorDriftParameters::DEFAULT;
-
-        let min_runs: Vec<usize> = [2, 3, 5, 6, 100]
+    /// Number of runs every precursor is quantified in, `count` precursors per entry.
+    fn quantified_runs(counts: &[(usize, usize)]) -> Vec<usize> {
+        counts
             .iter()
-            .map(|&n_runs| parameters.min_reference_runs(n_runs))
-            .collect();
-
-        assert_eq!(min_runs, vec![2, 3, 4, 5, 75]);
+            .flat_map(|&(runs, count)| std::iter::repeat_n(runs, count))
+            .collect()
     }
 
     #[test]
-    fn test_rejects_a_run_fraction_outside_zero_to_one() {
-        for min_run_fraction in [-0.1, 1.5, f64::NAN] {
-            let parameters = PrecursorDriftParameters {
-                min_run_fraction,
-                ..PrecursorDriftParameters::DEFAULT
-            };
+    fn test_reference_runs_are_all_runs_when_enough_precursors_are_complete() {
+        let quantified = quantified_runs(&[(6, 3000), (5, 5000), (0, 100)]);
 
-            assert!(parameters.validate().is_err());
-        }
+        assert_eq!(reference_runs(&quantified, 6, 3000), 6);
+    }
+
+    #[test]
+    fn test_reference_runs_are_the_most_runs_that_enough_precursors_reach() {
+        let quantified = quantified_runs(&[(6, 1000), (5, 1000), (4, 1000), (3, 5000)]);
+
+        assert_eq!(reference_runs(&quantified, 6, 2500), 4);
+        assert_eq!(reference_runs(&quantified, 6, 2000), 5);
+    }
+
+    #[test]
+    fn test_reference_runs_are_at_least_two() {
+        let quantified = quantified_runs(&[(6, 10), (2, 10), (1, 5000), (0, 5000)]);
+
+        assert_eq!(reference_runs(&quantified, 6, 2500), 2);
+        assert_eq!(
+            reference_runs(&quantified_runs(&[(2, 10), (1, 5000)]), 2, 2500),
+            2
+        );
     }
 
     #[test]

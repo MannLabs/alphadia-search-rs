@@ -94,11 +94,18 @@ A dict:
 - `max_abs_correction` — per run, the largest absolute correction, in log2; 0 for a run that
   is not corrected.
 - `n_strata` — the number of mass strata used, 0 without reference precursors.
+- `reference_runs` — the number of runs every reference precursor is quantified in, at least;
+  0 without reference precursors.
 
 ## Terms
 
-- *reference precursor*: a precursor with a finite mass quantified in at least
-  `ceil(min_run_fraction x n_runs)` runs, and in at least two.
+- *reference precursor*: a precursor with a finite mass quantified in at least `k` runs. `k` is
+  the number of runs if at least `min_reference_precursors` precursors with a finite mass are
+  quantified in every run, else the largest number of runs that `min_reference_precursors` of
+  them reach, and at least two. A precursor missing in a run was mostly not detected there, so
+  its other quantities are selected on their own noise: complete rows are preferred, and fewer
+  runs are required only where complete rows are too few, as with a near-blank run or in a
+  large cohort.
 - *row level*: per reference precursor, the mean over the runs it is quantified in of its log2
   quantity minus the offset of the run.
 - *offset*: the surface of a run at the RT and mass of a reference precursor, minus the mean of

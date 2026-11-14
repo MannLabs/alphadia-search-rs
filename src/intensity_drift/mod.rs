@@ -23,8 +23,8 @@ use numpy::{
 };
 use precursor::{
     correct_precursor_drift, validate_precursor_shapes, PrecursorDriftParameters,
-    DEFAULT_MIN_POINTS_PER_CELL, DEFAULT_MIN_REFERENCE_PER_RUN, DEFAULT_MIN_RT_BINS_PER_STRATUM,
-    DEFAULT_MIN_RUN_FRACTION, DEFAULT_N_STRATA, DEFAULT_POINTS_PER_CELL, DEFAULT_SIGMA_MASS,
+    DEFAULT_MIN_POINTS_PER_CELL, DEFAULT_MIN_REFERENCE_PER_RUN, DEFAULT_MIN_REFERENCE_PRECURSORS,
+    DEFAULT_MIN_RT_BINS_PER_STRATUM, DEFAULT_N_STRATA, DEFAULT_POINTS_PER_CELL, DEFAULT_SIGMA_MASS,
     DEFAULT_SIGMA_RT,
 };
 use pyo3::exceptions::PyValueError;
@@ -149,11 +149,11 @@ impl PrecursorDriftCorrection {
     /// * `sigma_mass` - smoothing along the mass strata, in strata; 0 disables it.
     /// * `min_points_per_cell` - a cell with fewer reference precursors gets no location of its own.
     /// * `min_reference_per_run` - runs with fewer reference precursors are not corrected.
-    /// * `min_run_fraction` - a reference precursor is quantified in at least this share of the
-    ///   runs, and in at least two.
+    /// * `min_reference_precursors` - the reference precursors are those quantified in every run
+    ///   if at least this many qualify, else in the largest number of runs that this many reach,
+    ///   and in at least two.
     ///
-    /// Raises `ValueError` if a count is zero, a sigma is negative or not a number, or
-    /// `min_run_fraction` is not between 0 and 1.
+    /// Raises `ValueError` if a count is zero or a sigma is negative or not a number.
     #[new]
     #[pyo3(signature = (
         points_per_cell = DEFAULT_POINTS_PER_CELL,
@@ -163,7 +163,7 @@ impl PrecursorDriftCorrection {
         sigma_mass = DEFAULT_SIGMA_MASS,
         min_points_per_cell = DEFAULT_MIN_POINTS_PER_CELL,
         min_reference_per_run = DEFAULT_MIN_REFERENCE_PER_RUN,
-        min_run_fraction = DEFAULT_MIN_RUN_FRACTION,
+        min_reference_precursors = DEFAULT_MIN_REFERENCE_PRECURSORS,
     ))]
     fn new(
         points_per_cell: usize,
@@ -173,7 +173,7 @@ impl PrecursorDriftCorrection {
         sigma_mass: f64,
         min_points_per_cell: usize,
         min_reference_per_run: usize,
-        min_run_fraction: f64,
+        min_reference_precursors: usize,
     ) -> PyResult<Self> {
         let params = PrecursorDriftParameters {
             points_per_cell,
@@ -183,15 +183,15 @@ impl PrecursorDriftCorrection {
             sigma_mass,
             min_points_per_cell,
             min_reference_per_run,
-            min_run_fraction,
+            min_reference_precursors,
         };
         params.validate().map_err(PyValueError::new_err)?;
         Ok(Self { params })
     }
 
     /// Corrects `intensity` in place and gives a dict with the arrays `corrected` and
-    /// `max_abs_correction` (log2), one row per run, and `n_strata`, the number of mass strata
-    /// used.
+    /// `max_abs_correction` (log2), one row per run, `n_strata`, the number of mass strata used,
+    /// and `reference_runs`, the number of runs every reference precursor is quantified in.
     ///
     /// This method borrows the arrays and does not copy them. The arrays must therefore be
     /// C-contiguous.
@@ -228,6 +228,7 @@ impl PrecursorDriftCorrection {
             summary.max_abs_correction.into_pyarray(py),
         )?;
         dict.set_item("n_strata", summary.n_strata)?;
+        dict.set_item("reference_runs", summary.reference_runs)?;
         Ok(dict.into())
     }
 }

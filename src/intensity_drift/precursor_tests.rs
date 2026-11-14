@@ -25,9 +25,23 @@ const N_PARTIAL_RUNS: usize = 6;
 /// Quantified precursors of the near-blank run, fewer than `min_reference_per_run`.
 const N_BLANK_RUN_PRECURSORS: usize = 50;
 const MISSING_SHARE: f64 = 0.4;
-/// The tests of rows missing at random admit precursors quantified in half of the runs, so that
-/// most reference rows are partial and the row-level rounds are exercised.
-const PARTIAL_ROW_RUN_FRACTION: f64 = 0.5;
+/// The tests of rows missing at random require more reference precursors than the ~16,300 of
+/// `N_PRECURSORS` quantified in four of six runs at `MISSING_SHARE` and fewer than the ~24,600 in
+/// three, so that the reference holds the precursors quantified in half of the runs, most of them
+/// partial rows, and the row-level rounds are exercised.
+const PARTIAL_ROW_MIN_REFERENCE_PRECURSORS: usize = 20_000;
+const PARTIAL_ROW_REFERENCE_RUNS: usize = 3;
+/// Missing cells of the test with a share of complete rows that is too small: of `N_PRECURSORS`
+/// at this share ~1,400 are quantified in every run and ~7,000 in five of six.
+const SPARSE_MISSING_SHARE: f64 = 0.4;
+/// Missing cells that leave fewer than the default reference precursors complete when they are
+/// spread over many runs: ~440 of `N_PRECURSORS` are quantified in all `N_COHORT_RUNS`.
+const COHORT_MISSING_SHARE: f64 = 0.1;
+const N_COHORT_RUNS: usize = 40;
+/// Missing cells of the complete-row test: ~15,900 of `N_PRECURSORS` stay complete.
+const FEW_MISSING_SHARE: f64 = 0.1;
+/// With no minimum, the reference always holds the precursors quantified in every run.
+const COMPLETE_ROWS_ONLY: usize = 0;
 /// Draws of the tests with missing cells; their shares scatter more than those of complete
 /// tables.
 const N_MISSING_SEEDS: u64 = 16;
@@ -118,8 +132,8 @@ impl Tables {
         }
     }
 
-    fn with_min_run_fraction(mut self, min_run_fraction: f64) -> Self {
-        self.parameters.min_run_fraction = min_run_fraction;
+    fn with_min_reference_precursors(mut self, min_reference_precursors: usize) -> Self {
+        self.parameters.min_reference_precursors = min_reference_precursors;
         self
     }
 
@@ -395,6 +409,7 @@ fn test_leaves_a_near_blank_run_uncorrected_and_corrects_the_others() {
 
         let (corrected, summary) = tables.correct();
 
+        assert_eq!(summary.reference_runs, N_PARTIAL_RUNS - 1);
         assert!(!summary.corrected[0]);
         assert_eq!(summary.max_abs_correction[0], 0.0);
         assert_eq!(corrected[..N_PRECURSORS], tables.intensity[..N_PRECURSORS]);
@@ -417,15 +432,16 @@ fn test_removes_the_drift_with_cells_missing_at_random_as_from_complete_data() {
     let mut missing_total = 0.0;
     for seed in 0..N_MISSING_SEEDS {
         let complete = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed)
-            .with_min_run_fraction(PARTIAL_ROW_RUN_FRACTION);
+            .with_min_reference_precursors(PARTIAL_ROW_MIN_REFERENCE_PRECURSORS);
         let mut missing = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed)
-            .with_min_run_fraction(PARTIAL_ROW_RUN_FRACTION);
+            .with_min_reference_precursors(PARTIAL_ROW_MIN_REFERENCE_PRECURSORS);
         missing.drop_at_random(MISSING_SHARE, seed + N_MISSING_SEEDS);
         let runs = complete.all_runs();
 
         let (complete_corrected, _) = complete.correct();
         let (missing_corrected, summary) = missing.correct();
 
+        assert_eq!(summary.reference_runs, PARTIAL_ROW_REFERENCE_RUNS);
         assert!(summary.corrected.iter().all(|&corrected| corrected));
         let error = missing.correction_error(&missing_corrected, &runs);
         assert!(
@@ -454,7 +470,7 @@ fn test_the_rounds_remove_the_bias_of_rows_missing_in_some_runs() {
     let mut rounds_total = 0.0;
     for seed in 0..N_MISSING_SEEDS {
         let mut tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, seed)
-            .with_min_run_fraction(PARTIAL_ROW_RUN_FRACTION);
+            .with_min_reference_precursors(PARTIAL_ROW_MIN_REFERENCE_PRECURSORS);
         tables.drop_at_random(MISSING_SHARE, seed + N_MISSING_SEEDS);
         let runs = tables.all_runs();
 
@@ -467,4 +483,70 @@ fn test_the_rounds_remove_the_bias_of_rows_missing_in_some_runs() {
     let gain = (rounds_total - single_total) / N_MISSING_SEEDS as f64;
 
     assert!(gain >= MIN_ROUNDS_GAIN, "gain {gain:.3}");
+}
+
+#[test]
+fn test_uses_the_complete_rows_when_enough_precursors_are_complete() {
+    let mut tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, 0);
+    tables.drop_at_random(FEW_MISSING_SHARE, N_SEEDS);
+
+    let (corrected, summary) = tables.correct();
+    let (complete_rows_corrected, complete_rows_summary) = tables
+        .with_min_reference_precursors(COMPLETE_ROWS_ONLY)
+        .correct();
+
+    assert_eq!(summary.reference_runs, N_PARTIAL_RUNS);
+    assert_eq!(complete_rows_summary.reference_runs, N_PARTIAL_RUNS);
+    assert_eq!(corrected, complete_rows_corrected);
+}
+
+/// Mean removed share over `n_seeds` draws of `n_runs` runs with `missing_share` of the cells
+/// missing at random and the default reference; asserts that fewer runs than all are required,
+/// that every run is corrected and the correction error of every draw.
+fn mean_removed_share_with_too_few_complete_rows(
+    n_runs: usize,
+    missing_share: f64,
+    n_seeds: u64,
+) -> f64 {
+    let mut total = 0.0;
+    for seed in 0..n_seeds {
+        let mut tables = Tables::new(n_runs, N_PRECURSORS, seed);
+        tables.drop_at_random(missing_share, seed + n_seeds);
+        let runs = tables.all_runs();
+
+        let (corrected, summary) = tables.correct();
+
+        assert!(
+            summary.reference_runs < n_runs,
+            "seed {seed}: {} of {n_runs} runs",
+            summary.reference_runs
+        );
+        assert!(summary.corrected.iter().all(|&corrected| corrected));
+        let error = tables.correction_error(&corrected, &runs);
+        assert!(
+            error < MAX_CORRECTION_ERROR_LOG2,
+            "seed {seed}: error {error:.3}"
+        );
+        total += tables.removed_share(&corrected, &runs);
+    }
+    total / n_seeds as f64
+}
+
+#[test]
+fn test_requires_fewer_runs_when_too_few_precursors_are_complete() {
+    let share = mean_removed_share_with_too_few_complete_rows(
+        N_PARTIAL_RUNS,
+        SPARSE_MISSING_SHARE,
+        N_MISSING_SEEDS,
+    );
+
+    assert!(share >= MIN_REMOVED_SHARE, "removed {share:.3}");
+}
+
+#[test]
+fn test_corrects_a_large_cohort_without_enough_complete_rows() {
+    let share =
+        mean_removed_share_with_too_few_complete_rows(N_COHORT_RUNS, COHORT_MISSING_SHARE, N_SEEDS);
+
+    assert!(share >= MIN_REMOVED_SHARE, "removed {share:.3}");
 }

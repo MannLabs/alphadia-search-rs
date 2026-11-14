@@ -24,6 +24,8 @@ pub struct SelectionParameters {
     pub rt_prior_df: f32,
     #[pyo3(get)]
     pub min_fragments: usize,
+    #[pyo3(get)]
+    pub min_score: f32,
 }
 
 #[pymethods]
@@ -51,6 +53,8 @@ impl SelectionParameters {
             rt_prior_df: 0.0,
             // A peak group needs signal of at least this number of fragments within one cycle of its apex. 0 is off.
             min_fragments: 0,
+            // A peak group is a candidate only if its score is above this value. Negative infinity is off.
+            min_score: f32::NEG_INFINITY,
         }
     }
 
@@ -84,6 +88,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("min_fragments")? {
             self.min_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("min_score")? {
+            self.min_score = value.extract::<f32>()?;
         }
         Ok(())
     }

@@ -222,7 +222,8 @@ impl PeakGroupSelection {
         let mut candidates = Vec::new();
 
         for (&cycle_center_idx, &score) in local_maxima_indices.iter().zip(&local_maxima_values) {
-            if candidates.len() == candidate_count {
+            // The maxima are sorted, so no later one is above the minimum score either.
+            if candidates.len() == candidate_count || score <= self.params.min_score {
                 break;
             }
             if self.params.min_fragments > 0

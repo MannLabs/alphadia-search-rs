@@ -199,3 +199,20 @@ fn test_fragments_with_signal_counts_fragments_around_the_apex() {
     // An apex at the first cycle only looks at cycles 0 and 1
     assert_eq!(fragments_with_signal(&dense_xic, 0), 1);
 }
+
+#[test]
+fn test_min_score_defaults_to_off() {
+    assert_eq!(SelectionParameters::new().min_score, f32::NEG_INFINITY);
+}
+
+#[test]
+fn test_min_score_parameter_update() {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut params = SelectionParameters::new();
+        let dict = PyDict::new(py);
+        dict.set_item("min_score", 9.5).unwrap();
+        params.update(&dict).unwrap();
+        assert_eq!(params.min_score, 9.5);
+    });
+}

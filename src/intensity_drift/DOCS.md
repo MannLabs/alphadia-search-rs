@@ -139,8 +139,8 @@ A dict:
       surface.
    3. Compute the offsets.
 
-   With a mean over all runs, a precursor missing in some runs would be measured against a
-   level that carries the drift of the runs it is quantified in. The offsets remove that drift
+   With the plain mean over its quantified runs, a precursor missing in some runs would be
+   measured against a level that carries the drift of exactly those runs. The offsets remove that drift
    from the row levels. Complete rows do not move, as their offsets sum to zero, so with
    complete data the second round reproduces the first and the rounds stop.
 4. Divide every quantified cell with an RT and a mass of a run with a surface by

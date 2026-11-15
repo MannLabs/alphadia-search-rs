@@ -126,3 +126,93 @@ fn test_candidate_cycle_limits_apex_near_run_end() {
 fn test_candidate_cycle_limits_interior() {
     assert_eq!(candidate_cycle_limits(50, 5, 100), (45, 56));
 }
+
+#[test]
+fn test_rt_prior_defaults_to_off() {
+    let params = SelectionParameters::new();
+    assert_eq!(params.rt_prior_scale, 0.0);
+    assert_eq!(params.rt_prior_df, 0.0);
+}
+
+#[test]
+fn test_rt_prior_parameters_update() {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut params = SelectionParameters::new();
+        let dict = PyDict::new(py);
+        dict.set_item("rt_prior_scale", 20.0).unwrap();
+        dict.set_item("rt_prior_df", 5.0).unwrap();
+        params.update(&dict).unwrap();
+        assert_eq!(params.rt_prior_scale, 20.0);
+        assert_eq!(params.rt_prior_df, 5.0);
+    });
+}
+
+#[test]
+fn test_rt_log_prior_is_zero_at_the_predicted_rt_and_falls_symmetrically() {
+    // Cycles every 10 s, predicted RT 50 s, Student-t prior with scale 10 s and 5 degrees of freedom.
+    let rt = arr1(&[0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]);
+    let mut score = arr1(&[1.0, 1.0, 1.0, 1.0, 1.0]);
+    add_rt_log_prior(&mut score, &rt, 3, 50.0, 10.0, 5.0);
+
+    // Cycles 3..8 are 30, 40, 50, 60, 70 s.
+    let at_one_scale = -3.0 * (1.0f32 + 1.0 / 5.0).ln();
+    let at_two_scales = -3.0 * (1.0f32 + 4.0 / 5.0).ln();
+    let expected = [
+        1.0 + at_two_scales,
+        1.0 + at_one_scale,
+        1.0,
+        1.0 + at_one_scale,
+        1.0 + at_two_scales,
+    ];
+    for (value, expected) in score.iter().zip(expected) {
+        assert!((value - expected).abs() < 1e-5, "{value} != {expected}");
+    }
+}
+
+#[test]
+fn test_rt_log_prior_moves_the_best_peak_towards_the_predicted_rt() {
+    // Two equal peaks at cycles 1 and 5, the predicted RT at cycle 5.
+    let rt = arr1(&[0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+    let mut score = arr1(&[0.0, 5.0, 0.0, 0.0, 0.0, 5.0, 0.0]);
+    add_rt_log_prior(&mut score, &rt, 0, 50.0, 10.0, 5.0);
+
+    let (indices, _) = find_local_maxima(&score, 0);
+    assert_eq!(indices[0], 5);
+}
+
+#[test]
+fn test_min_fragments_defaults_to_off() {
+    assert_eq!(SelectionParameters::new().min_fragments, 0);
+}
+
+#[test]
+fn test_fragments_with_signal_counts_fragments_around_the_apex() {
+    // 4 fragments over 7 cycles; apex at cycle 3, so cycles 2 to 4 count
+    let dense_xic = numpy::ndarray::arr2(&[
+        [0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0], // signal at the apex
+        [0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0], // signal one cycle before
+        [9.0, 0.0, 0.0, 0.0, 0.0, 0.0, 9.0], // signal only away from the apex
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], // no signal
+    ]);
+    assert_eq!(fragments_with_signal(&dense_xic, 3), 2);
+    // An apex at the first cycle only looks at cycles 0 and 1
+    assert_eq!(fragments_with_signal(&dense_xic, 0), 1);
+}
+
+#[test]
+fn test_min_score_defaults_to_off() {
+    assert_eq!(SelectionParameters::new().min_score, f32::NEG_INFINITY);
+}
+
+#[test]
+fn test_min_score_parameter_update() {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut params = SelectionParameters::new();
+        let dict = PyDict::new(py);
+        dict.set_item("min_score", 9.5).unwrap();
+        params.update(&dict).unwrap();
+        assert_eq!(params.min_score, 9.5);
+    });
+}

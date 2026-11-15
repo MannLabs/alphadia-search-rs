@@ -265,3 +265,18 @@ fn test_memory_footprint() {
         + 3 * std::mem::size_of::<Vec<u32>>(); // 3 Vec overheads
     assert!(memory_bytes >= expected_min_size);
 }
+
+#[test]
+fn test_cycle_intensity_sums_adds_all_slices_per_cycle() {
+    use crate::traits::QuadrupoleObservationTrait;
+
+    let mut obs = QuadrupoleObservation::new_with_capacity([100.0, 150.0], 3, 2, 4);
+    obs.add_peak_data(0, 1.0);
+    obs.add_peak_data(2, 2.0);
+    obs.finalize_slice();
+    obs.add_peak_data(0, 3.0);
+    obs.add_peak_data(1, 4.0);
+    obs.finalize_slice();
+
+    assert_eq!(obs.cycle_intensity_sums(), vec![4.0, 4.0, 2.0]);
+}

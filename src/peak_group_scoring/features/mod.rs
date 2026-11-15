@@ -11,6 +11,7 @@ use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::feature_set::{FeatureBlockId, FeatureSet};
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
+use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
 #[cfg(test)]
 mod tests;
@@ -23,6 +24,7 @@ pub struct CandidateFeature {
     pub core: CoreFeatures,
     pub ion_coverage: Option<IonCoverageFeatures>,
     pub library_agreement: Option<LibraryAgreementFeatures>,
+    pub window_share: Option<WindowShareFeatures>,
 }
 
 impl CandidateFeature {
@@ -43,6 +45,7 @@ impl CandidateFeature {
             FeatureBlockId::LibraryAgreement => {
                 self.library_agreement.map(|features| features.values())
             }
+            FeatureBlockId::WindowShare => self.window_share.map(|features| features.values()),
         }
     }
 }

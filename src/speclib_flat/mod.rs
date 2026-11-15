@@ -175,6 +175,8 @@ type FragmentData = (
 /// * `fragment_position` - Fragment position annotations
 /// * `fragment_type` - Fragment type annotations
 /// * `non_zero` - If true, filters out fragments with zero intensity
+/// * `filter_y1_ions` - If true, filters out y1 ions
+/// * `min_ion_number` - Filters out fragments with an ion number below this value before the top-k choice. 0 is off.
 /// * `top_k_fragments` - Maximum number of fragments to return (top-k by intensity)
 ///
 /// # Returns
@@ -194,6 +196,7 @@ pub fn filter_sort_fragments(
     fragment_type: &[u8],
     non_zero: bool,
     filter_y1_ions: bool,
+    min_ion_number: u8,
     top_k_fragments: usize,
 ) -> FragmentData {
     let mut fragment_data: Vec<(f32, f32, f32, u8, u8, u8, u8, u8, u8, usize)> = (0..fragment_mz
@@ -224,6 +227,10 @@ pub fn filter_sort_fragments(
         fragment_data.retain(|(_, _, _, _, _, _, number, _, fragment_type, _)| {
             !(*fragment_type == crate::constants::FragmentType::Y && *number == 1)
         });
+    }
+
+    if min_ion_number > 0 {
+        fragment_data.retain(|(_, _, _, _, _, _, number, _, _, _)| *number >= min_ion_number);
     }
 
     // Use partial sorting for top-k selection - much faster than full sort
@@ -396,6 +403,7 @@ impl SpecLibFlat {
         index: usize,
         non_zero: bool,
         filter_y1_ions: bool,
+        min_ion_number: u8,
         top_k_fragments: usize,
     ) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
@@ -439,6 +447,7 @@ impl SpecLibFlat {
             raw_fragment_type,
             non_zero,
             filter_y1_ions,
+            min_ion_number,
             top_k_fragments,
         );
 
@@ -474,6 +483,7 @@ impl SpecLibFlat {
                 array_index,
                 non_zero,
                 filter_y1_ions,
+                0,
                 top_k_fragments,
             )),
             Err(_) => None,

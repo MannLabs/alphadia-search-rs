@@ -146,6 +146,7 @@ impl PeakGroupSelection {
                     i,
                     true, // Always filter non-zero intensities for scoring
                     true, // Filter Y1 ions by default
+                    self.params.min_ion_number,
                     self.params.top_k_fragments,
                 );
                 self.search_precursor_generic(

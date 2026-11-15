@@ -26,6 +26,8 @@ pub struct SelectionParameters {
     pub min_fragments: usize,
     #[pyo3(get)]
     pub min_score: f32,
+    #[pyo3(get)]
+    pub min_ion_number: u8,
 }
 
 #[pymethods]
@@ -55,6 +57,9 @@ impl SelectionParameters {
             min_fragments: 0,
             // A peak group is a candidate only if its score is above this value. Negative infinity is off.
             min_score: f32::NEG_INFINITY,
+            // The selection does not use fragments with an ion number below this value (3 excludes b1, b2, y1 and y2).
+            // Scoring and quantification use all fragments. 0 is off.
+            min_ion_number: 0,
         }
     }
 
@@ -91,6 +96,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("min_score")? {
             self.min_score = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("min_ion_number")? {
+            self.min_ion_number = value.extract::<u8>()?;
         }
         Ok(())
     }

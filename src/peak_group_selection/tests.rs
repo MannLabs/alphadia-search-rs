@@ -216,3 +216,20 @@ fn test_min_score_parameter_update() {
         assert_eq!(params.min_score, 9.5);
     });
 }
+
+#[test]
+fn test_min_ion_number_defaults_to_off() {
+    assert_eq!(SelectionParameters::new().min_ion_number, 0);
+}
+
+#[test]
+fn test_min_ion_number_parameter_update() {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut params = SelectionParameters::new();
+        let dict = PyDict::new(py);
+        dict.set_item("min_ion_number", 3).unwrap();
+        params.update(&dict).unwrap();
+        assert_eq!(params.min_ion_number, 3);
+    });
+}

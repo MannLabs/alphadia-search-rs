@@ -3,17 +3,17 @@ use rayon::prelude::*;
 use super::algorithm::{FitConfig, Group};
 
 /// Cauchy loss tuning constant for 95 % efficiency at the normal distribution (Holland & Welsch 1977).
-const CAUCHY_TUNING_CONSTANT: f64 = 2.385;
+pub(super) const CAUCHY_TUNING_CONSTANT: f64 = 2.385;
 /// Median absolute deviation (MAD) to standard deviation at the normal distribution.
-const MAD_TO_SIGMA: f64 = 1.4826;
+pub(super) const MAD_TO_SIGMA: f64 = 1.4826;
 /// Keeps the offset shrinkage finite when the fragment offsets spread no wider than the noise.
-const MIN_OFFSET_VARIANCE: f64 = 1e-4;
+pub(super) const MIN_OFFSET_VARIANCE: f64 = 1e-4;
 /// Floor of the robust residual scale (log2): data whose majority of residuals is exactly zero
 /// would otherwise get a zero loss scale.
-const MIN_RESIDUAL_SCALE: f64 = 1e-3;
-const VARIANCE_BINS: usize = 30;
+pub(super) const MIN_RESIDUAL_SCALE: f64 = 1e-3;
+pub(super) const VARIANCE_BINS: usize = 30;
 /// Small data gets fewer bins, so that every bin variance rests on enough residuals.
-const MIN_VARIANCE_BIN_SIZE: usize = 50;
+pub(super) const MIN_VARIANCE_BIN_SIZE: usize = 50;
 
 /// Residual scale `sigma`, Cauchy loss scale `tau` and offset shrinkage `lambda`, in log2.
 #[derive(Clone, Copy)]

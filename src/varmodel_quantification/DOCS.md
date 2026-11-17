@@ -127,3 +127,48 @@ The loss scale and the shrinkage are derived from the data, not tuned:
 
 `sigma` is floored at a small value so that data whose majority of residuals is exactly zero
 still downweights its outliers.
+
+# Censored missing fragments and quality weights
+
+Two options extend the fit; with both off it is the fit above.
+
+`missing_fragments="censored"`: the backend reports a fragment only when its XIC carries signal,
+so a missing fragment of a quantified run (at least one observed fragment) says "below the
+detection limit". Leaving it out reads every precursor near the limit too high in its low runs,
+which compresses ratios. Each run gets a dropout curve fitted on its own data,
+
+```text
+P(missing | mu) = pi + (1 - pi) * Phi((L - mu) / s)
+```
+
+with `mu = q[g, r] + c[f] + log2(s[f])` the expected log2 fragment intensity. The fit maximises
+the observed-data likelihood: observed measurements keep their robust weights, and a missing
+measurement adds `log P(missing | mu)`, entered as an EM pseudo-observation with the exact score
+of that term,
+
+```text
+y = mu - s * phi(z) / Phi(z) - log2(s[f]),   weight = rho / s ** 2,   z = (L - mu) / s
+```
+
+where `rho = (1 - pi) Phi(z) / (pi + (1 - pi) Phi(z))` is the posterior probability that the
+measurement was censored. A run whose curve never censors (no missing fragments) gives its
+missing measurements weight 0.
+
+The curve of a run is fitted by maximum likelihood (Nelder-Mead on `(L, log s, logit pi)`) on
+all measurements of the precursor runs with at least 4 observed fragments. The likelihood is
+binomial on 0.02 log2 bins of `mu`, each at the mean `mu` of its measurements, so a likelihood
+evaluation costs one term per bin instead of one per measurement. It starts from the 2 % quantile
+of the observed `mu`, `s = 1` and `pi = max(missing share / 2, 0.001)`. Fit and curves alternate:
+the fit without censoring, then twice a curve on the current fit and a fit with that curve.
+Precursors without a missing measurement in a quantified run have no pseudo-observations and
+keep the fit without censoring.
+
+`quality_exponent = gamma > 0`: the variance of measurement `(f, r)` is multiplied by
+`exp(gamma * (1 - sqrt(C[f, r])))`, `C` the XIC correlation of the fragment in that run, so that
+a value with a poor correlation in one run (interference, background) counts less in that run
+only, instead of dropping the fragment in every run.
+
+With either option the fit runs in f64 (the plain fit stores measurements in f32), sweeps each
+precursor until none of its quantities moves by more than 1e-4 log2, at most 60 sweeps, and
+reports the dropout curves (`detection_limit`, `dropout_width`, `dropout_plateau` per run) when
+censoring.

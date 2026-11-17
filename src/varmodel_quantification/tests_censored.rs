@@ -1,8 +1,11 @@
 use approx::assert_relative_eq;
 
 use super::algorithm::{fit, FitConfig};
-use super::censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments};
+use super::censored::{
+    fit_censored, CensoredConfig, CensoredResult, MissingFragments, QualityExponent,
+};
 use super::numeric::{log_normal_cdf, nelder_mead, pairwise_sum, quantile};
+use super::quality::MAX_QUALITY_EXPONENT;
 use super::quantify;
 
 fn uniform(seed: usize) -> f64 {
@@ -68,6 +71,14 @@ fn simulate(
 }
 
 fn run(simulation: &Simulation, missing_fragments: MissingFragments, gamma: f64) -> CensoredResult {
+    run_with(simulation, missing_fragments, QualityExponent::Fixed(gamma))
+}
+
+fn run_with(
+    simulation: &Simulation,
+    missing_fragments: MissingFragments,
+    quality_exponent: QualityExponent,
+) -> CensoredResult {
     fit_censored(
         &simulation.intensity,
         &simulation.intensity_library,
@@ -77,7 +88,7 @@ fn run(simulation: &Simulation, missing_fragments: MissingFragments, gamma: f64)
         simulation.n_precursors,
         &CensoredConfig {
             missing_fragments,
-            quality_exponent: gamma,
+            quality_exponent,
         },
     )
 }
@@ -266,6 +277,83 @@ fn test_quality_weights_downweight_interfered_values() {
     );
 }
 
+const QUALITY_PRECURSORS: usize = 2000;
+const QUALITY_RUNS: usize = 6;
+
+/// Every measurement observed, with an XIC correlation drawn uniformly and a noise variance of
+/// 0.15^2 * exp(gamma * (1 - sqrt(C))).
+fn quality_simulation(gamma: f64) -> Simulation {
+    let seed = |p: usize, ion: usize, run: usize| (p * N_IONS + ion) * QUALITY_RUNS + run;
+    let correlation =
+        move |p: usize, ion: usize, run: usize| uniform(9_000_000 + seed(p, ion, run));
+    simulate(
+        QUALITY_PRECURSORS,
+        QUALITY_RUNS,
+        move |p, ion, run, log_share| {
+            let x = 1.0 - correlation(p, ion, run).sqrt();
+            let sd = 0.15 * (0.5 * gamma * x).exp();
+            10.0 + 6.0 * uniform(p)
+                + 0.2 * run as f64
+                + log_share
+                + sd * gaussian(seed(p, ion, run))
+        },
+        correlation,
+    )
+}
+
+fn estimated(simulation: &Simulation) -> CensoredResult {
+    run_with(
+        simulation,
+        MissingFragments::Censored,
+        QualityExponent::Estimated,
+    )
+}
+
+#[test]
+fn test_noisier_low_correlation_measurements_give_a_positive_quality_exponent() {
+    let gamma = estimated(&quality_simulation(1.0)).quality_exponent;
+    assert!((0.7..1.3).contains(&gamma), "gamma {gamma}");
+}
+
+#[test]
+fn test_correlation_without_extra_noise_gives_a_quality_exponent_near_zero() {
+    let gamma = estimated(&quality_simulation(0.0)).quality_exponent;
+    assert!((0.0..0.15).contains(&gamma), "gamma {gamma}");
+}
+
+#[test]
+fn test_quality_exponent_is_clipped() {
+    assert_eq!(
+        estimated(&quality_simulation(4.0)).quality_exponent,
+        MAX_QUALITY_EXPONENT
+    );
+    assert_eq!(estimated(&quality_simulation(-1.0)).quality_exponent, 0.0);
+}
+
+#[test]
+fn test_estimated_quality_exponent_is_deterministic() {
+    let simulation = quality_simulation(1.0);
+    let (a, b) = (estimated(&simulation), estimated(&simulation));
+    assert_eq!(a.quality_exponent.to_bits(), b.quality_exponent.to_bits());
+    for (x, y) in a.quantity.iter().zip(&b.quantity) {
+        assert_eq!(x.to_bits(), y.to_bits());
+    }
+}
+
+#[test]
+fn test_estimated_quality_exponent_is_used_in_the_fit() {
+    let simulation = quality_simulation(1.0);
+    let auto = estimated(&simulation);
+    let fixed = run(
+        &simulation,
+        MissingFragments::Censored,
+        auto.quality_exponent,
+    );
+    for (x, y) in auto.quantity.iter().zip(&fixed.quantity) {
+        assert_eq!(x.to_bits(), y.to_bits());
+    }
+}
+
 #[test]
 fn test_options_off_is_the_plain_fit() {
     // Given
@@ -281,7 +369,7 @@ fn test_options_off_is_the_plain_fit() {
         N_PRECURSORS,
         &CensoredConfig {
             missing_fragments: MissingFragments::Drop,
-            quality_exponent: 0.0,
+            quality_exponent: QualityExponent::Fixed(0.0),
         },
     );
     let plain = fit(

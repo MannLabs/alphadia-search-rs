@@ -8,6 +8,7 @@ use super::numeric::{
     array_mean, array_sum, array_variance, clip, expit, interpolate, log_normal_cdf, logit, median,
     nan_to_num, nelder_mead, quantile,
 };
+use super::quality::estimate_quality_exponent;
 
 const MAX_SWEEPS: usize = 60;
 const TOLERANCE: f64 = 1e-4;
@@ -32,10 +33,18 @@ pub enum MissingFragments {
     Censored,
 }
 
+/// gamma of the per-measurement variance factor `exp(gamma * (1 - sqrt(C)))`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum QualityExponent {
+    Fixed(f64),
+    /// Estimated from the residuals of the fit without quality weights
+    /// (`quality::estimate_quality_exponent`).
+    Estimated,
+}
+
 pub struct CensoredConfig {
     pub missing_fragments: MissingFragments,
-    /// gamma of the per-measurement variance factor `exp(gamma * (1 - sqrt(C)))`.
-    pub quality_exponent: f64,
+    pub quality_exponent: QualityExponent,
 }
 
 /// Per run: `P(missing | mu) = plateau + (1 - plateau) * Phi((limit - mu) / width)`.
@@ -50,30 +59,33 @@ pub struct CensoredResult {
     pub quantity: Vec<f64>,
     pub parameters: FitParameters,
     pub dropout: Option<Dropout>,
+    /// The gamma the fit used.
+    pub quality_exponent: f64,
 }
 
 /// One precursor in f64, ion-major: `y = log2(I / s)` (NaN where missing), the log2 library
-/// share, the share recovered from it, and the measurement variances once the noise is known
-/// (before that, the log variance factor of the measurement quality).
-struct Group {
-    y: Vec<f64>,
-    log_share: Vec<f64>,
+/// share, the share recovered from it, the measurement quality `1 - sqrt(C)` (empty without
+/// quality weights) and the measurement variances once the noise is known.
+pub(super) struct Group {
+    pub(super) y: Vec<f64>,
+    pub(super) log_share: Vec<f64>,
     share: Vec<f64>,
-    variance: Vec<f64>,
-    n_ions: usize,
-    n_runs: usize,
+    pub(super) quality: Vec<f64>,
+    pub(super) variance: Vec<f64>,
+    pub(super) n_ions: usize,
+    pub(super) n_runs: usize,
 }
 
 impl Group {
-    fn index(&self, ion: usize, run: usize) -> usize {
+    pub(super) fn index(&self, ion: usize, run: usize) -> usize {
         ion * self.n_runs + run
     }
 
-    fn observed(&self, ion: usize, run: usize) -> bool {
+    pub(super) fn observed(&self, ion: usize, run: usize) -> bool {
         self.y[self.index(ion, run)].is_finite()
     }
 
-    fn n_observed(&self, run: usize) -> usize {
+    pub(super) fn n_observed(&self, run: usize) -> usize {
         (0..self.n_ions)
             .filter(|&ion| self.observed(ion, run))
             .count()
@@ -81,9 +93,9 @@ impl Group {
 }
 
 /// Fragment offsets and run quantities of one precursor during the fit.
-struct State {
-    quantity: Vec<f64>,
-    offset: Vec<f64>,
+pub(super) struct State {
+    pub(super) quantity: Vec<f64>,
+    pub(super) offset: Vec<f64>,
 }
 
 struct Noise {
@@ -110,21 +122,37 @@ pub fn fit_censored(
     n_precursors: usize,
     config: &CensoredConfig,
 ) -> CensoredResult {
+    let weighted = correlation.is_some()
+        && match config.quality_exponent {
+            QualityExponent::Fixed(gamma) => gamma > 0.0,
+            QualityExponent::Estimated => true,
+        };
     let mut groups = build_groups(
         intensity,
         intensity_library,
         precursor,
-        correlation,
-        config.quality_exponent,
+        correlation.filter(|_| weighted),
         n_runs,
         n_precursors,
     );
     let initial: Vec<Vec<f64>> = groups.par_iter().map(initial_quantities).collect();
     let noise = estimate_noise(&groups, &initial);
-    groups
-        .par_iter_mut()
-        .zip(&initial)
-        .for_each(|(group, quantity)| set_variances(group, quantity, &noise));
+    let set_all_variances = |groups: &mut Vec<Group>, gamma: f64| {
+        groups
+            .par_iter_mut()
+            .zip(&initial)
+            .for_each(|(group, quantity)| set_variances(group, quantity, &noise, gamma));
+    };
+    let gamma = match config.quality_exponent {
+        QualityExponent::Fixed(gamma) if weighted => gamma,
+        QualityExponent::Estimated if weighted => {
+            set_all_variances(&mut groups, 0.0);
+            let unweighted = fit(&groups, &initial, &noise, None);
+            estimate_quality_exponent(&groups, &initial, &unweighted)
+        }
+        _ => 0.0,
+    };
+    set_all_variances(&mut groups, gamma);
 
     let mut states = fit(&groups, &initial, &noise, None);
     let mut dropout = None;
@@ -139,6 +167,7 @@ pub fn fit_censored(
         quantity: run_major(&groups, &states, n_runs, n_precursors),
         parameters: noise.parameters,
         dropout,
+        quality_exponent: gamma,
     }
 }
 
@@ -147,7 +176,6 @@ fn build_groups(
     intensity_library: &[f32],
     precursor: &[usize],
     correlation: Option<&[f32]>,
-    quality_exponent: f64,
     n_runs: usize,
     n_precursors: usize,
 ) -> Vec<Group> {
@@ -171,7 +199,7 @@ fn build_groups(
             let log_share: Vec<f64> = original_share.iter().map(|s| s.log2()).collect();
             let share = log_share.iter().map(|l| l.exp2()).collect();
             let mut y = Vec::with_capacity(ions.len() * n_runs);
-            let mut variance = Vec::new();
+            let mut quality = Vec::new();
             for (&ion, &s) in ions.iter().zip(&original_share) {
                 for run in 0..n_runs {
                     let i = intensity[run * n_ions + ion] as f64;
@@ -180,9 +208,9 @@ fn build_groups(
                     } else {
                         f64::NAN
                     });
-                    if let Some(correlation) = correlation.filter(|_| quality_exponent > 0.0) {
+                    if let Some(correlation) = correlation {
                         let c = clip(nan_to_num(correlation[run * n_ions + ion] as f64), 0.0, 1.0);
-                        variance.push(quality_exponent * (1.0 - c.sqrt()));
+                        quality.push(1.0 - c.sqrt());
                     }
                 }
             }
@@ -190,7 +218,8 @@ fn build_groups(
                 y,
                 log_share,
                 share,
-                variance,
+                quality,
+                variance: Vec::new(),
                 n_ions: ions.len(),
                 n_runs,
             }
@@ -222,16 +251,19 @@ fn initial_quantities(group: &Group) -> Vec<f64> {
         .collect()
 }
 
-fn set_variances(group: &mut Group, initial: &[f64], noise: &Noise) {
-    let log_variance_factor = std::mem::take(&mut group.variance);
+/// The noise curve at the share-weighted first pass, times `exp(gamma * (1 - sqrt(C)))`.
+fn set_variances(group: &mut Group, initial: &[f64], noise: &Noise, gamma: f64) {
     let mut variance = Vec::with_capacity(group.n_ions * group.n_runs);
     for ion in 0..group.n_ions {
         for run in 0..group.n_runs {
-            let factor = log_variance_factor
+            let quality = group
+                .quality
                 .get(group.index(ion, run))
                 .copied()
                 .unwrap_or(0.0);
-            variance.push(noise.variance(group.log_share[ion] + initial[run]) * factor.exp());
+            variance.push(
+                noise.variance(group.log_share[ion] + initial[run]) * (gamma * quality).exp(),
+            );
         }
     }
     group.variance = variance;

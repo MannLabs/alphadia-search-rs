@@ -168,6 +168,22 @@ keep the fit without censoring.
 a value with a poor correlation in one run (interference, background) counts less in that run
 only, instead of dropping the fragment in every run.
 
+`quality_exponent = "auto"` estimates gamma from the data of the search, clipped to [0, 2]. The
+fit without quality weights and without censoring gives standardised residuals of the observed
+measurements of precursor runs with at least 4 observed fragments,
+
+```text
+z^2 = r^2 / (v(mu) (1 - h) (1 - 1/m))
+```
+
+with `r` the residual, `h` the measurement's share of its precursor run's weight `1/v`, and `m`
+the runs its fragment is observed in. The measurements are binned into 20 quantile bins of the
+expected intensity and, within each, 10 quantile bins of `x = 1 - sqrt(C)`; gamma is the
+count-weighted within-bin least-squares slope of `log median z^2` on the bin's mean `x` (bins of
+at least 30 measurements). Medians of a scale family scale with the variance, so the slope needs
+no distribution constant. The fit then runs with that gamma; the result reports it as
+`quality_exponent`.
+
 With either option the fit runs in f64 (the plain fit stores measurements in f32), sweeps each
 precursor until none of its quantities moves by more than 1e-4 log2, at most 60 sweeps, and
 reports the dropout curves (`detection_limit`, `dropout_width`, `dropout_plateau` per run) when

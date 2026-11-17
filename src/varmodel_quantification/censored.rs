@@ -1,5 +1,3 @@
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 use rayon::prelude::*;
 
 use super::noise::{
@@ -19,8 +17,9 @@ const MIN_IONS: usize = 2;
 /// every fragment.
 const CURVE_MIN_OBSERVED: usize = 4;
 const CURVE_ROUNDS: usize = 2;
-pub const DEFAULT_CURVE_MAX_CELLS: usize = 300_000;
-const CURVE_SEED: u64 = 0;
+/// The dropout likelihood counts missing and observed measurements in bins of this width of
+/// the expected log2 intensity; the CDF barely changes within a bin.
+const CURVE_BIN_WIDTH: f64 = 0.02;
 const CURVE_START_QUANTILE: f64 = 0.02;
 const CURVE_START_PLATEAU: f64 = 1e-3;
 const PROBABILITY_FLOOR: f64 = 1e-12;
@@ -37,8 +36,6 @@ pub struct CensoredConfig {
     pub missing_fragments: MissingFragments,
     /// gamma of the per-measurement variance factor `exp(gamma * (1 - sqrt(C)))`.
     pub quality_exponent: f64,
-    /// The dropout curve of a run is fitted on a random subset of this many measurements.
-    pub curve_max_cells: usize,
 }
 
 /// Per run: `P(missing | mu) = plateau + (1 - plateau) * Phi((limit - mu) / width)`.
@@ -133,13 +130,13 @@ pub fn fit_censored(
     let mut dropout = None;
     if config.missing_fragments == MissingFragments::Censored {
         for _ in 0..CURVE_ROUNDS {
-            let curve = fit_dropout(&groups, &states, n_runs, config.curve_max_cells);
-            states = fit(&groups, &initial, &noise, Some(&curve));
+            let curve = fit_dropout(&groups, &states, n_runs);
+            states = refit_censored(&groups, &initial, &noise, &curve, states);
             dropout = Some(curve);
         }
     }
     CensoredResult {
-        quantity: run_major(&states, n_runs, n_precursors),
+        quantity: run_major(&groups, &states, n_runs, n_precursors),
         parameters: noise.parameters,
         dropout,
     }
@@ -446,67 +443,95 @@ fn sweep(group: &Group, quantified: &[bool], state: &mut State, constants: &Swee
     change
 }
 
-/// Alternates weights, offsets and quantities of all precursors in lockstep until no run
-/// quantity of any precursor moves by `TOLERANCE`. Quantities with fewer than `MIN_IONS`
-/// observed fragments are NaN.
+/// A missing measurement in a run with an observed one: without any, the censored fit is the
+/// plain fit.
+fn has_censored(group: &Group, quantified: &[bool]) -> bool {
+    (0..group.n_runs)
+        .any(|run| quantified[run] && (0..group.n_ions).any(|ion| !group.observed(ion, run)))
+}
+
+fn quantified_runs(group: &Group) -> Vec<bool> {
+    (0..group.n_runs)
+        .map(|run| group.n_observed(run) > 0)
+        .collect()
+}
+
+/// Alternates weights, offsets and quantities of each precursor from the share-weighted start
+/// until no run quantity moves by `TOLERANCE`, at most `MAX_SWEEPS` sweeps. Quantities are
+/// unmasked; `run_major` masks those with fewer than `MIN_IONS` observed fragments.
+fn fit_group(
+    group: &Group,
+    initial: &[f64],
+    quantified: &[bool],
+    constants: &SweepConstants,
+) -> State {
+    let mut state = State {
+        quantity: initial.iter().map(|&q| nan_to_num(q)).collect(),
+        offset: vec![0.0; group.n_ions],
+    };
+    for _ in 0..MAX_SWEEPS {
+        if sweep(group, quantified, &mut state, constants) < TOLERANCE {
+            break;
+        }
+    }
+    state
+}
+
+fn sweep_constants<'a>(noise: &Noise, dropout: Option<&'a Dropout>) -> SweepConstants<'a> {
+    let FitParameters { sigma, tau, lambda } = noise.parameters;
+    SweepConstants {
+        loss: (sigma / tau).powi(2),
+        // lambda counts observations of variance sigma ** 2
+        prior_weight: lambda / (sigma * sigma),
+        dropout,
+    }
+}
+
 fn fit(
     groups: &[Group],
     initial: &[Vec<f64>],
     noise: &Noise,
     dropout: Option<&Dropout>,
 ) -> Vec<State> {
-    let FitParameters { sigma, tau, lambda } = noise.parameters;
-    let constants = SweepConstants {
-        loss: (sigma / tau).powi(2),
-        prior_weight: lambda / (sigma * sigma),
-        dropout,
-    };
-    let quantified: Vec<Vec<bool>> = groups
+    let constants = sweep_constants(noise, dropout);
+    groups
         .par_iter()
-        .map(|group| {
-            (0..group.n_runs)
-                .map(|run| group.n_observed(run) > 0)
-                .collect()
-        })
-        .collect();
-    let mut states: Vec<State> = groups
-        .iter()
         .zip(initial)
-        .map(|(group, quantity)| State {
-            quantity: quantity.iter().map(|&q| nan_to_num(q)).collect(),
-            offset: vec![0.0; group.n_ions],
-        })
-        .collect();
-    for _ in 0..MAX_SWEEPS {
-        let change = states
-            .par_iter_mut()
-            .zip(groups)
-            .zip(&quantified)
-            .map(|((state, group), quantified)| sweep(group, quantified, state, &constants))
-            .reduce(|| 0.0, f64::max);
-        if change < TOLERANCE {
-            break;
-        }
-    }
-    states
-        .par_iter_mut()
-        .zip(groups)
-        .for_each(|(state, group)| {
-            for run in 0..group.n_runs {
-                if group.n_observed(run) < MIN_IONS {
-                    state.quantity[run] = f64::NAN;
-                }
+        .map(|(group, initial)| fit_group(group, initial, &quantified_runs(group), &constants))
+        .collect()
+}
+
+/// The fit with the censored pseudo-observations of `dropout`; precursors without a missing
+/// measurement in a quantified run keep their previous fit, which it would reproduce.
+fn refit_censored(
+    groups: &[Group],
+    initial: &[Vec<f64>],
+    noise: &Noise,
+    dropout: &Dropout,
+    previous: Vec<State>,
+) -> Vec<State> {
+    let constants = sweep_constants(noise, Some(dropout));
+    groups
+        .par_iter()
+        .zip(initial)
+        .zip(previous)
+        .map(|((group, initial), previous)| {
+            let quantified = quantified_runs(group);
+            if has_censored(group, &quantified) {
+                fit_group(group, initial, &quantified, &constants)
+            } else {
+                previous
             }
-        });
-    states
+        })
+        .collect()
 }
 
 /// Per-run maximum-likelihood dropout curves on the precursor runs whose expected intensities
 /// are trustworthy.
-fn fit_dropout(groups: &[Group], states: &[State], n_runs: usize, max_cells: usize) -> Dropout {
+fn fit_dropout(groups: &[Group], states: &[State], n_runs: usize) -> Dropout {
     let curves: Vec<(f64, f64, f64)> = (0..n_runs)
         .into_par_iter()
-        .map(|run| fit_dropout_curve(groups, states, run, max_cells))
+        .map(|run| fit_dropout_curve(groups, states, run))
         .collect();
     Dropout {
         limit: curves.iter().map(|c| c.0).collect(),
@@ -515,82 +540,95 @@ fn fit_dropout(groups: &[Group], states: &[State], n_runs: usize, max_cells: usi
     }
 }
 
-fn fit_dropout_curve(
-    groups: &[Group],
-    states: &[State],
-    run: usize,
-    max_cells: usize,
-) -> (f64, f64, f64) {
-    let mut expected = Vec::new();
-    let mut missing = Vec::new();
+/// Maximum-likelihood dropout curve of a run on all measurements of the precursor runs with
+/// at least `CURVE_MIN_OBSERVED` observed fragments, whose expected intensities are
+/// trustworthy: the binomial likelihood of the missing counts in `CURVE_BIN_WIDTH` bins of the
+/// expected intensity, each at the mean expected intensity of its measurements.
+fn fit_dropout_curve(groups: &[Group], states: &[State], run: usize) -> (f64, f64, f64) {
+    let mut cells: Vec<(i64, f64, bool)> = Vec::new();
     for (group, state) in groups.iter().zip(states) {
-        let q = state.quantity[run];
-        if !q.is_finite() || group.n_observed(run) < CURVE_MIN_OBSERVED {
+        if group.n_observed(run) < CURVE_MIN_OBSERVED {
             continue;
         }
+        let q = state.quantity[run];
         for ion in 0..group.n_ions {
-            expected.push(q + state.offset[ion] + group.log_share[ion]);
-            missing.push(!group.observed(ion, run));
+            let mu = q + state.offset[ion] + group.log_share[ion];
+            cells.push((
+                (mu / CURVE_BIN_WIDTH).floor() as i64,
+                mu,
+                !group.observed(ion, run),
+            ));
         }
     }
-    let n_missing = missing.iter().filter(|&&m| m).count();
-    if n_missing == 0 || n_missing == missing.len() {
+    let n_missing = cells.iter().filter(|c| c.2).count();
+    if n_missing == 0 || n_missing == cells.len() {
         // no missing (or no observed) fragments to fit a curve on: a curve that never censors
         return (f64::NEG_INFINITY, 1.0, 0.0);
     }
-    if expected.len() > max_cells {
-        let mut rng = StdRng::seed_from_u64(CURVE_SEED.wrapping_add(run as u64));
-        let mut pick = rand::seq::index::sample(&mut rng, expected.len(), max_cells).into_vec();
-        pick.sort_unstable();
-        expected = pick.iter().map(|&i| expected[i]).collect();
-        missing = pick.iter().map(|&i| missing[i]).collect();
-    }
-    let n_missing = missing.iter().filter(|&&m| m).count();
-    let mut observed_expected: Vec<f64> = expected
-        .iter()
-        .zip(&missing)
-        .filter(|(_, &m)| !m)
-        .map(|(&e, _)| e)
-        .collect();
-    let missing_share = n_missing as f64 / missing.len() as f64;
+    let mut observed_expected: Vec<f64> = cells.iter().filter(|c| !c.2).map(|c| c.1).collect();
+    let missing_share = n_missing as f64 / cells.len() as f64;
     let start = [
         quantile(&mut observed_expected, CURVE_START_QUANTILE),
         0.0,
         logit((missing_share / 2.0).max(CURVE_START_PLATEAU)),
     ];
-    let mut terms = vec![0.0; expected.len()];
+    cells.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    // (mean expected intensity, missing, observed)
+    let mut bins: Vec<(f64, f64, f64)> = Vec::new();
+    let mut current = i64::MIN;
+    let mut sum = 0.0;
+    for &(bin, mu, miss) in &cells {
+        if bin != current {
+            if let Some(last) = bins.last_mut() {
+                last.0 = sum / (last.1 + last.2);
+            }
+            bins.push((0.0, 0.0, 0.0));
+            current = bin;
+            sum = 0.0;
+        }
+        sum += mu;
+        let last = bins.last_mut().unwrap();
+        if miss {
+            last.1 += 1.0;
+        } else {
+            last.2 += 1.0;
+        }
+    }
+    if let Some(last) = bins.last_mut() {
+        last.0 = sum / (last.1 + last.2);
+    }
     let negative_log_likelihood = |theta: &[f64; 3]| {
         let [limit, log_width, plateau_logit] = *theta;
         let pi = expit(plateau_logit);
         let width = log_width.exp();
-        terms
-            .par_iter_mut()
-            .zip(&expected)
-            .zip(&missing)
-            .for_each(|((term, &mu), &miss)| {
-                let cdf = log_normal_cdf((limit - mu) / width).exp();
-                let probability = clip(
-                    pi + (1.0 - pi) * cdf,
-                    PROBABILITY_FLOOR,
-                    1.0 - PROBABILITY_FLOOR,
-                );
-                *term = if miss {
-                    probability.ln()
-                } else {
-                    (-probability).ln_1p()
-                };
-            });
-        -array_sum(&terms)
+        let mut total = 0.0;
+        for &(mu, n_missing, n_observed) in &bins {
+            let cdf = log_normal_cdf((limit - mu) / width).exp();
+            let probability = clip(
+                pi + (1.0 - pi) * cdf,
+                PROBABILITY_FLOOR,
+                1.0 - PROBABILITY_FLOOR,
+            );
+            if n_missing > 0.0 {
+                total += n_missing * probability.ln();
+            }
+            if n_observed > 0.0 {
+                total += n_observed * (-probability).ln_1p();
+            }
+        }
+        -total
     };
     let [limit, log_width, plateau_logit] = nelder_mead(negative_log_likelihood, start);
     (limit, log_width.exp(), expit(plateau_logit))
 }
 
-fn run_major(states: &[State], n_runs: usize, n_precursors: usize) -> Vec<f64> {
+fn run_major(groups: &[Group], states: &[State], n_runs: usize, n_precursors: usize) -> Vec<f64> {
     let mut quantity = vec![f64::NAN; n_runs * n_precursors];
-    for (index, state) in states.iter().enumerate() {
+    for (index, (group, state)) in groups.iter().zip(states).enumerate() {
         for (run, &q) in state.quantity.iter().enumerate() {
-            quantity[run * n_precursors + index] = q;
+            if group.n_observed(run) >= MIN_IONS {
+                quantity[run * n_precursors + index] = q;
+            }
         }
     }
     quantity

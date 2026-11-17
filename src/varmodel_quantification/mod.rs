@@ -9,9 +9,7 @@ mod tests_censored;
 
 use crate::utils::require_c_contiguous;
 use algorithm::{fit, validate_shapes, FitConfig};
-use censored::{
-    fit_censored, CensoredConfig, CensoredResult, MissingFragments, DEFAULT_CURVE_MAX_CELLS,
-};
+use censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -77,8 +75,7 @@ impl VarModelQuantification {
     /// `dropout_plateau`.
     ///
     /// `missing_fragments` is "drop" or "censored". `correlation` has the shape of
-    /// `intensity` and is needed when `quality_exponent` > 0. `curve_max_cells` bounds the
-    /// measurements each dropout curve is fitted on.
+    /// `intensity` and is needed when `quality_exponent` > 0.
     ///
     /// This method borrows the arrays and does not copy them. The arrays must therefore be
     /// C-contiguous.
@@ -95,7 +92,6 @@ impl VarModelQuantification {
         correlation=None,
         missing_fragments=MISSING_DROP,
         quality_exponent=0.0,
-        curve_max_cells=DEFAULT_CURVE_MAX_CELLS,
     ))]
     fn fit(
         &self,
@@ -107,7 +103,6 @@ impl VarModelQuantification {
         correlation: Option<PyReadonlyArray2<'_, f32>>,
         missing_fragments: &str,
         quality_exponent: f64,
-        curve_max_cells: usize,
     ) -> PyResult<Py<PyAny>> {
         let shape = intensity.shape();
         let n_runs = shape[0];
@@ -161,7 +156,6 @@ impl VarModelQuantification {
             &CensoredConfig {
                 missing_fragments,
                 quality_exponent,
-                curve_max_cells,
             },
         );
 

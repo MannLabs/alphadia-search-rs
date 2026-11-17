@@ -154,18 +154,21 @@ where `rho = (1 - pi) Phi(z) / (pi + (1 - pi) Phi(z))` is the posterior probabil
 measurement was censored. A run whose curve never censors (no missing fragments) gives its
 missing measurements weight 0.
 
-The curve of a run is fitted by maximum likelihood (Nelder-Mead on `(L, log s, logit pi)`) on the
-measurements of the precursor runs with at least 4 observed fragments, at most `curve_max_cells`
-of them drawn at random, starting from the 2 % quantile of the observed `mu`, `s = 1` and
-`pi = max(missing share / 2, 0.001)`. Fit and curves alternate: the fit without censoring, then
-twice a curve on the current fit and a fit with that curve.
+The curve of a run is fitted by maximum likelihood (Nelder-Mead on `(L, log s, logit pi)`) on
+all measurements of the precursor runs with at least 4 observed fragments. The likelihood is
+binomial on 0.02 log2 bins of `mu`, each at the mean `mu` of its measurements, so a likelihood
+evaluation costs one term per bin instead of one per measurement. It starts from the 2 % quantile
+of the observed `mu`, `s = 1` and `pi = max(missing share / 2, 0.001)`. Fit and curves alternate:
+the fit without censoring, then twice a curve on the current fit and a fit with that curve.
+Precursors without a missing measurement in a quantified run have no pseudo-observations and
+keep the fit without censoring.
 
 `quality_exponent = gamma > 0`: the variance of measurement `(f, r)` is multiplied by
 `exp(gamma * (1 - sqrt(C[f, r])))`, `C` the XIC correlation of the fragment in that run, so that
 a value with a poor correlation in one run (interference, background) counts less in that run
 only, instead of dropping the fragment in every run.
 
-With either option the fit runs in f64 (the plain fit stores measurements in f32), sweeps all
-precursors in lockstep until no run quantity of any precursor moves by more than 1e-4 log2, at
-most 60 sweeps, and reports the dropout curves (`detection_limit`, `dropout_width`,
-`dropout_plateau` per run) when censoring.
+With either option the fit runs in f64 (the plain fit stores measurements in f32), sweeps each
+precursor until none of its quantities moves by more than 1e-4 log2, at most 60 sweeps, and
+reports the dropout curves (`detection_limit`, `dropout_width`, `dropout_plateau` per run) when
+censoring.

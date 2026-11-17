@@ -1,9 +1,7 @@
 use approx::assert_relative_eq;
 
 use super::algorithm::{fit, FitConfig};
-use super::censored::{
-    fit_censored, CensoredConfig, CensoredResult, MissingFragments, DEFAULT_CURVE_MAX_CELLS,
-};
+use super::censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments};
 use super::numeric::{log_normal_cdf, nelder_mead, pairwise_sum, quantile};
 use super::quantify;
 
@@ -80,7 +78,6 @@ fn run(simulation: &Simulation, missing_fragments: MissingFragments, gamma: f64)
         &CensoredConfig {
             missing_fragments,
             quality_exponent: gamma,
-            curve_max_cells: DEFAULT_CURVE_MAX_CELLS,
         },
     )
 }
@@ -199,6 +196,36 @@ fn test_a_run_that_never_censors_gives_no_nan() {
 }
 
 #[test]
+fn test_precursors_without_missing_fragments_keep_the_uncensored_fit() {
+    // Given
+    let simulation = censored_simulation(&[]);
+
+    // When
+    let dropped = run(&simulation, MissingFragments::Drop, 1.5);
+    let censored = run(&simulation, MissingFragments::Censored, 1.5);
+
+    // Then
+    let complete: Vec<usize> = (0..N_PRECURSORS)
+        .filter(|&p| {
+            (0..N_RUNS).all(|run| {
+                (0..N_IONS).all(|ion| {
+                    simulation.intensity[run * N_PRECURSORS * N_IONS + p * N_IONS + ion] > 0.0
+                })
+            })
+        })
+        .collect();
+    assert!(complete.len() > 100);
+    for p in complete {
+        for run in 0..N_RUNS {
+            assert_eq!(
+                quantity(&censored, &simulation, p, run).to_bits(),
+                quantity(&dropped, &simulation, p, run).to_bits()
+            );
+        }
+    }
+}
+
+#[test]
 fn test_quality_weights_downweight_interfered_values() {
     // Given one fragment per precursor interfered (log2 +0.6, three times the noise) in run 1,
     // without XIC correlation there
@@ -255,7 +282,6 @@ fn test_options_off_is_the_plain_fit() {
         &CensoredConfig {
             missing_fragments: MissingFragments::Drop,
             quality_exponent: 0.0,
-            curve_max_cells: DEFAULT_CURVE_MAX_CELLS,
         },
     );
     let plain = fit(

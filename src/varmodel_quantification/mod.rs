@@ -2,7 +2,6 @@ mod algorithm;
 mod censored;
 mod noise;
 mod numeric;
-mod quality;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
@@ -10,7 +9,7 @@ mod tests_censored;
 
 use crate::utils::require_c_contiguous;
 use algorithm::{fit, validate_shapes, FitConfig};
-use censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments, QualityExponent};
+use censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
@@ -19,14 +18,6 @@ use pyo3::types::{PyDict, PyDictMethods};
 
 const MISSING_DROP: &str = "drop";
 const MISSING_CENSORED: &str = "censored";
-const QUALITY_EXPONENT_AUTO: &str = "auto";
-
-/// `quality_exponent` of `fit`: a number, or "auto" to estimate it from the data.
-#[derive(FromPyObject)]
-enum QualityExponentArgument {
-    Value(f64),
-    Mode(String),
-}
 
 /// The plain fit unless missing fragments are censored or the measurement quality weights the
 /// variances.
@@ -39,9 +30,7 @@ fn quantify(
     n_precursors: usize,
     config: &CensoredConfig,
 ) -> CensoredResult {
-    if config.missing_fragments == MissingFragments::Drop
-        && matches!(config.quality_exponent, QualityExponent::Fixed(gamma) if gamma <= 0.0)
-    {
+    if config.missing_fragments == MissingFragments::Drop && config.quality_exponent <= 0.0 {
         let result = fit(
             intensity,
             intensity_library,
@@ -54,7 +43,6 @@ fn quantify(
             quantity: result.quantity,
             parameters: result.parameters,
             dropout: None,
-            quality_exponent: 0.0,
         };
     }
     fit_censored(
@@ -82,13 +70,12 @@ impl VarModelQuantification {
     }
 
     /// Gives a dict with the `(n_runs, n_precursors)` log2 `quantity` matrix and the scalars
-    /// `residual_scale`, `loss_scale`, `offset_shrinkage` and `quality_exponent` (the gamma
-    /// used) of the fit; with censored missing fragments also the per-run dropout curves
-    /// `detection_limit`, `dropout_width` and `dropout_plateau`.
+    /// `residual_scale`, `loss_scale` and `offset_shrinkage` of the fit; with censored missing
+    /// fragments also the per-run dropout curves `detection_limit`, `dropout_width` and
+    /// `dropout_plateau`.
     ///
-    /// `missing_fragments` is "drop" or "censored". `quality_exponent` is a number or "auto",
-    /// which estimates it from the data. `correlation` has the shape of `intensity` and is
-    /// needed when `quality_exponent` is "auto" or > 0.
+    /// `missing_fragments` is "drop" or "censored". `correlation` has the shape of
+    /// `intensity` and is needed when `quality_exponent` > 0.
     ///
     /// This method borrows the arrays and does not copy them. The arrays must therefore be
     /// C-contiguous.
@@ -104,7 +91,7 @@ impl VarModelQuantification {
         *,
         correlation=None,
         missing_fragments=MISSING_DROP,
-        quality_exponent=QualityExponentArgument::Value(0.0),
+        quality_exponent=0.0,
     ))]
     fn fit(
         &self,
@@ -115,7 +102,7 @@ impl VarModelQuantification {
         n_precursors: usize,
         correlation: Option<PyReadonlyArray2<'_, f32>>,
         missing_fragments: &str,
-        quality_exponent: QualityExponentArgument,
+        quality_exponent: f64,
     ) -> PyResult<Py<PyAny>> {
         let shape = intensity.shape();
         let n_runs = shape[0];
@@ -136,24 +123,9 @@ impl VarModelQuantification {
                 )))
             }
         };
-        let quality_exponent = match quality_exponent {
-            QualityExponentArgument::Value(gamma) => QualityExponent::Fixed(gamma),
-            QualityExponentArgument::Mode(mode) if mode == QUALITY_EXPONENT_AUTO => {
-                QualityExponent::Estimated
-            }
-            QualityExponentArgument::Mode(other) => {
-                return Err(PyValueError::new_err(format!(
-                "quality_exponent must be a number or \"{QUALITY_EXPONENT_AUTO}\", not \"{other}\""
-            )))
-            }
-        };
-        let weighted = match quality_exponent {
-            QualityExponent::Fixed(gamma) => gamma > 0.0,
-            QualityExponent::Estimated => true,
-        };
-        if weighted && correlation.is_none() {
+        if quality_exponent > 0.0 && correlation.is_none() {
             return Err(PyValueError::new_err(
-                "quality_exponent \"auto\" or > 0 needs the correlation of every fragment measurement",
+                "quality_exponent > 0 needs the correlation of every fragment measurement",
             ));
         }
         if let Some(correlation) = &correlation {
@@ -195,7 +167,6 @@ impl VarModelQuantification {
         dict.set_item("residual_scale", result.parameters.sigma)?;
         dict.set_item("loss_scale", result.parameters.tau)?;
         dict.set_item("offset_shrinkage", result.parameters.lambda)?;
-        dict.set_item("quality_exponent", result.quality_exponent)?;
         if let Some(dropout) = result.dropout {
             dict.set_item("detection_limit", dropout.limit.into_pyarray(py))?;
             dict.set_item("dropout_width", dropout.width.into_pyarray(py))?;

@@ -51,8 +51,8 @@ pub struct PrecursorDriftParameters {
     pub min_points_per_cell: usize,
     /// Runs with fewer reference precursors are not corrected.
     pub min_reference_per_run: usize,
-    /// The reference precursors are those quantified in every run if at least this many
-    /// qualify, else in the largest number of runs that this many reach, and in at least two.
+    /// The reference precursors are those quantified in every run; if fewer than this many are,
+    /// the required number of runs is lowered until this many qualify or two runs are reached.
     pub min_reference_precursors: usize,
 }
 
@@ -347,9 +347,9 @@ fn is_quantified(value: f64) -> bool {
 }
 
 /// Number of runs a reference precursor is quantified in, at least, from the number of runs
-/// every candidate precursor is quantified in: `n_runs` if at least `min_precursors` candidates
-/// are quantified in every run, else the largest number of runs at least `min_precursors` of them
-/// reach, and never fewer than `MIN_REFERENCE_RUNS`.
+/// every candidate precursor is quantified in: starting at `n_runs`, lowered one run at a time
+/// until `min_precursors` candidates are quantified in that many runs or `MIN_REFERENCE_RUNS` is
+/// reached.
 fn reference_runs(quantified_runs: &[usize], n_runs: usize, min_precursors: usize) -> usize {
     let mut histogram = vec![0_usize; n_runs + 1];
     for &runs in quantified_runs {

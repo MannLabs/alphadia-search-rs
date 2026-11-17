@@ -99,10 +99,11 @@ A dict:
 
 ## Terms
 
-- *reference precursor*: a precursor with a finite mass quantified in at least `k` runs. `k` is
-  the number of runs if at least `min_reference_precursors` precursors with a finite mass are
-  quantified in every run, else the largest number of runs that `min_reference_precursors` of
-  them reach, and at least two. A precursor missing in a run was mostly not detected there, so
+- *reference precursor*: a precursor with a finite mass quantified in at least `k` runs. `k`
+  starts at the number of runs and is lowered one run at a time until at least
+  `min_reference_precursors` precursors with a finite mass are quantified in `k` or more runs,
+  or `k` is two; a small data set therefore uses all precursors quantified in two runs, even if
+  they are fewer. A precursor missing in a run was mostly not detected there, so
   its other quantities are selected on their own noise: complete rows are preferred, and fewer
   runs are required only where complete rows are too few, as with a near-blank run or in a
   large cohort.

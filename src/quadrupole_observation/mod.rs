@@ -130,6 +130,10 @@ impl QuadrupoleObservation {
 
 // Implement the QuadrupoleObservationTrait for QuadrupoleObservation
 impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
+    fn isolation_window(&self) -> [f32; 2] {
+        self.isolation_window
+    }
+
     fn cycle_intensity_sums(&self) -> Vec<f32> {
         let mut sums = vec![0.0; self.num_cycles];
         for (&cycle, &intensity) in self.cycle_indices.iter().zip(&self.intensities) {

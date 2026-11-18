@@ -676,6 +676,7 @@ fn test_filter_sort_fragments_y1_ion_filtering() {
 
 mod precursor_mobility {
     use super::super::SpecLibFlat;
+    use crate::traits::MobilityFilter;
 
     /// Two precursors given out of order, with idx 7 and 3, one fragment each.
     fn library() -> SpecLibFlat {
@@ -760,13 +761,25 @@ mod precursor_mobility {
             (vec![3, 3], vec![1.0, 1.0]),
             (vec![3], vec![f32::INFINITY]),
             (vec![3], vec![-1.0]),
-            (vec![3], vec![0.0]),
         ] {
             assert!(lib
                 .set_precursor_mobility_from_slices(&idx, &mobility)
                 .is_err());
         }
         assert_eq!(lib.get_precursor(0).mobility, 0.9);
+    }
+
+    #[test]
+    fn test_zero_mobility_means_no_mobility() {
+        let mut lib = library();
+        lib.set_precursor_mobility_from_slices(&[3, 7], &[0.0, 1.1])
+            .unwrap();
+        assert!(lib.get_precursor(0).mobility.is_nan());
+        assert_eq!(
+            lib.get_precursor(0).mobility_filter(0.04),
+            MobilityFilter::Any
+        );
+        assert_eq!(lib.get_precursor(1).mobility, 1.1);
     }
 
     #[test]

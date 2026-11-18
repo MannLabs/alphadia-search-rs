@@ -327,6 +327,7 @@ impl SpecLibFlat {
         let mut sorted = vec![f32::NAN; self.precursor_idx.len()];
         let mut seen = vec![false; self.precursor_idx.len()];
         for (idx, &value) in precursor_idx.iter().zip(mobility) {
+            let value = if value == 0.0 { f32::NAN } else { value };
             crate::traits::check_mobility(value)
                 .map_err(|e| format!("precursor_idx {idx}: {e}"))?;
             let position = self

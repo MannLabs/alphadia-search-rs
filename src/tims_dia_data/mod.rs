@@ -128,11 +128,7 @@ impl TimsDIAData {
     pub fn read(path: &str) -> Result<Self, String> {
         let path = TimsTofPath::new(path).map_err(|e| e.to_string())?;
         let reader: TdfFrameReader = path.frame_reader().map_err(|e| e.to_string())?;
-        let first = reader.iter_indices().min().ok_or("no frames")?;
-        let num_scans = reader
-            .get_ions(first)
-            .map_err(|e| e.to_string())?
-            .scan_count();
+        let num_scans = builder::first_scan_count(&reader)?;
         if num_scans > usize::from(u16::MAX) + 1 {
             return Err(format!(
                 "{num_scans} scans per frame; more than 65,536 are not supported"

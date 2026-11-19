@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use timsrust::core::{Converter, TofIndex};
+use timsrust::core::{Converter, FrameIons, FrameReaderError, TofIndex};
 use timsrust::tdf::TdfFrameReader;
 use timsrust::{MzConverter, TimsTofPath};
 
@@ -10,6 +10,7 @@ use crate::mz_index::{MZIndex, MZ_END, MZ_START};
 /// TOF indices below this are binned through a lookup table, the rest one by one.
 const TOF_TABLE_LEN: u32 = 1 << 19;
 const OUT_OF_RANGE: u32 = u32::MAX;
+const EMPTY_FRAME: &str = "No binary data";
 
 /// Maps a TOF index to its closest bin on the global m/z index.
 struct TofBinner<'a> {
@@ -122,6 +123,34 @@ pub(super) fn fill_group(
     Ok(())
 }
 
+pub(super) fn read_frame_ions(
+    reader: &TdfFrameReader,
+    index: usize,
+) -> Result<Option<FrameIons>, String> {
+    empty_frame_as_none(reader.get_ions(index))
+}
+
+pub(super) fn empty_frame_as_none(
+    ions: Result<FrameIons, FrameReaderError>,
+) -> Result<Option<FrameIons>, String> {
+    match ions {
+        Ok(ions) => Ok(Some(ions)),
+        Err(e) if e == FrameReaderError::new(EMPTY_FRAME) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+pub(super) fn first_scan_count(reader: &TdfFrameReader) -> Result<usize, String> {
+    let mut indices: Vec<usize> = reader.iter_indices().collect();
+    indices.sort_unstable();
+    for index in indices {
+        if let Some(ions) = read_frame_ions(reader, index)? {
+            return Ok(ions.scan_count());
+        }
+    }
+    Err("no frame has data".into())
+}
+
 /// Sums sorted peaks on the same (m/z bin, cycle, scan) in place.
 fn merge_duplicates(sorted: &mut Vec<Staged>) {
     sorted.dedup_by(|peak, kept| {
@@ -134,8 +163,8 @@ fn merge_duplicates(sorted: &mut Vec<Staged>) {
     sorted.shrink_to_fit();
 }
 
-/// All raw peaks of every frame. The run's first frame sets the scan count (`num_scans`); a
-/// frame with more scans is an error rather than peaks silently left out.
+/// All raw peaks of every frame. The run's first frame with data sets the scan count
+/// (`num_scans`); a frame with more scans is an error rather than peaks silently left out.
 fn stage_frames(
     reader: &TdfFrameReader,
     frames: &[&Ms2Frame],
@@ -145,12 +174,12 @@ fn stage_frames(
     frames
         .par_iter()
         .map(|frame| {
-            let ions = reader
-                .get_ions(frame.frame_index)
-                .map_err(|e| e.to_string())?;
+            let Some(ions) = read_frame_ions(reader, frame.frame_index)? else {
+                return Ok(Vec::new());
+            };
             if ions.scan_count() > num_scans {
                 return Err(format!(
-                    "frame {} has {} scans but the run's first frame has {num_scans}",
+                    "frame {} has {} scans but the run's first frame with data has {num_scans}",
                     frame.frame_index,
                     ions.scan_count()
                 ));

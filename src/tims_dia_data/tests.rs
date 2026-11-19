@@ -182,6 +182,30 @@ fn test_panic_message_keeps_the_panic_text() {
     assert_eq!(panic_message(payload.as_ref()), "no panic message");
 }
 
+mod empty_frames {
+    use super::super::builder::empty_frame_as_none;
+    use timsrust::core::{FrameIons, FrameReaderError};
+
+    #[test]
+    fn test_an_empty_blob_is_an_empty_frame() {
+        let result = empty_frame_as_none(Err(FrameReaderError::new("No binary data")));
+        assert_eq!(result, Ok(None));
+    }
+
+    #[test]
+    fn test_frames_read_without_error_are_kept() {
+        let ions = FrameIons::new(vec![0, 0], vec![], vec![]);
+        let result = empty_frame_as_none(Ok(ions.clone()));
+        assert_eq!(result, Ok(Some(ions)));
+    }
+
+    #[test]
+    fn test_other_read_errors_are_still_errors() {
+        let result = empty_frame_as_none(Err(FrameReaderError::new("Corrupt Frame")));
+        assert!(result.unwrap_err().contains("Corrupt Frame"));
+    }
+}
+
 mod fill_group {
     use super::super::builder::fill_group;
     use super::*;

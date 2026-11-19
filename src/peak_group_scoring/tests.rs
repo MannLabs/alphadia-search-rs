@@ -1264,12 +1264,327 @@ fn test_calculate_library_agreement_features_entropy_similarity() {
 }
 
 #[cfg(test)]
+fn assert_close(actual: f32, expected: f32) {
+    assert!(
+        (actual - expected).abs() < 1e-5,
+        "expected {expected}, got {actual}"
+    );
+}
+
+#[test]
+fn test_fit_to_profile_explains_a_scaled_profile() {
+    use super::library_agreement::fit_to_profile;
+    let profile = [1.0, 2.0, 1.0];
+    let xic = arr2(&[[2.0, 4.0, 2.0], [0.0, 0.0, 0.0]]);
+
+    let fitted = fit_to_profile(&xic, &profile);
+
+    assert_close(fitted[0], 8.0);
+    assert_close(fitted[1], 0.0);
+}
+
+#[test]
+fn test_fit_to_profile_ignores_signal_off_the_profile() {
+    use super::library_agreement::fit_to_profile;
+    // the first cycle carries an interfering peak the profile does not have
+    let profile = [0.0, 1.0, 0.0];
+    let xic = arr2(&[[5.0, 2.0, 0.0]]);
+
+    assert_close(fit_to_profile(&xic, &profile)[0], 2.0);
+}
+
+#[test]
+fn test_fit_to_profile_without_profile_is_zero() {
+    use super::library_agreement::fit_to_profile;
+    let xic = arr2(&[[1.0, 3.0]]);
+
+    assert_eq!(fit_to_profile(&xic, &[0.0, 0.0]), vec![0.0]);
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_is_zero_for_a_perfect_match() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    let (mean, std, max) = intensity_abs_diff_stats(&[2.0, 4.0, 6.0], &[1.0, 2.0, 3.0], None);
+
+    assert_close(mean, 0.0);
+    assert_close(std, 0.0);
+    assert_close(max, 0.0);
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_uses_the_per_fragment_library_value() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    use crate::utils::calculate_std;
+    // observed (0.5, 0.5, 0) vs library (0.25, 0.25, 0.5): diffs 0.25, 0.25, 0.5
+    let (mean, std, max) = intensity_abs_diff_stats(&[1.0, 1.0, 0.0], &[1.0, 1.0, 2.0], None);
+
+    assert_close(mean, 1.0 / 3.0);
+    assert_close(max, 0.5);
+    assert_close(std, calculate_std(&[0.25, 0.25, 0.5]));
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_masks_after_normalizing_over_all_fragments() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    let mask = [true, false, true];
+
+    let (mean, _, max) = intensity_abs_diff_stats(&[1.0, 1.0, 0.0], &[1.0, 1.0, 2.0], Some(&mask));
+
+    assert_close(mean, 0.375);
+    assert_close(max, 0.5);
+}
+
+#[test]
+fn test_intensity_abs_diff_stats_without_signal_compares_to_zero() {
+    use super::library_agreement::intensity_abs_diff_stats;
+    let (mean, _, max) = intensity_abs_diff_stats(&[0.0, 0.0], &[1.0, 3.0], None);
+
+    assert_close(mean, 0.5);
+    assert_close(max, 0.75);
+}
+
+#[test]
+fn test_fitted_spread_is_zero_for_a_clean_candidate() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let profile = [1.0, 2.0, 1.0];
+    let xic = arr2(&[[3.0, 6.0, 3.0], [2.0, 4.0, 2.0], [1.0, 2.0, 1.0]]);
+    let library = [3.0f32, 2.0, 1.0];
+    let observed: Vec<f32> = (0..3).map(|i| xic.row(i).sum()).collect();
+    let types = [FragmentType::Y, FragmentType::Y, FragmentType::B];
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[1.0, 1.0, 1.0],
+        &types,
+    );
+
+    assert_close(features.fit_intensity_abs_diff_mean, 0.0);
+    assert_close(features.fit_intensity_abs_diff_max, 0.0);
+    assert_close(features.fit_y_intensity_abs_diff_std, 0.0);
+}
+
+#[test]
+fn test_fitted_spread_drops_a_borrowed_peak() {
+    use super::library_agreement::calculate_library_agreement_features;
+    // fragment 1 sits on another precursor's peak two cycles earlier and has no co-eluting signal
+    let profile = [0.0, 0.0, 1.0, 2.0, 1.0];
+    let xic = arr2(&[
+        [0.0, 0.0, 2.0, 4.0, 2.0],
+        [9.0, 20.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 2.0, 4.0, 2.0],
+    ]);
+    let library = [1.0f32, 0.0, 1.0];
+    let observed: Vec<f32> = (0..3).map(|i| xic.row(i).sum()).collect();
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[1.0, -0.5, 1.0],
+        &[FragmentType::Y; 3],
+    );
+
+    assert_close(features.fit_intensity_abs_diff_max, 0.0);
+}
+
+#[test]
+fn test_fitted_spread_without_signal_is_finite() {
+    use super::feature_block::FeatureBlock;
+    use super::library_agreement::calculate_library_agreement_features;
+    let xic = Array2::<f32>::zeros((2, 2));
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &[0.0, 0.0],
+        &[1.0, 1.0],
+        &[0.0, 0.0],
+        &[0.0, 0.0],
+        &[FragmentType::Y, FragmentType::B],
+    );
+
+    for value in features.values() {
+        assert!(value.is_finite());
+    }
+    assert_close(features.fit_intensity_abs_diff_max, 0.5);
+}
+
+#[test]
+fn test_fitted_spread_is_zero_if_the_xic_rows_do_not_match_the_fragments() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let xic = arr2(&[[1.0, 1.0]]);
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &[1.0, 1.0],
+        &[1.0, 2.0],
+        &[1.0, 2.0],
+        &[1.0, 1.0],
+        &[FragmentType::Y; 2],
+    );
+
+    assert_eq!(features.fit_intensity_abs_diff_mean, 0.0);
+    assert_eq!(features.fit_intensity_abs_diff_max, 0.0);
+}
+
+#[cfg(test)]
+fn window_share_entry(
+    window: usize,
+    apex_cycle: usize,
+    frac: f32,
+) -> super::window_share::WindowShareEntry {
+    super::window_share::WindowShareEntry {
+        window,
+        apex_cycle,
+        frac,
+    }
+}
+
+#[test]
+fn test_window_share_feature_names() {
+    use super::feature_block::FeatureBlock;
+    use super::window_share::WindowShareFeatures;
+    assert_eq!(
+        WindowShareFeatures::NAMES,
+        [
+            "apex_window_signal_frac",
+            "apex_window_signal_frac_rank",
+            "apex_window_signal_frac_zscore",
+        ]
+    );
+}
+
+#[test]
+fn test_apex_column_takes_the_profile_maximum() {
+    use super::window_share::apex_column;
+    assert_eq!(apex_column(&[0.1, 0.5, 0.2], 0), 1);
+}
+
+#[test]
+fn test_apex_column_without_signal_falls_back() {
+    use super::window_share::apex_column;
+    assert_eq!(apex_column(&[0.0, 0.0, 0.0], 2), 2);
+    assert_eq!(apex_column(&[], 4), 4);
+}
+
+#[test]
+fn test_apex_window_signal_frac_uses_the_apex_column() {
+    use super::window_share::apex_window_signal_frac;
+    let xic = arr2(&[[1.0, 4.0], [0.0, 6.0]]);
+
+    assert_close(apex_window_signal_frac(&xic, 1, 40.0), 0.25);
+    assert_close(apex_window_signal_frac(&xic, 0, 0.0), 0.0);
+    assert_close(apex_window_signal_frac(&xic, 5, 40.0), 0.0);
+}
+
+#[test]
+fn test_calculate_window_share_features_reads_the_window_at_the_apex_cycle() {
+    use super::window_share::calculate_window_share_features;
+    // XIC columns are cycles 10..13, apex at cycle 11; windows 0 and 1 contribute
+    let profile = [0.2, 1.0, 0.3];
+    let xic = arr2(&[[1.0, 4.0, 1.0], [0.0, 6.0, 0.0]]);
+    let mut window_intensities = vec![vec![0.0; 20]; 3];
+    window_intensities[0][11] = 30.0;
+    window_intensities[1][11] = 10.0;
+    window_intensities[2][11] = 1000.0;
+
+    let (features, entry) =
+        calculate_window_share_features(&xic, &profile, 10, 12, &[0, 1], &window_intensities);
+
+    assert_close(features.apex_window_signal_frac, 0.25);
+    assert_eq!(features.apex_window_signal_frac_rank, 0.0);
+    assert_eq!(entry.window, 0);
+    assert_eq!(entry.apex_cycle, 11);
+    assert_close(entry.frac, 0.25);
+}
+
+#[test]
+fn test_calculate_window_share_features_without_signal_uses_the_cycle_center() {
+    use super::feature_block::FeatureBlock;
+    use super::window_share::calculate_window_share_features;
+    let xic = arr2(&[[0.0, 0.0, 0.0]]);
+
+    let (features, entry) =
+        calculate_window_share_features(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[]);
+
+    assert_eq!(entry.apex_cycle, 12);
+    assert_eq!(entry.window, usize::MAX);
+    for value in features.values() {
+        assert!(value.is_finite());
+    }
+}
+
+#[test]
+fn test_window_share_context_compares_within_window_and_cycle_radius() {
+    use super::window_share::window_share_context;
+    let entries = [
+        window_share_entry(0, 10, 0.1),
+        window_share_entry(0, 11, 0.3),
+        window_share_entry(0, 12, 0.2),
+        // too far in cycles from the first
+        window_share_entry(0, 20, 0.9),
+        // other window
+        window_share_entry(1, 10, 0.5),
+    ];
+
+    let context = window_share_context(&entries, 1);
+
+    // first: one neighbour (0.3 at cycle 11), which is higher
+    assert_close(context[0].0, 0.0);
+    // second: neighbours 0.1 and 0.2, both lower
+    assert_close(context[1].0, 1.0);
+    assert_close(context[1].1, (0.3 - 0.2) / (2.0f32 / 300.0).sqrt());
+    // alone in its window or cycle range
+    assert_close(context[3].0, 0.5);
+    assert_close(context[3].1, 0.0);
+    assert_close(context[4].0, 0.5);
+}
+
+#[test]
+fn test_window_share_context_counts_ties_half() {
+    use super::window_share::window_share_context;
+    let context = window_share_context(
+        &[
+            window_share_entry(0, 5, 0.2),
+            window_share_entry(0, 5, 0.2),
+            window_share_entry(0, 5, 0.1),
+        ],
+        0,
+    );
+
+    assert_close(context[0].0, 0.75);
+    assert_close(context[2].0, 0.0);
+}
+
+#[test]
+fn test_apex_window_spans_the_half_width_around_the_profile_maximum() {
+    use super::utils::apex_window;
+    assert_eq!(apex_window(&[0.0, 1.0, 3.0, 1.0, 0.0], 1), (1, 4));
+    assert_eq!(apex_window(&[5.0, 1.0], 1), (0, 2));
+    assert_eq!(apex_window(&[0.0, 3.0, 1.0, 3.0], 1), (2, 4));
+    assert_eq!(apex_window(&[], 1), (0, 0));
+}
+
+#[test]
+fn test_finite_or_zero_replaces_nan_and_infinity() {
+    use super::utils::finite_or_zero;
+    assert_eq!(finite_or_zero(1.5), 1.5);
+    assert_eq!(finite_or_zero(f32::NAN), 0.0);
+    assert_eq!(finite_or_zero(f32::NEG_INFINITY), 0.0);
+}
+
+#[cfg(test)]
 mod feature_sets {
     use crate::candidate::{Candidate, CandidateCollection};
     use crate::constants::{FragmentType, Loss};
     use crate::dia_data::{AlphaRawView, DIAData};
     use crate::dia_data_builder::DIADataBuilder;
+    use crate::peak_group_scoring::detection::DetectionFeatures;
     use crate::peak_group_scoring::features::CandidateFeatureCollection;
+    use crate::peak_group_scoring::ms1::Ms1Features;
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
     use numpy::ndarray::{Array1, Array4};
@@ -1460,6 +1775,7 @@ mod feature_sets {
         let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
         assert_eq!(apex.ion_coverage, None);
         assert_eq!(apex.library_agreement, None);
+        assert_eq!(apex.window_share, None);
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
@@ -1476,5 +1792,416 @@ mod feature_sets {
         assert!(ion_coverage.lib_share_over_50 > 0.99);
         assert!(ion_coverage.ion_fisher_lib > 0.0);
         assert!(library_agreement.ent_sim > 0.99);
+    }
+
+    #[test]
+    fn test_full_scores_the_fitted_spread_and_window_share() {
+        // given / when
+        let full = score(FeatureSet::Full);
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let off_apex = full.iter().find(|f| f.rank == 1).unwrap();
+        let library_agreement = apex.library_agreement.unwrap();
+        let window_share = apex.window_share.unwrap();
+        // the fragments follow the library and carry all of the window's signal at the apex
+        assert!(library_agreement.fit_intensity_abs_diff_max < 1e-5);
+        assert!((window_share.apex_window_signal_frac - 1.0).abs() < 1e-5);
+        // the two candidates are more than WINDOW_SHARE_CYCLE_RADIUS cycles apart, so each is alone
+        assert_eq!(window_share.apex_window_signal_frac_rank, 0.5);
+        assert_eq!(window_share.apex_window_signal_frac_zscore, 0.0);
+        for value in off_apex.values(FeatureSet::Full).unwrap() {
+            assert!(value.is_finite());
+        }
+    }
+
+    /// Library abundances of the isotopes M0, M1, M2 of the precursor in `dia_data_with_ms1`
+    const ISOTOPE_ABUNDANCE: [f32; 3] = [1.0, 0.55, 0.2];
+    const PRECURSOR_CHARGE: u8 = 2;
+
+    /// Like `dia_data`, with an MS1 survey scan before the MS2 window of every cycle, in which the precursor's
+    /// isotopes M0..M2 elute with the fragments.
+    fn dia_data_with_ms1() -> DIAData {
+        let mut delta_scan_idx = Vec::new();
+        let mut lower = Vec::new();
+        let mut upper = Vec::new();
+        let mut cycle_idx = Vec::new();
+        let mut rt = Vec::new();
+        let mut peak_mz = Vec::new();
+        let mut peak_intensity = Vec::new();
+        let mut peak_start = Vec::new();
+        let mut peak_stop = Vec::new();
+        for cycle in 0..NUM_CYCLES {
+            let elution = 5.0 - (cycle as f32 - APEX_CYCLE as f32).abs();
+            for (scan, (scan_lower, scan_upper)) in
+                [(-1.0, -1.0), (400.0, 600.0)].into_iter().enumerate()
+            {
+                delta_scan_idx.push(scan as i64);
+                lower.push(scan_lower);
+                upper.push(scan_upper);
+                cycle_idx.push(cycle as i64);
+                rt.push(cycle as f32 * 2.0 + scan as f32 * 0.1);
+                peak_start.push(peak_mz.len() as i64);
+                if elution > 0.0 {
+                    if scan == 0 {
+                        for (k, abundance) in ISOTOPE_ABUNDANCE.iter().enumerate() {
+                            peak_mz.push(
+                                PRECURSOR_MZ
+                                    + k as f32 * crate::peak_group_scoring::ms1::C13_MASS_DELTA
+                                        / PRECURSOR_CHARGE as f32,
+                            );
+                            peak_intensity.push(abundance * elution * 1000.0);
+                        }
+                    } else {
+                        for (mz, intensity) in FRAGMENTS {
+                            peak_mz.push(mz);
+                            peak_intensity.push(intensity * elution * 100.0);
+                        }
+                    }
+                }
+                peak_stop.push(peak_mz.len() as i64);
+            }
+        }
+        let delta_scan_idx = Array1::from(delta_scan_idx);
+        let lower = Array1::from(lower);
+        let upper = Array1::from(upper);
+        let peak_start = Array1::from(peak_start);
+        let peak_stop = Array1::from(peak_stop);
+        let cycle_idx = Array1::from(cycle_idx);
+        let rt = Array1::from(rt);
+        let peak_mz = Array1::from(peak_mz);
+        let peak_intensity = Array1::from(peak_intensity);
+        let mut cycle = Array4::<f32>::zeros((1, 2, 1, 2));
+        cycle[[0, 0, 0, 0]] = -1.0;
+        cycle[[0, 0, 0, 1]] = -1.0;
+        cycle[[0, 1, 0, 0]] = 400.0;
+        cycle[[0, 1, 0, 1]] = 600.0;
+        let view = AlphaRawView::new(
+            delta_scan_idx.view(),
+            lower.view(),
+            upper.view(),
+            peak_start.view(),
+            peak_stop.view(),
+            cycle_idx.view(),
+            rt.view(),
+            peak_mz.view(),
+            peak_intensity.view(),
+            cycle.view(),
+        );
+        DIADataBuilder::from_alpha_raw(&view)
+    }
+
+    fn library_with_isotopes() -> SpecLibFlat {
+        let mut lib = library();
+        lib.set_isotopes_from_vecs(
+            &[0],
+            &[PRECURSOR_CHARGE],
+            &[PRECURSOR_MZ],
+            ISOTOPE_ABUNDANCE.len(),
+            &ISOTOPE_ABUNDANCE,
+        )
+        .unwrap();
+        lib
+    }
+
+    fn score_with_ms1(feature_set: FeatureSet, lib: &SpecLibFlat) -> CandidateFeatureCollection {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        PeakGroupScoring::new(params).score(&dia_data_with_ms1(), lib, &candidates())
+    }
+
+    #[test]
+    fn test_full_scores_the_ms1_isotopes_at_the_apex() {
+        // given / when
+        let full = score_with_ms1(FeatureSet::Full, &library_with_isotopes());
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let ms1 = apex.ms1.unwrap();
+        assert_eq!(ms1.ms1_signal_at_apex, 1.0);
+        assert!(ms1.ms1_isotope_correlation > 0.9);
+        assert!(ms1.ms1_isotope_cosine > 0.99);
+        assert_eq!(ms1.ms1_m_minus_1_frac, 0.0);
+        assert!(ms1.ms1_log_intensity > 3.0);
+        assert!(ms1.ms1_iso_m1_err.abs() < 0.1);
+        // the isotopes sit exactly at their m/z, so every apex point of the one MS1 scan has M0 and M+1
+        assert_eq!(ms1.ms1_m0_accurate_share, 1.0);
+        assert_eq!(ms1.ms1_m1_accurate_share, 1.0);
+        assert!(ms1.ms1_fine_shape > 0.5);
+        assert!(ms1.ms1_fine_iso_corr > 0.99);
+        // the MS1 scan does not change the fragment features
+        assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
+        for feature in full.iter() {
+            for value in feature.values(FeatureSet::Full).unwrap() {
+                assert!(value.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn test_full_without_isotopes_gives_zero_ms1_features() {
+        // given / when
+        let full = score_with_ms1(FeatureSet::Full, &library());
+
+        // then
+        for feature in full.iter() {
+            assert_eq!(feature.ms1, Some(Ms1Features::missing()));
+        }
+    }
+
+    #[test]
+    fn test_full_without_ms1_scans_gives_zero_ms1_features() {
+        // given
+        let mut params = ScoringParameters::new();
+        params.feature_set = FeatureSet::Full;
+
+        // when
+        let full = PeakGroupScoring::new(params).score(
+            &dia_data(),
+            &library_with_isotopes(),
+            &candidates(),
+        );
+
+        // then
+        for feature in full.iter() {
+            assert_eq!(feature.ms1, Some(Ms1Features::missing()));
+        }
+    }
+
+    #[test]
+    fn test_cycle_positions_move_the_fine_features_only() {
+        // given: by default the MS1 scan sits at 0 and the MS2 window at 0.5 of the cycle (index over 2 observations)
+        let lib = library_with_isotopes();
+        let mut params = ScoringParameters::new();
+        params.feature_set = FeatureSet::Full;
+        let scoring = PeakGroupScoring::new(params);
+        let default = scoring.score(&dia_data_with_ms1(), &lib, &candidates());
+        let mut same = dia_data_with_ms1();
+        same.set_cycle_positions(vec![0.0, 0.5]).unwrap();
+        let mut moved = dia_data_with_ms1();
+        moved.set_cycle_positions(vec![0.9, 0.0]).unwrap();
+
+        // when
+        let same = scoring.score(&same, &lib, &candidates());
+        let moved = scoring.score(&moved, &lib, &candidates());
+
+        // then
+        let apex = |collection: &CandidateFeatureCollection| {
+            collection
+                .iter()
+                .find(|f| f.rank == 0)
+                .unwrap()
+                .ms1
+                .unwrap()
+        };
+        assert_eq!(apex(&same), apex(&default));
+        let (default, moved) = (apex(&default), apex(&moved));
+        assert_ne!(default.ms1_fine_shape, moved.ms1_fine_shape);
+        assert_eq!(
+            Ms1Features {
+                ms1_fine_shape: 0.0,
+                ..default
+            },
+            Ms1Features {
+                ms1_fine_shape: 0.0,
+                ..moved
+            }
+        );
+        assert!(dia_data_with_ms1().set_cycle_positions(vec![0.0]).is_err());
+    }
+
+    #[test]
+    fn test_calibration_scores_no_ms1() {
+        // given / when
+        let calibration = score_with_ms1(FeatureSet::Calibration, &library_with_isotopes());
+
+        // then
+        for feature in calibration.iter() {
+            assert_eq!(feature.ms1, None);
+        }
+        assert!(!FeatureSet::Calibration
+            .feature_names()
+            .iter()
+            .any(|name| name.starts_with("ms1_")));
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_sets_the_ms1_mass_tolerance() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config.set_item("ms1_mass_tolerance", 4.5f32).unwrap();
+
+            // when
+            params.update(&config).unwrap();
+
+            // then
+            assert_eq!(params.ms1_mass_tolerance, 4.5);
+        });
+    }
+
+    fn score_with_detection(
+        feature_set: FeatureSet,
+        detection_features: bool,
+    ) -> CandidateFeatureCollection {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        params.detection_features = detection_features;
+        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+    }
+
+    #[test]
+    fn test_detection_features_are_on_by_default() {
+        // given / when
+        let params = ScoringParameters::new();
+
+        // then
+        assert!(params.detection_features);
+        assert_eq!(
+            score(FeatureSet::Full).iter().collect::<Vec<_>>(),
+            score_with_detection(FeatureSet::Full, true)
+                .iter()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detection_features_off_give_zero() {
+        // given / when
+        let full = score_with_detection(FeatureSet::Full, false);
+
+        // then
+        for feature in full.iter() {
+            assert_eq!(feature.detection, Some(DetectionFeatures::missing()));
+        }
+    }
+
+    #[test]
+    fn test_full_scores_the_detection_block() {
+        // given / when
+        let full = score_with_detection(FeatureSet::Full, true);
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let detection = apex.detection.unwrap();
+        // no peaks one isotope spacing below the fragments: nothing is shadowed
+        assert_eq!(detection.shadow_lib_share, 0.0);
+        // every fragment is hit at the apex scan
+        assert!(detection.det_faint_hits > 0.0);
+        assert_eq!(detection.det_faint_miss, 0.0);
+        for feature in full.iter() {
+            for value in feature.values(FeatureSet::Full).unwrap() {
+                assert!(value.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn test_detection_features_change_no_other_block() {
+        // given
+        let without = score_with_detection(FeatureSet::Full, false);
+
+        // when
+        let with = score_with_detection(FeatureSet::Full, true);
+
+        // then
+        let num_other = FeatureSet::Full.feature_names().len() - 3;
+        for (a, b) in without.iter().zip(with.iter()) {
+            assert_eq!(
+                a.values(FeatureSet::Full).unwrap()[..num_other],
+                b.values(FeatureSet::Full).unwrap()[..num_other]
+            );
+        }
+    }
+
+    #[test]
+    fn test_calibration_scores_no_detection() {
+        // given / when
+        let calibration = score_with_detection(FeatureSet::Calibration, true);
+
+        // then
+        for feature in calibration.iter() {
+            assert_eq!(feature.detection, None);
+        }
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_sets_the_detection_features() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config.set_item("detection_features", false).unwrap();
+
+            // when
+            params.update(&config).unwrap();
+
+            // then
+            assert!(!params.detection_features);
+        });
+    }
+
+    #[test]
+    fn test_score_ms1_calibration_returns_the_apex_isotope_statistics() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            params.ms1_mass_tolerance = 15.0;
+            let scoring = PeakGroupScoring::new(params);
+
+            // when
+            let with = scoring
+                .score_ms1_calibration(
+                    py,
+                    &dia_data_with_ms1(),
+                    &library_with_isotopes(),
+                    &candidates(),
+                )
+                .unwrap();
+            let without = scoring
+                .score_ms1_calibration(py, &dia_data_with_ms1(), &library(), &candidates())
+                .unwrap();
+
+            // then
+            let column = |obj: &Py<PyAny>, name: &str| -> Vec<f32> {
+                obj.bind(py)
+                    .cast::<PyDict>()
+                    .unwrap()
+                    .get_item(name)
+                    .unwrap()
+                    .unwrap()
+                    .extract()
+                    .unwrap()
+            };
+            let rank: Vec<u64> = with
+                .bind(py)
+                .cast::<PyDict>()
+                .unwrap()
+                .get_item("rank")
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
+            let apex = rank.iter().position(|&r| r == 0).unwrap();
+            assert_eq!(
+                column(&with, "ms1_n_isotopes")[apex],
+                ISOTOPE_ABUNDANCE.len() as f32
+            );
+            assert!(column(&with, "ms1_iso_cosine")[apex] > 0.99);
+            assert!(column(&with, "ms1_log_m0_apex")[apex] > 3.0);
+            assert!(column(&with, "ms1_ppm_signed")[apex].abs() < 1.0);
+            for name in [
+                "ms1_iso_cosine",
+                "ms1_n_isotopes",
+                "ms1_log_m0_apex",
+                "ms1_ppm_signed",
+            ] {
+                assert!(column(&without, name).iter().all(|&v| v == 0.0), "{name}");
+            }
+        });
     }
 }

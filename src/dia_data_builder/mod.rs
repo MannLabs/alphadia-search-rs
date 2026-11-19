@@ -19,6 +19,7 @@ impl DIADataBuilder {
             quadrupole_observations,
             rt_values: alpha_raw_view.spectrum_rt.to_owned(),
             cycle: alpha_raw_view.cycle.to_owned(),
+            cycle_positions: Vec::new(),
         }
     }
 

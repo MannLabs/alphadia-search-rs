@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 37;
+const NUM_FULL_FEATURES: usize = 57;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -38,6 +38,9 @@ fn numbered_calibration_feature() -> CandidateFeature {
         core: numbered_core(),
         ion_coverage: None,
         library_agreement: None,
+        window_share: None,
+        ms1: None,
+        detection: None,
     }
 }
 
@@ -67,6 +70,32 @@ fn numbered_full_feature() -> CandidateFeature {
             lib_cosine_over_50: 35.0,
             ent_sim: 36.0,
             ent_sim_corrweighted: 37.0,
+            fit_intensity_abs_diff_mean: 38.0,
+            fit_intensity_abs_diff_std: 39.0,
+            fit_intensity_abs_diff_max: 40.0,
+            fit_y_intensity_abs_diff_std: 41.0,
+        }),
+        window_share: Some(WindowShareFeatures {
+            apex_window_signal_frac: 42.0,
+            apex_window_signal_frac_rank: 43.0,
+            apex_window_signal_frac_zscore: 44.0,
+        }),
+        ms1: Some(Ms1Features {
+            ms1_signal_at_apex: 45.0,
+            ms1_isotope_correlation: 46.0,
+            ms1_isotope_cosine: 47.0,
+            ms1_m_minus_1_frac: 48.0,
+            ms1_log_intensity: 49.0,
+            ms1_iso_m1_err: 50.0,
+            ms1_m0_accurate_share: 51.0,
+            ms1_m1_accurate_share: 52.0,
+            ms1_fine_shape: 53.0,
+            ms1_fine_iso_corr: 54.0,
+        }),
+        detection: Some(DetectionFeatures {
+            shadow_lib_share: 55.0,
+            det_faint_hits: 56.0,
+            det_faint_miss: 57.0,
         }),
     }
 }
@@ -120,7 +149,8 @@ fn test_calibration_feature_names_are_the_core_block() {
 }
 
 #[test]
-fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
+fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_ms1_and_detection()
+{
     // given / when
     let names = FeatureSet::Full.feature_names();
 
@@ -130,7 +160,10 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
         [
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
-            LibraryAgreementFeatures::NAMES
+            LibraryAgreementFeatures::NAMES,
+            WindowShareFeatures::NAMES,
+            Ms1Features::NAMES,
+            DetectionFeatures::NAMES
         ]
         .concat()
     );
@@ -139,12 +172,20 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
 }
 
 #[test]
-fn test_calibration_leaves_out_the_ion_coverage_and_library_agreement_features() {
+fn test_calibration_leaves_out_all_blocks_but_core() {
     // given / when
     let names = FeatureSet::Calibration.feature_names();
 
     // then
-    for name in [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat() {
+    for name in [
+        IonCoverageFeatures::NAMES,
+        LibraryAgreementFeatures::NAMES,
+        WindowShareFeatures::NAMES,
+        Ms1Features::NAMES,
+        DetectionFeatures::NAMES,
+    ]
+    .concat()
+    {
         assert!(!names.contains(&name), "{name}");
     }
 }
@@ -168,6 +209,53 @@ fn test_block_column_names_are_the_field_names() {
     assert_eq!(
         value_of("ent_sim_corrweighted"),
         feature.library_agreement.unwrap().ent_sim_corrweighted
+    );
+    assert_eq!(
+        value_of("fit_y_intensity_abs_diff_std"),
+        feature
+            .library_agreement
+            .unwrap()
+            .fit_y_intensity_abs_diff_std
+    );
+    assert_eq!(
+        value_of("apex_window_signal_frac_zscore"),
+        feature.window_share.unwrap().apex_window_signal_frac_zscore
+    );
+    assert_eq!(
+        value_of("ms1_fine_iso_corr"),
+        feature.ms1.unwrap().ms1_fine_iso_corr
+    );
+    assert_eq!(
+        value_of("det_faint_miss"),
+        feature.detection.unwrap().det_faint_miss
+    );
+}
+
+#[test]
+fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block() {
+    // given / when
+    let names = FeatureSet::Full.feature_names();
+
+    // then: the columns before them keep their positions
+    let num_before = NUM_FULL_FEATURES - 13;
+    assert_eq!(names[num_before - 1], "apex_window_signal_frac_zscore");
+    assert_eq!(
+        names[num_before..],
+        [
+            "ms1_signal_at_apex",
+            "ms1_isotope_correlation",
+            "ms1_isotope_cosine",
+            "ms1_m_minus_1_frac",
+            "ms1_log_intensity",
+            "ms1_iso_m1_err",
+            "ms1_m0_accurate_share",
+            "ms1_m1_accurate_share",
+            "ms1_fine_shape",
+            "ms1_fine_iso_corr",
+            "shadow_lib_share",
+            "det_faint_hits",
+            "det_faint_miss",
+        ]
     );
 }
 

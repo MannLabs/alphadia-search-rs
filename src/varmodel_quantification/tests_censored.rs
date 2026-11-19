@@ -169,7 +169,7 @@ fn test_censoring_removes_ratio_compression_near_the_detection_limit() {
 }
 
 #[test]
-fn test_a_run_that_never_censors_gives_no_nan() {
+fn test_a_run_that_never_censors_spoils_no_quantity() {
     // Given a run without any missing fragment next to runs with missing fragments
     let simulation = censored_simulation(&[1]);
 
@@ -187,10 +187,15 @@ fn test_a_run_that_never_censors_gives_no_nan() {
                     simulation.intensity[run * N_PRECURSORS * N_IONS + p * N_IONS + ion] > 0.0
                 })
                 .count();
-            assert_eq!(
-                quantity(&result, &simulation, p, run).is_finite(),
-                n_observed >= 2
-            );
+            let estimate = quantity(&result, &simulation, p, run);
+            assert_eq!(estimate.is_finite(), n_observed >= 2);
+            if estimate.is_finite() {
+                let truth = abundance(p) + if run >= 3 { TRUE_RATIO } else { 0.0 };
+                assert!(
+                    (estimate - truth).abs() < 1.0,
+                    "precursor {p} run {run}: {estimate} vs {truth}"
+                );
+            }
         }
     }
 }

@@ -12,8 +12,12 @@ use crate::peak_group_scoring::ion_coverage::{
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
+use crate::peak_group_scoring::window_share::{
+    calculate_window_share_features, window_share_context, WindowShareEntry,
+    WINDOW_SHARE_CYCLE_RADIUS,
+};
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::SpecLibFlat;
 
 pub mod core;
@@ -26,8 +30,17 @@ pub mod observation;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
+pub mod window_share;
 pub use feature_set::FeatureSet;
 pub use parameters::ScoringParameters;
+
+/// One scored candidate with what the blocks that need all candidates use later: the ion evidence of the
+/// ion-coverage block (empty without it) and the window-share entry of the window-share block (`None` without it).
+struct ScoredCandidate {
+    feature: CandidateFeature,
+    ion_evidence: Vec<IonEvidence>,
+    window_share: Option<WindowShareEntry>,
+}
 
 #[pyclass]
 #[allow(dead_code)]
@@ -62,8 +75,23 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
 
+        // MS2 intensity of every isolation window per cycle, for the window share
+        let window_intensities: Vec<Vec<f32>> = if self
+            .params
+            .feature_set
+            .has_block(FeatureBlockId::WindowShare)
+        {
+            dia_data
+                .quadrupole_observations()
+                .iter()
+                .map(|obs| obs.cycle_intensity_sums())
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         // Parallel iteration over candidates to score each one
-        let (mut scored_candidates, ion_evidence): (Vec<_>, Vec<Vec<IonEvidence>>) = candidates
+        let scored: Vec<ScoredCandidate> = candidates
             .par_iter()
             .filter_map(|candidate| {
                 // Find precursor by idx (not array position)
@@ -73,9 +101,12 @@ impl PeakGroupScoring {
                     true, // Filter Y1 ions by default
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
-                    }
+                    Some(precursor) => self.score_candidate_generic(
+                        dia_data,
+                        &precursor,
+                        candidate,
+                        &window_intensities,
+                    ),
                     None => {
                         eprintln!(
                             "Warning: Candidate precursor_idx {} not found in library. Skipping.",
@@ -85,7 +116,17 @@ impl PeakGroupScoring {
                     }
                 }
             })
-            .unzip();
+            .collect();
+        drop(window_intensities);
+
+        let mut scored_candidates = Vec::with_capacity(scored.len());
+        let mut ion_evidence = Vec::with_capacity(scored.len());
+        let mut window_shares = Vec::with_capacity(scored.len());
+        for candidate in scored {
+            scored_candidates.push(candidate.feature);
+            ion_evidence.push(candidate.ion_evidence);
+            window_shares.push(candidate.window_share);
+        }
 
         if self
             .params
@@ -95,6 +136,15 @@ impl PeakGroupScoring {
             self.set_ion_fisher_lib(&mut scored_candidates, &ion_evidence);
         }
         drop(ion_evidence);
+
+        if self
+            .params
+            .feature_set
+            .has_block(FeatureBlockId::WindowShare)
+        {
+            self.set_window_share_context(&mut scored_candidates, &window_shares);
+        }
+        drop(window_shares);
 
         let feature_collection =
             CandidateFeatureCollection::from_vec(self.params.feature_set, scored_candidates);
@@ -138,14 +188,38 @@ impl PeakGroupScoring {
             });
     }
 
+    /// The rank and z-score of the window share compare each candidate with the candidates of its isolation window
+    /// whose apex lies within WINDOW_SHARE_CYCLE_RADIUS cycles, so they need all candidates.
+    fn set_window_share_context(
+        &self,
+        scored_candidates: &mut [CandidateFeature],
+        window_shares: &[Option<WindowShareEntry>],
+    ) {
+        let (positions, entries): (Vec<usize>, Vec<WindowShareEntry>) = window_shares
+            .iter()
+            .enumerate()
+            .filter_map(|(position, entry)| entry.map(|entry| (position, entry)))
+            .unzip();
+        let context = window_share_context(&entries, WINDOW_SHARE_CYCLE_RADIUS);
+        for (position, (rank, zscore)) in positions.into_iter().zip(context) {
+            if let Some(window_share) = &mut scored_candidates[position].window_share {
+                window_share.apex_window_signal_frac_rank = rank;
+                window_share.apex_window_signal_frac_zscore = zscore;
+            }
+        }
+    }
+
     /// Scores one candidate with the blocks of the feature set. The ion evidence feeds the noise model of
-    /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block.
+    /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block. The window-share entry feeds the
+    /// window context and is `None` if the feature set has no window-share block. `window_intensities` holds the
+    /// summed MS2 intensity per isolation window and cycle.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
-    ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
+        window_intensities: &[Vec<f32>],
+    ) -> Option<ScoredCandidate> {
         let observation =
             PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
 
@@ -183,13 +257,33 @@ impl PeakGroupScoring {
                 )
             });
 
+        let (window_share, window_share_entry) =
+            if feature_set.has_block(FeatureBlockId::WindowShare) {
+                let (window_share, entry) = calculate_window_share_features(
+                    &observation.dense_xic,
+                    &observation.median_profile_filtered,
+                    candidate.cycle_start,
+                    candidate.cycle_center,
+                    &observation.contributing_obs_indices,
+                    window_intensities,
+                );
+                (Some(window_share), Some(entry))
+            } else {
+                (None, None)
+            };
+
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
             core,
             ion_coverage,
             library_agreement,
+            window_share,
         };
-        Some((feature, ion_evidence))
+        Some(ScoredCandidate {
+            feature,
+            ion_evidence,
+            window_share: window_share_entry,
+        })
     }
 }

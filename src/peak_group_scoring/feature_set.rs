@@ -1,5 +1,5 @@
 //! Which features `PeakGroupScoring` computes: the calibration rounds score the core block only, the final round all
-//! blocks.
+//! blocks. The window-share block comes last, so that the columns of the other blocks keep their positions.
 
 use pyo3::prelude::*;
 
@@ -7,6 +7,7 @@ use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
+use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
 #[pyclass(eq, eq_int, hash, frozen, from_py_object)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -21,6 +22,7 @@ pub enum FeatureBlockId {
     Core,
     IonCoverage,
     LibraryAgreement,
+    WindowShare,
 }
 
 impl FeatureSet {
@@ -32,6 +34,7 @@ impl FeatureSet {
                 FeatureBlockId::Core,
                 FeatureBlockId::IonCoverage,
                 FeatureBlockId::LibraryAgreement,
+                FeatureBlockId::WindowShare,
             ],
         }
     }
@@ -54,6 +57,7 @@ impl FeatureBlockId {
             FeatureBlockId::Core => CoreFeatures::NAMES,
             FeatureBlockId::IonCoverage => IonCoverageFeatures::NAMES,
             FeatureBlockId::LibraryAgreement => LibraryAgreementFeatures::NAMES,
+            FeatureBlockId::WindowShare => WindowShareFeatures::NAMES,
         }
     }
 }

@@ -91,6 +91,69 @@ impl WindowBounds {
     }
 }
 
+/// The isolation window of every scan, for data with an ion mobility dimension (diaPASEF), where one window group
+/// isolates different m/z ranges on different scans.
+pub struct ScanWindowBounds {
+    /// `[window][scan]` limits
+    lower: Vec<Vec<f32>>,
+    upper: Vec<Vec<f32>>,
+    /// 1/K0 of every scan, decreasing with the scan index
+    scan_mobility: Vec<f32>,
+    fallback: WindowBounds,
+}
+
+impl ScanWindowBounds {
+    pub fn from_cycle(cycle: ArrayView4<'_, f32>, scan_mobility: &[f32]) -> Result<Self, String> {
+        let fallback = WindowBounds::from_cycle(cycle)?;
+        let (n_windows, n_scans) = (cycle.shape()[1], cycle.shape()[2]);
+        if scan_mobility.len() != n_scans {
+            return Err(format!(
+                "scan_mobility has {} values, the cycle {n_scans} scans",
+                scan_mobility.len()
+            ));
+        }
+        let limits = |bound: usize| -> Vec<Vec<f32>> {
+            (0..n_windows)
+                .map(|window| {
+                    (0..n_scans)
+                        .map(|scan| cycle[[0, window, scan, bound]])
+                        .collect()
+                })
+                .collect()
+        };
+        Ok(Self {
+            lower: limits(0),
+            upper: limits(1),
+            scan_mobility: scan_mobility.to_vec(),
+            fallback,
+        })
+    }
+
+    /// The window that isolated `mz` on the scan nearest `mobility`, else the m/z-only window.
+    fn index_of(&self, mz: f32, mobility: f32) -> usize {
+        let after = self.scan_mobility.partition_point(|&m| m > mobility);
+        let scan = match (after.checked_sub(1), self.scan_mobility.get(after)) {
+            (Some(before), Some(&m))
+                if (self.scan_mobility[before] - mobility).abs() > (m - mobility).abs() =>
+            {
+                after
+            }
+            (Some(before), _) => before,
+            (None, _) => after.min(self.scan_mobility.len().saturating_sub(1)),
+        };
+        (0..self.lower.len())
+            .find(|&window| mz >= self.lower[window][scan] && mz < self.upper[window][scan])
+            .unwrap_or_else(|| self.fallback.index_of(mz))
+    }
+}
+
+/// Candidates of data with an ion mobility dimension also need mobilities closer than `tolerance` to compete.
+#[derive(Clone, Copy)]
+pub struct MobilityCompetition<'a> {
+    pub mobility: &'a [f32],
+    pub tolerance: f32,
+}
+
 /// Runs the competition inside one window. The rows in `rows` are in priority order. The
 /// result has the same order.
 fn compete_within_window(
@@ -101,6 +164,7 @@ fn compete_within_window(
     fragment_mz: &[f32],
     rt_tol_seconds: f32,
     mass_tol_ppm: f32,
+    mobility: Option<MobilityCompetition>,
 ) -> Vec<bool> {
     let n = rows.len();
     let mut valid = vec![true; n];
@@ -119,6 +183,15 @@ fn compete_within_window(
             let delta_rt = (rt_observed[rows[i]] - rt_observed[rows[j]]).abs();
             if delta_rt >= rt_tol_seconds {
                 continue;
+            }
+            if let Some(MobilityCompetition {
+                mobility,
+                tolerance,
+            }) = mobility
+            {
+                if (mobility[rows[i]] - mobility[rows[j]]).abs() >= tolerance {
+                    continue;
+                }
             }
             if fragment_overlap(frags_i, frags(rows[j]), mass_tol_ppm) >= MIN_OVERLAPPING_FRAGMENTS
             {
@@ -175,6 +248,88 @@ pub fn compete_for_fragments(
     rt_tol_seconds: f32,
     mass_tol_ppm: f32,
 ) -> Result<Vec<bool>, String> {
+    let window_idx: Vec<usize> = precursor_mz.iter().map(|&mz| bounds.index_of(mz)).collect();
+    compete_in_windows(
+        &window_idx,
+        precursor_mz,
+        precursor_idx,
+        proba,
+        rt_observed,
+        frag_start_idx,
+        frag_stop_idx,
+        fragment_mz,
+        rt_tol_seconds,
+        mass_tol_ppm,
+        None,
+    )
+}
+
+/// Like `compete_for_fragments`, for data with an ion mobility dimension: each candidate's window is the one that
+/// isolated its m/z on the scan nearest its mobility, and candidates compete only if their mobilities are closer than
+/// `mobility_tolerance`.
+#[allow(clippy::too_many_arguments)]
+pub fn compete_for_fragments_with_mobility(
+    precursor_mz: &[f32],
+    precursor_idx: &[i64],
+    proba: &[f64],
+    rt_observed: &[f32],
+    mobility_observed: &[f32],
+    frag_start_idx: &[i64],
+    frag_stop_idx: &[i64],
+    fragment_mz: &[f32],
+    bounds: &ScanWindowBounds,
+    rt_tol_seconds: f32,
+    mass_tol_ppm: f32,
+    mobility_tolerance: f32,
+) -> Result<Vec<bool>, String> {
+    if mobility_observed.len() != precursor_mz.len() {
+        return Err(format!(
+            "mobility_observed has length {}, expected {}",
+            mobility_observed.len(),
+            precursor_mz.len()
+        ));
+    }
+    validate_no_nan(
+        "mobility_observed",
+        mobility_observed.iter().map(|&m| m.into()),
+    )?;
+    let window_idx: Vec<usize> = precursor_mz
+        .iter()
+        .zip(mobility_observed)
+        .map(|(&mz, &mobility)| bounds.index_of(mz, mobility))
+        .collect();
+    compete_in_windows(
+        &window_idx,
+        precursor_mz,
+        precursor_idx,
+        proba,
+        rt_observed,
+        frag_start_idx,
+        frag_stop_idx,
+        fragment_mz,
+        rt_tol_seconds,
+        mass_tol_ppm,
+        Some(MobilityCompetition {
+            mobility: mobility_observed,
+            tolerance: mobility_tolerance,
+        }),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn compete_in_windows(
+    window_idx: &[usize],
+    precursor_mz: &[f32],
+    precursor_idx: &[i64],
+    proba: &[f64],
+    rt_observed: &[f32],
+    frag_start_idx: &[i64],
+    frag_stop_idx: &[i64],
+    fragment_mz: &[f32],
+    rt_tol_seconds: f32,
+    mass_tol_ppm: f32,
+    mobility: Option<MobilityCompetition>,
+) -> Result<Vec<bool>, String> {
     validate_lengths(
         precursor_mz,
         precursor_idx,
@@ -189,8 +344,7 @@ pub fn compete_for_fragments(
     validate_no_nan("rt_observed", rt_observed.iter().map(|&rt| rt.into()))?;
     validate_no_nan("fragment_mz", fragment_mz.iter().map(|&mz| mz.into()))?;
 
-    let window_idx: Vec<usize> = precursor_mz.iter().map(|&mz| bounds.index_of(mz)).collect();
-    let windows = windows_in_priority_order(&window_idx, proba, precursor_idx);
+    let windows = windows_in_priority_order(window_idx, proba, precursor_idx);
 
     let swept: Vec<Vec<bool>> = windows
         .par_iter()
@@ -203,6 +357,7 @@ pub fn compete_for_fragments(
                 fragment_mz,
                 rt_tol_seconds,
                 mass_tol_ppm,
+                mobility,
             )
         })
         .collect();

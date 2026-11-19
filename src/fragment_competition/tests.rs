@@ -427,3 +427,62 @@ fn test_mass_tolerance_boundary() {
     .unwrap();
     assert_eq!(valid, vec![true, false]);
 }
+
+mod with_mobility {
+    use super::super::algorithm::{compete_for_fragments_with_mobility, ScanWindowBounds};
+    use super::shared_fragments;
+    use numpy::ndarray::Array4;
+
+    /// Two window groups over two scans (1/K0 1.2 and 0.8): group 0 isolates 400-500 on scan 0 and 600-700 on
+    /// scan 1, group 1 the other way round.
+    fn pasef_cycle() -> Array4<f32> {
+        Array4::from_shape_vec(
+            (1, 2, 2, 2),
+            vec![400.0, 500.0, 600.0, 700.0, 600.0, 700.0, 400.0, 500.0],
+        )
+        .unwrap()
+    }
+
+    fn compete(mz: [f32; 2], mobility: [f32; 2]) -> Vec<bool> {
+        let bounds = ScanWindowBounds::from_cycle(pasef_cycle().view(), &[1.2, 0.8]).unwrap();
+        compete_for_fragments_with_mobility(
+            &mz,
+            &[0, 1],
+            &[0.1, 0.2],
+            &[10.0, 10.0],
+            &mobility,
+            &[0, 10],
+            &[10, 20],
+            &shared_fragments(2),
+            &bounds,
+            3.0,
+            15.0,
+            0.05,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_candidates_at_the_same_mobility_compete() {
+        assert_eq!(compete([450.0, 460.0], [1.19, 1.21]), vec![true, false]);
+    }
+
+    #[test]
+    fn test_candidates_apart_in_mobility_do_not_compete() {
+        // same window group (0 on scan 0 for 450, 0 on scan 1 for 650) but 0.4 apart
+        assert_eq!(compete([450.0, 650.0], [1.2, 0.8]), vec![true, true]);
+        // same m/z range, different groups (450 on scan 1 is group 1)
+        assert_eq!(compete([450.0, 450.0], [1.2, 0.8]), vec![true, true]);
+    }
+
+    #[test]
+    fn test_close_mobility_in_different_groups_do_not_compete() {
+        // 450 near 1.2 is group 0, 650 near 1.2 is group 1
+        assert_eq!(compete([450.0, 650.0], [1.2, 1.21]), vec![true, true]);
+    }
+
+    #[test]
+    fn test_scan_mobility_must_match_the_cycle() {
+        assert!(ScanWindowBounds::from_cycle(pasef_cycle().view(), &[1.0]).is_err());
+    }
+}

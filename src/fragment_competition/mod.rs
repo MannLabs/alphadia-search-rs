@@ -8,7 +8,7 @@ mod algorithm;
 #[cfg(test)]
 mod tests;
 
-use algorithm::WindowBounds;
+use algorithm::{ScanWindowBounds, WindowBounds};
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -77,6 +77,46 @@ impl FragmentCompetition {
             &bounds,
             self.rt_tol_seconds,
             self.mass_tol_ppm,
+        )
+        .map_err(PyValueError::new_err)?;
+        Ok(valid.into_pyarray(py))
+    }
+
+    /// Like `compete`, for data with an ion mobility dimension (diaPASEF): a candidate's window is the one that
+    /// isolated its m/z on the scan nearest `mobility_observed` (`scan_mobility` gives the 1/K0 of every scan of
+    /// `cycle`, decreasing), and two candidates compete only if their mobilities are closer than
+    /// `mobility_tolerance`.
+    #[allow(clippy::too_many_arguments)]
+    fn compete_with_mobility<'py>(
+        &self,
+        py: Python<'py>,
+        precursor_mz: PyReadonlyArray1<'_, f32>,
+        precursor_idx: PyReadonlyArray1<'_, i64>,
+        proba: PyReadonlyArray1<'_, f64>,
+        rt_observed: PyReadonlyArray1<'_, f32>,
+        mobility_observed: PyReadonlyArray1<'_, f32>,
+        frag_start_idx: PyReadonlyArray1<'_, i64>,
+        frag_stop_idx: PyReadonlyArray1<'_, i64>,
+        fragment_mz: PyReadonlyArray1<'_, f32>,
+        cycle: PyReadonlyArray4<'_, f32>,
+        scan_mobility: PyReadonlyArray1<'_, f32>,
+        mobility_tolerance: f32,
+    ) -> PyResult<Bound<'py, PyArray1<bool>>> {
+        let bounds = ScanWindowBounds::from_cycle(cycle.as_array(), scan_mobility.as_slice()?)
+            .map_err(PyValueError::new_err)?;
+        let valid = algorithm::compete_for_fragments_with_mobility(
+            precursor_mz.as_slice()?,
+            precursor_idx.as_slice()?,
+            proba.as_slice()?,
+            rt_observed.as_slice()?,
+            mobility_observed.as_slice()?,
+            frag_start_idx.as_slice()?,
+            frag_stop_idx.as_slice()?,
+            fragment_mz.as_slice()?,
+            &bounds,
+            self.rt_tol_seconds,
+            self.mass_tol_ppm,
+            mobility_tolerance,
         )
         .map_err(PyValueError::new_err)?;
         Ok(valid.into_pyarray(py))

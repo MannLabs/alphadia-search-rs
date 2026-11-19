@@ -36,8 +36,11 @@ pub struct OptimizationContext {
     /// Minimum selection score for a candidate to be kept.
     #[pyo3(get)]
     pub score_cutoff: f64,
-    /// Scale in seconds and degrees of freedom of the Student-t prior on the deviation of a peak from the predicted
-    /// retention time. None without a prior.
+    /// Student-t prior on the deviation of a peak from the predicted retention time, as `(scale, df)`:
+    /// - `scale`: width of the distribution in seconds.
+    /// - `df`: degrees of freedom. A low value gives heavy tails, a high value approaches a normal distribution.
+    ///
+    /// None before the calibration has fitted the prior.
     #[pyo3(get)]
     pub rt_prior: Option<(f64, f64)>,
 }

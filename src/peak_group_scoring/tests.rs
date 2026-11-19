@@ -1899,7 +1899,8 @@ mod feature_sets {
             &[PRECURSOR_MZ],
             ISOTOPE_ABUNDANCE.len(),
             &ISOTOPE_ABUNDANCE,
-        );
+        )
+        .unwrap();
         lib
     }
 
@@ -2041,20 +2042,37 @@ mod feature_sets {
         });
     }
 
-    fn score_with_detection(feature_set: FeatureSet) -> CandidateFeatureCollection {
+    fn score_with_detection(
+        feature_set: FeatureSet,
+        detection_features: bool,
+    ) -> CandidateFeatureCollection {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
-        params.detection_features = true;
+        params.detection_features = detection_features;
         PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
     }
 
     #[test]
-    fn test_detection_features_are_off_by_default_and_then_zero() {
+    fn test_detection_features_are_on_by_default() {
         // given / when
-        let full = score(FeatureSet::Full);
+        let params = ScoringParameters::new();
 
         // then
-        assert!(!ScoringParameters::new().detection_features);
+        assert!(params.detection_features);
+        assert_eq!(
+            score(FeatureSet::Full).iter().collect::<Vec<_>>(),
+            score_with_detection(FeatureSet::Full, true)
+                .iter()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detection_features_off_give_zero() {
+        // given / when
+        let full = score_with_detection(FeatureSet::Full, false);
+
+        // then
         for feature in full.iter() {
             assert_eq!(feature.detection, Some(DetectionFeatures::missing()));
         }
@@ -2063,7 +2081,7 @@ mod feature_sets {
     #[test]
     fn test_full_scores_the_detection_block() {
         // given / when
-        let full = score_with_detection(FeatureSet::Full);
+        let full = score_with_detection(FeatureSet::Full, true);
 
         // then
         let apex = full.iter().find(|f| f.rank == 0).unwrap();
@@ -2083,10 +2101,10 @@ mod feature_sets {
     #[test]
     fn test_detection_features_change_no_other_block() {
         // given
-        let without = score(FeatureSet::Full);
+        let without = score_with_detection(FeatureSet::Full, false);
 
         // when
-        let with = score_with_detection(FeatureSet::Full);
+        let with = score_with_detection(FeatureSet::Full, true);
 
         // then
         let num_other = FeatureSet::Full.feature_names().len() - 3;
@@ -2101,7 +2119,7 @@ mod feature_sets {
     #[test]
     fn test_calibration_scores_no_detection() {
         // given / when
-        let calibration = score_with_detection(FeatureSet::Calibration);
+        let calibration = score_with_detection(FeatureSet::Calibration, true);
 
         // then
         for feature in calibration.iter() {
@@ -2116,13 +2134,13 @@ mod feature_sets {
             // given
             let mut params = ScoringParameters::new();
             let config = PyDict::new(py);
-            config.set_item("detection_features", true).unwrap();
+            config.set_item("detection_features", false).unwrap();
 
             // when
             params.update(&config).unwrap();
 
             // then
-            assert!(params.detection_features);
+            assert!(!params.detection_features);
         });
     }
 

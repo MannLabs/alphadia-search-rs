@@ -703,13 +703,15 @@ fn test_speclib_flat_isotopes_follow_precursor_idx() {
     assert!(!speclib.has_isotopes());
     assert!(speclib.get_isotopes_by_idx(3).is_none());
 
-    speclib.set_isotopes_from_vecs(
-        &[7, 3],
-        &[2, 3],
-        &[700.0, 300.0],
-        3,
-        &[1.0, 0.5, 0.1, 1.0, 0.8, 0.3],
-    );
+    speclib
+        .set_isotopes_from_vecs(
+            &[7, 3],
+            &[2, 3],
+            &[700.0, 300.0],
+            3,
+            &[1.0, 0.5, 0.1, 1.0, 0.8, 0.3],
+        )
+        .unwrap();
 
     assert!(speclib.has_isotopes());
     let (charge, ms1_mz, abundance) = speclib.get_isotopes_by_idx(3).unwrap();
@@ -726,8 +728,28 @@ fn test_speclib_flat_isotopes_follow_precursor_idx() {
 #[test]
 fn test_speclib_flat_isotopes_unlisted_precursor_has_none() {
     let mut speclib = two_precursor_speclib();
-    speclib.set_isotopes_from_vecs(&[7], &[2], &[700.0], 2, &[1.0, 0.5]);
+    speclib
+        .set_isotopes_from_vecs(&[7], &[2], &[700.0], 2, &[1.0, 0.5])
+        .unwrap();
 
     assert!(speclib.get_isotopes_by_idx(3).is_none());
     assert_eq!(speclib.get_isotopes_by_idx(7).unwrap().2, &[1.0, 0.5]);
+}
+
+#[test]
+fn test_speclib_flat_isotopes_reject_mismatched_lengths() {
+    let mut speclib = two_precursor_speclib();
+    // one charge too few, one MS1 m/z too few, one isotope row too few
+    assert!(speclib
+        .set_isotopes_from_vecs(&[7, 3], &[2], &[700.0, 300.0], 2, &[1.0, 0.5, 1.0, 0.8])
+        .is_err());
+    assert!(speclib
+        .set_isotopes_from_vecs(&[7, 3], &[2, 3], &[700.0], 2, &[1.0, 0.5, 1.0, 0.8])
+        .is_err());
+    assert!(speclib
+        .set_isotopes_from_vecs(&[7, 3], &[2, 3], &[700.0, 300.0], 2, &[1.0, 0.5])
+        .is_err());
+
+    // nothing was set
+    assert!(!speclib.has_isotopes());
 }

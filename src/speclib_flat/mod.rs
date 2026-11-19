@@ -158,7 +158,7 @@ impl SpecLibFlat {
         charge: PyReadonlyArray1<'_, u8>,
         ms1_mz: PyReadonlyArray1<'_, f32>,
         isotope_intensity: PyReadonlyArray2<'_, f32>,
-    ) {
+    ) -> PyResult<()> {
         let isotope_intensity = isotope_intensity.as_array();
         self.set_isotopes_from_vecs(
             &precursor_idx.as_array().to_vec(),
@@ -166,7 +166,7 @@ impl SpecLibFlat {
             &ms1_mz.as_array().to_vec(),
             isotope_intensity.ncols(),
             &isotope_intensity.iter().copied().collect::<Vec<f32>>(),
-        );
+        )
     }
 
     /// Whether `set_isotopes` provided MS1 isotopes, i.e. whether the MS1 features are extracted.
@@ -399,7 +399,8 @@ impl SpecLibFlat {
         }
     }
 
-    /// `isotope_intensity` is row-major [precursor, isotope] with `num_isotopes` columns.
+    /// `isotope_intensity` is row-major [precursor, isotope] with `num_isotopes` columns. Fails, and changes nothing,
+    /// unless `charge` and `ms1_mz` have one entry and `isotope_intensity` one row per `precursor_idx`.
     pub fn set_isotopes_from_vecs(
         &mut self,
         precursor_idx: &[usize],
@@ -407,7 +408,22 @@ impl SpecLibFlat {
         ms1_mz: &[f32],
         num_isotopes: usize,
         isotope_intensity: &[f32],
-    ) {
+    ) -> PyResult<()> {
+        let num_precursors = precursor_idx.len();
+        if charge.len() != num_precursors
+            || ms1_mz.len() != num_precursors
+            || isotope_intensity.len() != num_precursors * num_isotopes
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "expected one charge, one MS1 m/z and {} isotope intensities per precursor for {} precursors, \
+                 got {} charges, {} MS1 m/z and {} isotope intensities",
+                num_isotopes,
+                num_precursors,
+                charge.len(),
+                ms1_mz.len(),
+                isotope_intensity.len()
+            )));
+        }
         let n = self.precursor_idx.len();
         self.num_isotopes = num_isotopes;
         self.precursor_charge = vec![0; n];
@@ -424,6 +440,7 @@ impl SpecLibFlat {
                     );
             }
         }
+        Ok(())
     }
 
     /// Charge, MS1 m/z and library isotope abundances of a precursor, if `set_isotopes` provided them.

@@ -30,8 +30,9 @@ impl ScoringParameters {
             feature_set: FeatureSet::Full,
             // maximum mass error for matching precursor isotopes in the MS1 scans, in ppm (MS1 block and `score_ms1_calibration` only)
             ms1_mass_tolerance: 10.0,
-            // score the detection block (full feature set only); without it its features are 0 and cost nothing
-            detection_features: false,
+            // score the detection block when the feature set has it (on by default, so the feature set alone decides);
+            // an opt-out that skips the run-wide detection model to save compute, the block's features are then 0
+            detection_features: true,
         }
     }
 

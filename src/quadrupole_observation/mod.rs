@@ -130,6 +130,8 @@ impl QuadrupoleObservation {
 
 // Implement the QuadrupoleObservationTrait for QuadrupoleObservation
 impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
+    type ScanFilter = ();
+
     fn isolation_window(&self) -> [f32; 2] {
         self.isolation_window
     }
@@ -147,6 +149,7 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,
+        _scan_filter: &(),
         dense_xic: &mut numpy::ndarray::ArrayViewMut1<f32>,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
@@ -166,6 +169,7 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
     fn fill_xic_and_mz_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,
+        _scan_filter: &(),
         dense_xic: &mut numpy::ndarray::ArrayViewMut1<f32>,
         dense_mz: &mut numpy::ndarray::ArrayViewMut1<f32>,
         cycle_start_idx: usize,

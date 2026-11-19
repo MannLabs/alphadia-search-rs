@@ -22,7 +22,7 @@ use crate::peak_group_scoring::feature_block::feature_block;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::peak_group_scoring::utils::{apex_window, finite_or_zero};
 use crate::peak_group_scoring::window_share::apex_column;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 use crate::SpecLibFlat;
 
 pub mod accuracy;
@@ -193,6 +193,7 @@ fn ms1_isotope_xic<'a, T: DIADataTrait>(
     dia_data: &T,
     lib: &'a SpecLibFlat,
     candidate: &Candidate,
+    mobility: MobilityFilter,
     ms1_observations: &[usize],
     ms1_mass_tolerance: f32,
 ) -> Option<Ms1IsotopeXic<'a>> {
@@ -203,7 +204,10 @@ fn ms1_isotope_xic<'a, T: DIADataTrait>(
     let traces = isotope_mz(ms1_mz, charge, abundance.len());
     let xic = DenseXICMZObservation::from_observations(
         dia_data,
-        ms1_observations.to_vec(),
+        ms1_observations
+            .iter()
+            .map(|&obs| (obs, dia_data.ms1_scan_filter(obs, mobility)))
+            .collect(),
         candidate.cycle_start,
         candidate.cycle_stop,
         ms1_mass_tolerance,
@@ -232,6 +236,7 @@ pub fn calculate_ms1_apex_calibration<T: DIADataTrait>(
         dia_data,
         lib,
         candidate,
+        observation.mobility,
         ms1_observations,
         ms1_mass_tolerance,
     )
@@ -271,6 +276,7 @@ pub fn calculate_ms1_features<T: DIADataTrait>(
         dia_data,
         lib,
         candidate,
+        observation.mobility,
         ms1_observations,
         ms1_mass_tolerance,
     )
@@ -303,7 +309,7 @@ pub fn calculate_ms1_features<T: DIADataTrait>(
     let scan_xic = |obs: usize, tolerance: f32, mz: &[f32]| {
         DenseXICMZObservation::from_observations(
             dia_data,
-            vec![obs],
+            vec![(obs, dia_data.ms1_scan_filter(obs, observation.mobility))],
             candidate.cycle_start,
             candidate.cycle_stop,
             tolerance,

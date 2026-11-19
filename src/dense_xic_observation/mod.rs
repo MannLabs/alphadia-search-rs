@@ -1,4 +1,4 @@
-use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
+use crate::traits::{DIADataTrait, MobilityFilter, QuadrupoleObservationTrait, ScanFilterOf};
 use numpy::ndarray::Array2;
 
 /// Encapsulates a dense XIC matrix with metadata about its construction
@@ -30,6 +30,7 @@ impl DenseXICObservation {
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
         precursor_mz: f32,
+        mobility: MobilityFilter,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
@@ -37,14 +38,15 @@ impl DenseXICObservation {
     ) -> Self {
         let mut dense_xic = Array2::zeros((fragment_mz.len(), cycle_stop_idx - cycle_start_idx));
 
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
+        let valid_obs = dia_data.select_observations(precursor_mz, mobility);
 
-        for &obs_idx in &valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
+        for (obs_idx, scan_filter) in &valid_obs {
+            let obs = &dia_data.quadrupole_observations()[*obs_idx];
 
             for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
                     dia_data.mz_index(),
+                    scan_filter,
                     &mut dense_xic.row_mut(f_idx),
                     cycle_start_idx,
                     cycle_stop_idx,
@@ -56,7 +58,7 @@ impl DenseXICObservation {
 
         Self {
             dense_xic,
-            contributing_obs_indices: valid_obs_idxs,
+            contributing_obs_indices: valid_obs.iter().map(|(obs_idx, _)| *obs_idx).collect(),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
@@ -98,15 +100,15 @@ impl DenseXICMZObservation {
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
         precursor_mz: f32,
+        mobility: MobilityFilter,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
         fragment_mz: &[f32], // Use slice for better performance
     ) -> Self {
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
         Self::from_observations(
             dia_data,
-            valid_obs_idxs,
+            dia_data.select_observations(precursor_mz, mobility),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
@@ -117,7 +119,7 @@ impl DenseXICMZObservation {
     /// Like `new`, but over the given observations, e.g. the MS1 survey scans for isotope XICs.
     pub fn from_observations<T: DIADataTrait>(
         dia_data: &T,
-        valid_obs_idxs: Vec<usize>,
+        valid_obs: Vec<(usize, ScanFilterOf<T>)>,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
@@ -128,12 +130,13 @@ impl DenseXICMZObservation {
         let mut dense_xic = Array2::zeros((n_fragments, n_cycles));
         let mut dense_mz = Array2::zeros((n_fragments, n_cycles));
 
-        for &obs_idx in &valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
+        for (obs_idx, scan_filter) in &valid_obs {
+            let obs = &dia_data.quadrupole_observations()[*obs_idx];
 
             for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
                 obs.fill_xic_and_mz_slice(
                     dia_data.mz_index(),
+                    scan_filter,
                     &mut dense_xic.row_mut(f_idx),
                     &mut dense_mz.row_mut(f_idx),
                     cycle_start_idx,
@@ -147,7 +150,7 @@ impl DenseXICMZObservation {
         Self {
             dense_xic,
             dense_mz,
-            contributing_obs_indices: valid_obs_idxs,
+            contributing_obs_indices: valid_obs.iter().map(|(obs_idx, _)| *obs_idx).collect(),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,

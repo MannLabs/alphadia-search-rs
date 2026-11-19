@@ -2,8 +2,8 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
+use crate::any_dia_data::AnyDIAData;
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::detection::{
     calculate_detection_features, scores_detection, DetectionFeatures, DetectionModel,
@@ -68,11 +68,12 @@ impl PeakGroupScoring {
 
     pub fn score(
         &self,
-        dia_data: &DIAData,
+        dia_data: AnyDIAData<'_>,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        self.score_generic(dia_data, lib, candidates)
+        crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .score_generic(data, lib, candidates))
     }
 
     /// The apex isotope statistics of each candidate for an MS1 mass calibration: the columns of
@@ -82,16 +83,33 @@ impl PeakGroupScoring {
     pub fn score_ms1_calibration(
         &self,
         py: Python,
-        dia_data: &DIAData,
+        dia_data: AnyDIAData<'_>,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> PyResult<Py<PyAny>> {
+        let scored = crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .score_ms1_calibration_generic(data, lib, candidates));
+        let mut columns = FeatureColumns::new(Ms1ApexFeatures::NAMES.to_vec(), scored.len());
+        for (i, (precursor_idx, rank, apex)) in scored.iter().enumerate() {
+            columns.set_row(i, *precursor_idx, *rank, apex.values());
+        }
+        columns.into_dict(py)
+    }
+}
+
+impl PeakGroupScoring {
+    fn score_ms1_calibration_generic<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> Vec<(usize, usize, Ms1ApexFeatures)> {
         let ms1_observations = if lib.has_isotopes() {
             dia_data.ms1_observations()
         } else {
             Vec::new()
         };
-        let scored: Vec<(usize, usize, Ms1ApexFeatures)> = candidates
+        candidates
             .par_iter()
             .filter_map(|candidate| {
                 let precursor = lib.get_precursor_by_idx_filtered(
@@ -105,6 +123,7 @@ impl PeakGroupScoring {
                     &precursor,
                     candidate,
                     self.params.mass_tolerance,
+                    precursor.mobility_filter(self.params.mobility_tolerance),
                 );
                 let apex = calculate_ms1_apex_calibration(
                     dia_data,
@@ -116,17 +135,9 @@ impl PeakGroupScoring {
                 );
                 Some((candidate.precursor_idx, candidate.rank, apex))
             })
-            .collect();
-
-        let mut columns = FeatureColumns::new(Ms1ApexFeatures::NAMES.to_vec(), scored.len());
-        for (i, (precursor_idx, rank, apex)) in scored.iter().enumerate() {
-            columns.set_row(i, *precursor_idx, *rank, apex.values());
-        }
-        columns.into_dict(py)
+            .collect()
     }
-}
 
-impl PeakGroupScoring {
     /// Generic scoring function that works with any type implementing DIADataTrait
     fn score_generic<T: DIADataTrait + Sync>(
         &self,
@@ -303,8 +314,13 @@ impl PeakGroupScoring {
         ms1_observations: &[usize],
         detection_model: Option<&DetectionModel>,
     ) -> Option<ScoredCandidate> {
-        let observation =
-            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        let observation = PeakGroupObservation::new(
+            dia_data,
+            precursor,
+            candidate,
+            self.params.mass_tolerance,
+            precursor.mobility_filter(self.params.mobility_tolerance),
+        );
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);

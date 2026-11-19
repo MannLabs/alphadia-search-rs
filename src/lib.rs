@@ -2,6 +2,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::PyErr;
 
+pub mod any_dia_data;
 pub mod benchmark;
 pub mod calibration;
 pub mod candidate;
@@ -27,6 +28,8 @@ mod simd;
 pub mod speclib_flat;
 pub mod speclib_flat_quantified;
 mod threadpool;
+#[cfg(feature = "tims")]
+pub mod tims_dia_data;
 pub mod traits;
 pub mod utils;
 pub mod varmodel_quantification;
@@ -44,6 +47,8 @@ use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters}
 use crate::peak_group_selection::{PeakGroupSelection, SelectionParameters};
 use crate::speclib_flat::SpecLibFlat;
 use crate::speclib_flat_quantified::SpecLibFlatQuantified;
+#[cfg(feature = "tims")]
+use crate::tims_dia_data::TimsDIAData;
 use crate::varmodel_quantification::VarModelQuantification;
 
 #[pyfunction]
@@ -83,6 +88,8 @@ fn get_num_threads() -> PyResult<usize> {
 #[pymodule]
 fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DIAData>()?;
+    #[cfg(feature = "tims")]
+    m.add_class::<TimsDIAData>()?;
     m.add_class::<SpecLibFlat>()?;
     m.add_class::<SpecLibFlatQuantified>()?;
     m.add_class::<PeakGroupScoring>()?;

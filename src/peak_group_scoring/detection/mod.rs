@@ -165,6 +165,7 @@ pub fn calculate_detection_features<T: DIADataTrait>(
     let shadow_xic = DenseXICObservation::new(
         dia_data,
         precursor.mz,
+        observation.mobility,
         candidate.cycle_start,
         candidate.cycle_stop,
         params.mass_tolerance,
@@ -210,6 +211,7 @@ fn detection_xic<T: DIADataTrait>(
     let xic = DenseXICObservation::new(
         dia_data,
         precursor.mz,
+        precursor.mobility_filter(params.mobility_tolerance),
         start,
         stop,
         params.mass_tolerance,

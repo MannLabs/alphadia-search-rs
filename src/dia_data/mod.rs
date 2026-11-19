@@ -158,8 +158,15 @@ impl DIAData {
 impl crate::traits::DIADataTrait for DIAData {
     type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
 
-    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
+    fn select_observations(
+        &self,
+        precursor_mz: f32,
+        _mobility: crate::traits::MobilityFilter,
+    ) -> Vec<(usize, ())> {
         self.get_valid_observations(precursor_mz)
+            .into_iter()
+            .map(|obs_idx| (obs_idx, ()))
+            .collect()
     }
 
     fn mz_index(&self) -> &crate::mz_index::MZIndex {
@@ -177,6 +184,8 @@ impl crate::traits::DIADataTrait for DIAData {
     fn memory_footprint_bytes(&self) -> usize {
         self.memory_footprint_bytes()
     }
+
+    fn ms1_scan_filter(&self, _obs_idx: usize, _mobility: crate::traits::MobilityFilter) {}
 
     fn cycle_position(&self, obs_idx: usize) -> f32 {
         match self.cycle_positions.get(obs_idx) {

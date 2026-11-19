@@ -8,7 +8,7 @@ use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 
 pub struct PeakGroupObservation {
     /// fragment XICs: fragments x cycles
@@ -29,6 +29,8 @@ pub struct PeakGroupObservation {
     pub matched_mask: Vec<bool>,
     /// the isolation windows (quadrupole observations) the XICs were extracted from
     pub contributing_obs_indices: Vec<usize>,
+    /// the ion mobility range the XICs were restricted to
+    pub mobility: MobilityFilter,
 }
 
 impl PeakGroupObservation {
@@ -37,10 +39,12 @@ impl PeakGroupObservation {
         precursor: &Precursor,
         candidate: &Candidate,
         mass_tolerance: f32,
+        mobility: MobilityFilter,
     ) -> Self {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            mobility,
             candidate.cycle_start,
             candidate.cycle_stop,
             mass_tolerance,
@@ -67,6 +71,7 @@ impl PeakGroupObservation {
             observation_intensities,
             matched_mask,
             contributing_obs_indices: dense_xic_mz_obs.contributing_obs_indices,
+            mobility,
         }
     }
 }

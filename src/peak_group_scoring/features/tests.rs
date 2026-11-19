@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 44;
+const NUM_FULL_FEATURES: usize = 57;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -39,6 +39,8 @@ fn numbered_calibration_feature() -> CandidateFeature {
         ion_coverage: None,
         library_agreement: None,
         window_share: None,
+        ms1: None,
+        detection: None,
     }
 }
 
@@ -77,6 +79,23 @@ fn numbered_full_feature() -> CandidateFeature {
             apex_window_signal_frac: 42.0,
             apex_window_signal_frac_rank: 43.0,
             apex_window_signal_frac_zscore: 44.0,
+        }),
+        ms1: Some(Ms1Features {
+            ms1_signal_at_apex: 45.0,
+            ms1_isotope_correlation: 46.0,
+            ms1_isotope_cosine: 47.0,
+            ms1_m_minus_1_frac: 48.0,
+            ms1_log_intensity: 49.0,
+            ms1_iso_m1_err: 50.0,
+            ms1_m0_accurate_share: 51.0,
+            ms1_m1_accurate_share: 52.0,
+            ms1_fine_shape: 53.0,
+            ms1_fine_iso_corr: 54.0,
+        }),
+        detection: Some(DetectionFeatures {
+            shadow_lib_share: 55.0,
+            det_faint_hits: 56.0,
+            det_faint_miss: 57.0,
         }),
     }
 }
@@ -130,7 +149,8 @@ fn test_calibration_feature_names_are_the_core_block() {
 }
 
 #[test]
-fn test_full_feature_names_are_core_ion_coverage_library_agreement_and_window_share() {
+fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_ms1_and_detection()
+{
     // given / when
     let names = FeatureSet::Full.feature_names();
 
@@ -141,7 +161,9 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_and_window_sh
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
             LibraryAgreementFeatures::NAMES,
-            WindowShareFeatures::NAMES
+            WindowShareFeatures::NAMES,
+            Ms1Features::NAMES,
+            DetectionFeatures::NAMES
         ]
         .concat()
     );
@@ -150,7 +172,7 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_and_window_sh
 }
 
 #[test]
-fn test_calibration_leaves_out_the_ion_coverage_library_agreement_and_window_share_features() {
+fn test_calibration_leaves_out_all_blocks_but_core() {
     // given / when
     let names = FeatureSet::Calibration.feature_names();
 
@@ -159,6 +181,8 @@ fn test_calibration_leaves_out_the_ion_coverage_library_agreement_and_window_sha
         IonCoverageFeatures::NAMES,
         LibraryAgreementFeatures::NAMES,
         WindowShareFeatures::NAMES,
+        Ms1Features::NAMES,
+        DetectionFeatures::NAMES,
     ]
     .concat()
     {
@@ -196,6 +220,42 @@ fn test_block_column_names_are_the_field_names() {
     assert_eq!(
         value_of("apex_window_signal_frac_zscore"),
         feature.window_share.unwrap().apex_window_signal_frac_zscore
+    );
+    assert_eq!(
+        value_of("ms1_fine_iso_corr"),
+        feature.ms1.unwrap().ms1_fine_iso_corr
+    );
+    assert_eq!(
+        value_of("det_faint_miss"),
+        feature.detection.unwrap().det_faint_miss
+    );
+}
+
+#[test]
+fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block() {
+    // given / when
+    let names = FeatureSet::Full.feature_names();
+
+    // then: the columns before them keep their positions
+    let num_before = NUM_FULL_FEATURES - 13;
+    assert_eq!(names[num_before - 1], "apex_window_signal_frac_zscore");
+    assert_eq!(
+        names[num_before..],
+        [
+            "ms1_signal_at_apex",
+            "ms1_isotope_correlation",
+            "ms1_isotope_cosine",
+            "ms1_m_minus_1_frac",
+            "ms1_log_intensity",
+            "ms1_iso_m1_err",
+            "ms1_m0_accurate_share",
+            "ms1_m1_accurate_share",
+            "ms1_fine_shape",
+            "ms1_fine_iso_corr",
+            "shadow_lib_share",
+            "det_faint_hits",
+            "det_faint_miss",
+        ]
     );
 }
 

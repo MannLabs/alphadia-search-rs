@@ -19,6 +19,8 @@ pub struct DIAData {
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
     pub rt_values: Array1<f32>,
     pub cycle: Array4<f32>,
+    /// Position of each observation within the DIA cycle (fraction of the cycle); empty = index over cycle length
+    pub cycle_positions: Vec<f32>,
 }
 
 impl Default for DIAData {
@@ -36,7 +38,23 @@ impl DIAData {
             quadrupole_observations: Vec::new(),
             rt_values: Array1::zeros((0,)),
             cycle: Array4::zeros((0, 0, 0, 0)),
+            cycle_positions: Vec::new(),
         }
+    }
+
+    /// Set the position of every observation within the DIA cycle as a fraction of the cycle (0..1), e.g. the
+    /// acquisition times of MS1 scans that alphaDIA aligned to fixed slots of the MS2 cycle. Without it, an
+    /// observation's position is its index over the number of observations per cycle.
+    pub fn set_cycle_positions(&mut self, positions: Vec<f32>) -> PyResult<()> {
+        if positions.len() != self.quadrupole_observations.len() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "expected {} cycle positions, one per observation, got {}",
+                self.quadrupole_observations.len(),
+                positions.len()
+            )));
+        }
+        self.cycle_positions = positions;
+        Ok(())
     }
 
     #[staticmethod]
@@ -158,6 +176,13 @@ impl crate::traits::DIADataTrait for DIAData {
 
     fn memory_footprint_bytes(&self) -> usize {
         self.memory_footprint_bytes()
+    }
+
+    fn cycle_position(&self, obs_idx: usize) -> f32 {
+        match self.cycle_positions.get(obs_idx) {
+            Some(&position) => position,
+            None => obs_idx as f32 / self.quadrupole_observations.len().max(1) as f32,
+        }
     }
 }
 

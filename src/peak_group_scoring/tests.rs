@@ -1559,13 +1559,32 @@ fn test_window_share_context_counts_ties_half() {
     assert_close(context[2].0, 0.0);
 }
 
+#[test]
+fn test_apex_window_spans_the_half_width_around_the_profile_maximum() {
+    use super::utils::apex_window;
+    assert_eq!(apex_window(&[0.0, 1.0, 3.0, 1.0, 0.0], 1), (1, 4));
+    assert_eq!(apex_window(&[5.0, 1.0], 1), (0, 2));
+    assert_eq!(apex_window(&[0.0, 3.0, 1.0, 3.0], 1), (2, 4));
+    assert_eq!(apex_window(&[], 1), (0, 0));
+}
+
+#[test]
+fn test_finite_or_zero_replaces_nan_and_infinity() {
+    use super::utils::finite_or_zero;
+    assert_eq!(finite_or_zero(1.5), 1.5);
+    assert_eq!(finite_or_zero(f32::NAN), 0.0);
+    assert_eq!(finite_or_zero(f32::NEG_INFINITY), 0.0);
+}
+
 #[cfg(test)]
 mod feature_sets {
     use crate::candidate::{Candidate, CandidateCollection};
     use crate::constants::{FragmentType, Loss};
     use crate::dia_data::{AlphaRawView, DIAData};
     use crate::dia_data_builder::DIADataBuilder;
+    use crate::peak_group_scoring::detection::DetectionFeatures;
     use crate::peak_group_scoring::features::CandidateFeatureCollection;
+    use crate::peak_group_scoring::ms1::Ms1Features;
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
     use numpy::ndarray::{Array1, Array4};
@@ -1794,5 +1813,395 @@ mod feature_sets {
         for value in off_apex.values(FeatureSet::Full).unwrap() {
             assert!(value.is_finite());
         }
+    }
+
+    /// Library abundances of the isotopes M0, M1, M2 of the precursor in `dia_data_with_ms1`
+    const ISOTOPE_ABUNDANCE: [f32; 3] = [1.0, 0.55, 0.2];
+    const PRECURSOR_CHARGE: u8 = 2;
+
+    /// Like `dia_data`, with an MS1 survey scan before the MS2 window of every cycle, in which the precursor's
+    /// isotopes M0..M2 elute with the fragments.
+    fn dia_data_with_ms1() -> DIAData {
+        let mut delta_scan_idx = Vec::new();
+        let mut lower = Vec::new();
+        let mut upper = Vec::new();
+        let mut cycle_idx = Vec::new();
+        let mut rt = Vec::new();
+        let mut peak_mz = Vec::new();
+        let mut peak_intensity = Vec::new();
+        let mut peak_start = Vec::new();
+        let mut peak_stop = Vec::new();
+        for cycle in 0..NUM_CYCLES {
+            let elution = 5.0 - (cycle as f32 - APEX_CYCLE as f32).abs();
+            for (scan, (scan_lower, scan_upper)) in
+                [(-1.0, -1.0), (400.0, 600.0)].into_iter().enumerate()
+            {
+                delta_scan_idx.push(scan as i64);
+                lower.push(scan_lower);
+                upper.push(scan_upper);
+                cycle_idx.push(cycle as i64);
+                rt.push(cycle as f32 * 2.0 + scan as f32 * 0.1);
+                peak_start.push(peak_mz.len() as i64);
+                if elution > 0.0 {
+                    if scan == 0 {
+                        for (k, abundance) in ISOTOPE_ABUNDANCE.iter().enumerate() {
+                            peak_mz.push(
+                                PRECURSOR_MZ
+                                    + k as f32 * crate::peak_group_scoring::ms1::C13_MASS_DELTA
+                                        / PRECURSOR_CHARGE as f32,
+                            );
+                            peak_intensity.push(abundance * elution * 1000.0);
+                        }
+                    } else {
+                        for (mz, intensity) in FRAGMENTS {
+                            peak_mz.push(mz);
+                            peak_intensity.push(intensity * elution * 100.0);
+                        }
+                    }
+                }
+                peak_stop.push(peak_mz.len() as i64);
+            }
+        }
+        let delta_scan_idx = Array1::from(delta_scan_idx);
+        let lower = Array1::from(lower);
+        let upper = Array1::from(upper);
+        let peak_start = Array1::from(peak_start);
+        let peak_stop = Array1::from(peak_stop);
+        let cycle_idx = Array1::from(cycle_idx);
+        let rt = Array1::from(rt);
+        let peak_mz = Array1::from(peak_mz);
+        let peak_intensity = Array1::from(peak_intensity);
+        let mut cycle = Array4::<f32>::zeros((1, 2, 1, 2));
+        cycle[[0, 0, 0, 0]] = -1.0;
+        cycle[[0, 0, 0, 1]] = -1.0;
+        cycle[[0, 1, 0, 0]] = 400.0;
+        cycle[[0, 1, 0, 1]] = 600.0;
+        let view = AlphaRawView::new(
+            delta_scan_idx.view(),
+            lower.view(),
+            upper.view(),
+            peak_start.view(),
+            peak_stop.view(),
+            cycle_idx.view(),
+            rt.view(),
+            peak_mz.view(),
+            peak_intensity.view(),
+            cycle.view(),
+        );
+        DIADataBuilder::from_alpha_raw(&view)
+    }
+
+    fn library_with_isotopes() -> SpecLibFlat {
+        let mut lib = library();
+        lib.set_isotopes_from_vecs(
+            &[0],
+            &[PRECURSOR_CHARGE],
+            &[PRECURSOR_MZ],
+            ISOTOPE_ABUNDANCE.len(),
+            &ISOTOPE_ABUNDANCE,
+        )
+        .unwrap();
+        lib
+    }
+
+    fn score_with_ms1(feature_set: FeatureSet, lib: &SpecLibFlat) -> CandidateFeatureCollection {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        PeakGroupScoring::new(params).score(&dia_data_with_ms1(), lib, &candidates())
+    }
+
+    #[test]
+    fn test_full_scores_the_ms1_isotopes_at_the_apex() {
+        // given / when
+        let full = score_with_ms1(FeatureSet::Full, &library_with_isotopes());
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let ms1 = apex.ms1.unwrap();
+        assert_eq!(ms1.ms1_signal_at_apex, 1.0);
+        assert!(ms1.ms1_isotope_correlation > 0.9);
+        assert!(ms1.ms1_isotope_cosine > 0.99);
+        assert_eq!(ms1.ms1_m_minus_1_frac, 0.0);
+        assert!(ms1.ms1_log_intensity > 3.0);
+        assert!(ms1.ms1_iso_m1_err.abs() < 0.1);
+        // the isotopes sit exactly at their m/z, so every apex point of the one MS1 scan has M0 and M+1
+        assert_eq!(ms1.ms1_m0_accurate_share, 1.0);
+        assert_eq!(ms1.ms1_m1_accurate_share, 1.0);
+        assert!(ms1.ms1_fine_shape > 0.5);
+        assert!(ms1.ms1_fine_iso_corr > 0.99);
+        // the MS1 scan does not change the fragment features
+        assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
+        for feature in full.iter() {
+            for value in feature.values(FeatureSet::Full).unwrap() {
+                assert!(value.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn test_full_without_isotopes_gives_zero_ms1_features() {
+        // given / when
+        let full = score_with_ms1(FeatureSet::Full, &library());
+
+        // then
+        for feature in full.iter() {
+            assert_eq!(feature.ms1, Some(Ms1Features::missing()));
+        }
+    }
+
+    #[test]
+    fn test_full_without_ms1_scans_gives_zero_ms1_features() {
+        // given
+        let mut params = ScoringParameters::new();
+        params.feature_set = FeatureSet::Full;
+
+        // when
+        let full = PeakGroupScoring::new(params).score(
+            &dia_data(),
+            &library_with_isotopes(),
+            &candidates(),
+        );
+
+        // then
+        for feature in full.iter() {
+            assert_eq!(feature.ms1, Some(Ms1Features::missing()));
+        }
+    }
+
+    #[test]
+    fn test_cycle_positions_move_the_fine_features_only() {
+        // given: by default the MS1 scan sits at 0 and the MS2 window at 0.5 of the cycle (index over 2 observations)
+        let lib = library_with_isotopes();
+        let mut params = ScoringParameters::new();
+        params.feature_set = FeatureSet::Full;
+        let scoring = PeakGroupScoring::new(params);
+        let default = scoring.score(&dia_data_with_ms1(), &lib, &candidates());
+        let mut same = dia_data_with_ms1();
+        same.set_cycle_positions(vec![0.0, 0.5]).unwrap();
+        let mut moved = dia_data_with_ms1();
+        moved.set_cycle_positions(vec![0.9, 0.0]).unwrap();
+
+        // when
+        let same = scoring.score(&same, &lib, &candidates());
+        let moved = scoring.score(&moved, &lib, &candidates());
+
+        // then
+        let apex = |collection: &CandidateFeatureCollection| {
+            collection
+                .iter()
+                .find(|f| f.rank == 0)
+                .unwrap()
+                .ms1
+                .unwrap()
+        };
+        assert_eq!(apex(&same), apex(&default));
+        let (default, moved) = (apex(&default), apex(&moved));
+        assert_ne!(default.ms1_fine_shape, moved.ms1_fine_shape);
+        assert_eq!(
+            Ms1Features {
+                ms1_fine_shape: 0.0,
+                ..default
+            },
+            Ms1Features {
+                ms1_fine_shape: 0.0,
+                ..moved
+            }
+        );
+        assert!(dia_data_with_ms1().set_cycle_positions(vec![0.0]).is_err());
+    }
+
+    #[test]
+    fn test_calibration_scores_no_ms1() {
+        // given / when
+        let calibration = score_with_ms1(FeatureSet::Calibration, &library_with_isotopes());
+
+        // then
+        for feature in calibration.iter() {
+            assert_eq!(feature.ms1, None);
+        }
+        assert!(!FeatureSet::Calibration
+            .feature_names()
+            .iter()
+            .any(|name| name.starts_with("ms1_")));
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_sets_the_ms1_mass_tolerance() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config.set_item("ms1_mass_tolerance", 4.5f32).unwrap();
+
+            // when
+            params.update(&config).unwrap();
+
+            // then
+            assert_eq!(params.ms1_mass_tolerance, 4.5);
+        });
+    }
+
+    fn score_with_detection(
+        feature_set: FeatureSet,
+        detection_features: bool,
+    ) -> CandidateFeatureCollection {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        params.detection_features = detection_features;
+        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+    }
+
+    #[test]
+    fn test_detection_features_are_on_by_default() {
+        // given / when
+        let params = ScoringParameters::new();
+
+        // then
+        assert!(params.detection_features);
+        assert_eq!(
+            score(FeatureSet::Full).iter().collect::<Vec<_>>(),
+            score_with_detection(FeatureSet::Full, true)
+                .iter()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_detection_features_off_give_zero() {
+        // given / when
+        let full = score_with_detection(FeatureSet::Full, false);
+
+        // then
+        for feature in full.iter() {
+            assert_eq!(feature.detection, Some(DetectionFeatures::missing()));
+        }
+    }
+
+    #[test]
+    fn test_full_scores_the_detection_block() {
+        // given / when
+        let full = score_with_detection(FeatureSet::Full, true);
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let detection = apex.detection.unwrap();
+        // no peaks one isotope spacing below the fragments: nothing is shadowed
+        assert_eq!(detection.shadow_lib_share, 0.0);
+        // every fragment is hit at the apex scan
+        assert!(detection.det_faint_hits > 0.0);
+        assert_eq!(detection.det_faint_miss, 0.0);
+        for feature in full.iter() {
+            for value in feature.values(FeatureSet::Full).unwrap() {
+                assert!(value.is_finite());
+            }
+        }
+    }
+
+    #[test]
+    fn test_detection_features_change_no_other_block() {
+        // given
+        let without = score_with_detection(FeatureSet::Full, false);
+
+        // when
+        let with = score_with_detection(FeatureSet::Full, true);
+
+        // then
+        let num_other = FeatureSet::Full.feature_names().len() - 3;
+        for (a, b) in without.iter().zip(with.iter()) {
+            assert_eq!(
+                a.values(FeatureSet::Full).unwrap()[..num_other],
+                b.values(FeatureSet::Full).unwrap()[..num_other]
+            );
+        }
+    }
+
+    #[test]
+    fn test_calibration_scores_no_detection() {
+        // given / when
+        let calibration = score_with_detection(FeatureSet::Calibration, true);
+
+        // then
+        for feature in calibration.iter() {
+            assert_eq!(feature.detection, None);
+        }
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_sets_the_detection_features() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config.set_item("detection_features", false).unwrap();
+
+            // when
+            params.update(&config).unwrap();
+
+            // then
+            assert!(!params.detection_features);
+        });
+    }
+
+    #[test]
+    fn test_score_ms1_calibration_returns_the_apex_isotope_statistics() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            params.ms1_mass_tolerance = 15.0;
+            let scoring = PeakGroupScoring::new(params);
+
+            // when
+            let with = scoring
+                .score_ms1_calibration(
+                    py,
+                    &dia_data_with_ms1(),
+                    &library_with_isotopes(),
+                    &candidates(),
+                )
+                .unwrap();
+            let without = scoring
+                .score_ms1_calibration(py, &dia_data_with_ms1(), &library(), &candidates())
+                .unwrap();
+
+            // then
+            let column = |obj: &Py<PyAny>, name: &str| -> Vec<f32> {
+                obj.bind(py)
+                    .cast::<PyDict>()
+                    .unwrap()
+                    .get_item(name)
+                    .unwrap()
+                    .unwrap()
+                    .extract()
+                    .unwrap()
+            };
+            let rank: Vec<u64> = with
+                .bind(py)
+                .cast::<PyDict>()
+                .unwrap()
+                .get_item("rank")
+                .unwrap()
+                .unwrap()
+                .extract()
+                .unwrap();
+            let apex = rank.iter().position(|&r| r == 0).unwrap();
+            assert_eq!(
+                column(&with, "ms1_n_isotopes")[apex],
+                ISOTOPE_ABUNDANCE.len() as f32
+            );
+            assert!(column(&with, "ms1_iso_cosine")[apex] > 0.99);
+            assert!(column(&with, "ms1_log_m0_apex")[apex] > 3.0);
+            assert!(column(&with, "ms1_ppm_signed")[apex].abs() < 1.0);
+            for name in [
+                "ms1_iso_cosine",
+                "ms1_n_isotopes",
+                "ms1_log_m0_apex",
+                "ms1_ppm_signed",
+            ] {
+                assert!(column(&without, name).iter().all(|&v| v == 0.0), "{name}");
+            }
+        });
     }
 }

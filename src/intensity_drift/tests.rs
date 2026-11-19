@@ -264,8 +264,8 @@ fn test_skips_a_run_with_too_few_usable_ions() {
 }
 
 #[test]
-fn test_merges_sparse_bins_and_appends_trailing_ions() {
-    // 250 ions one second apart, 10 second bins hold 10 ions each
+fn test_merges_sparse_rt_windows_and_appends_trailing_ions() {
+    // 250 ions one second apart, 10 second RT windows hold 10 ions each
     let n_ions = 250;
     let rt: Vec<f32> = (0..n_ions).map(|ion| ion as f32).collect();
     let deviating_run: Vec<f32> = rt
@@ -280,8 +280,8 @@ fn test_merges_sparse_bins_and_appends_trailing_ions() {
         .collect();
     let mut intensity = [deviating_run, vec![1.0; n_ions]].concat();
     let parameters = DriftParameters {
-        bin_seconds: 10.0,
-        min_ions_per_bin: 100,
+        window_seconds: 10.0,
+        min_ions_per_window: 100,
         min_ions_per_run: 0,
         ..parameters(Statistic::Median)
     };
@@ -295,7 +295,7 @@ fn test_merges_sparse_bins_and_appends_trailing_ions() {
         &parameters,
     );
 
-    // [0, 100) and [100, 250), the trailing 50 ions merged into the second bin
+    // [0, 100) and [100, 250), the trailing 50 ions merged into the second RT window
     let curve = curves[0].as_ref().expect("the run has a curve");
     assert_abs_diff_eq!(curve.rt[0], 49.5, epsilon = 1e-9);
     assert_abs_diff_eq!(curve.rt[1], 174.5, epsilon = 1e-9);

@@ -15,10 +15,10 @@ const MODE_PERCENTILE_HIGH: f64 = 98.0;
 /// Moving-sum window of the mode histogram, in histogram bins. Deviations spanning fewer bins
 /// fall back to the median.
 const MODE_SMOOTHING_BINS: usize = 11;
-/// Moving-average window of the curve, in RT bins.
-const CURVE_SMOOTHING_BINS: usize = 3;
+/// Moving-average window of the curve, in RT windows.
+const CURVE_SMOOTHING_WINDOWS: usize = 3;
 
-/// Location estimator of the deviations in one bin.
+/// Location estimator of the deviations in one RT window.
 #[derive(Clone, Copy)]
 pub enum Statistic {
     /// Mode of the smoothed histogram. Robust to a subset of ions with a true abundance
@@ -30,19 +30,19 @@ pub enum Statistic {
     Median,
 }
 
-pub const DEFAULT_BIN_SECONDS: f64 = 30.0;
+pub const DEFAULT_WINDOW_SECONDS: f64 = 30.0;
 pub const DEFAULT_MIN_CORRELATION: f64 = 0.8;
-pub const DEFAULT_MIN_IONS_PER_BIN: usize = 100;
+pub const DEFAULT_MIN_IONS_PER_WINDOW: usize = 100;
 pub const DEFAULT_MIN_IONS_PER_RUN: usize = 500;
 
 /// Parameters of the correction, see `DOCS.md` for the terms.
 pub struct DriftParameters {
-    /// Width of an RT bin before merging, in seconds.
-    pub bin_seconds: f64,
+    /// Width of an RT window before merging, in seconds.
+    pub window_seconds: f64,
     /// Minimum mean cross-run correlation of a usable ion.
     pub min_correlation: f64,
-    /// Minimum number of usable ions observed in the run per bin.
-    pub min_ions_per_bin: usize,
+    /// Minimum number of usable ions observed in the run per RT window.
+    pub min_ions_per_window: usize,
     /// Minimum number of usable ions observed in a run; runs below it are not corrected.
     pub min_ions_per_run: usize,
     pub statistic: Statistic,
@@ -50,18 +50,18 @@ pub struct DriftParameters {
 
 impl DriftParameters {
     pub const DEFAULT: Self = Self {
-        bin_seconds: DEFAULT_BIN_SECONDS,
+        window_seconds: DEFAULT_WINDOW_SECONDS,
         min_correlation: DEFAULT_MIN_CORRELATION,
-        min_ions_per_bin: DEFAULT_MIN_IONS_PER_BIN,
+        min_ions_per_window: DEFAULT_MIN_IONS_PER_WINDOW,
         min_ions_per_run: DEFAULT_MIN_IONS_PER_RUN,
         statistic: Statistic::Mode,
     };
 
     pub fn validate(&self) -> Result<(), String> {
-        if !(self.bin_seconds.is_finite() && self.bin_seconds > 0.0) {
+        if !(self.window_seconds.is_finite() && self.window_seconds > 0.0) {
             return Err(format!(
-                "bin_seconds must be a positive number, got {}",
-                self.bin_seconds
+                "window_seconds must be a positive number, got {}",
+                self.window_seconds
             ));
         }
         if !self.min_correlation.is_finite() {
@@ -70,8 +70,8 @@ impl DriftParameters {
                 self.min_correlation
             ));
         }
-        if self.min_ions_per_bin == 0 {
-            return Err("min_ions_per_bin must be at least 1".to_string());
+        if self.min_ions_per_window == 0 {
+            return Err("min_ions_per_window must be at least 1".to_string());
         }
         Ok(())
     }
@@ -79,14 +79,14 @@ impl DriftParameters {
 
 /// Curve of one run.
 pub struct DriftCurve {
-    /// Mean RT of the usable ions in every bin, ascending.
+    /// Mean RT of the usable ions in every RT window, ascending.
     pub rt: Vec<f64>,
     /// Correction at `rt`, in log2.
     pub correction: Vec<f64>,
 }
 
 impl DriftCurve {
-    /// Correction at `rt`: linear between bins, constant outside them, 0 for a non-finite `rt`.
+    /// Correction at `rt`: linear between RT windows, constant outside them, 0 for a non-finite `rt`.
     fn at(&self, rt: f64) -> f64 {
         if rt.is_finite() {
             interpolate(rt, &self.rt, &self.correction)
@@ -208,7 +208,7 @@ impl<'a> IonRt<'a> {
 /// The correlation threshold excludes fragments dominated by interference, whose deviation
 /// does not reflect the drift of the run. The reference is the mean over all runs: with a
 /// median, one run of every ion sits exactly on its reference, and the resulting spike of
-/// zero deviations pulls the mode of every bin towards no correction.
+/// zero deviations pulls the mode of every RT window towards no correction.
 fn reference_levels(
     intensity: &[f32],
     correlation: &[f32],
@@ -269,7 +269,7 @@ fn mean_retention_times(rt: &[f32], n_precursors: usize) -> Vec<f64> {
 }
 
 /// Curve of one run, `None` for fewer than `min_ions_per_run` usable ions observed in the run
-/// or a single bin.
+/// or a single RT window.
 fn estimate_curve(
     intensity: &[f32],
     ion_rt: &IonRt,
@@ -288,14 +288,14 @@ fn estimate_curve(
     }
     points.sort_by(|left, right| left.0.total_cmp(&right.0));
 
-    let (bin_rt, location) = bin_points(&points, parameters);
-    // a single bin carries no shape along the gradient
-    if bin_rt.len() < 2 {
+    let (window_rt, location) = window_points(&points, parameters);
+    // a single RT window carries no shape along the gradient
+    if window_rt.len() < 2 {
         return None;
     }
     Some(DriftCurve {
-        rt: bin_rt,
-        correction: moving_average(&location, CURVE_SMOOTHING_BINS),
+        rt: window_rt,
+        correction: moving_average(&location, CURVE_SMOOTHING_WINDOWS),
     })
 }
 
@@ -329,33 +329,33 @@ fn apply_curve(intensity: &mut [f32], ion_rt: &IonRt, curve: &mut DriftCurve) {
         .for_each(|correction| *correction -= centre);
 }
 
-/// Mean RT and location of the deviations of every bin.
-fn bin_points(points: &[(f64, f64)], parameters: &DriftParameters) -> (Vec<f64>, Vec<f64>) {
-    let edges = bin_edges(points, parameters);
-    let mut bin_rt = Vec::with_capacity(edges.len() - 1);
+/// Mean RT and location of the deviations of every RT window.
+fn window_points(points: &[(f64, f64)], parameters: &DriftParameters) -> (Vec<f64>, Vec<f64>) {
+    let edges = window_edges(points, parameters);
+    let mut window_rt = Vec::with_capacity(edges.len() - 1);
     let mut location = Vec::with_capacity(edges.len() - 1);
     let mut deviation = Vec::new();
     for edge in edges.windows(2) {
-        let bin = &points[edge[0]..edge[1]];
-        bin_rt.push(bin.iter().map(|&(rt, _)| rt).sum::<f64>() / bin.len() as f64);
+        let window = &points[edge[0]..edge[1]];
+        window_rt.push(window.iter().map(|&(rt, _)| rt).sum::<f64>() / window.len() as f64);
         deviation.clear();
-        deviation.extend(bin.iter().map(|&(_, value)| value));
+        deviation.extend(window.iter().map(|&(_, value)| value));
         location.push(location_of(&mut deviation, parameters.statistic));
     }
-    (bin_rt, location)
+    (window_rt, location)
 }
 
-/// Start index of every bin in the RT-sorted `points`, followed by the end of the last bin.
+/// Start index of every RT window in the RT-sorted `points`, followed by the end of the last one.
 ///
-/// Points after the last full bin are added to it.
-fn bin_edges(points: &[(f64, f64)], parameters: &DriftParameters) -> Vec<usize> {
+/// Points after the last full RT window are added to it.
+fn window_edges(points: &[(f64, f64)], parameters: &DriftParameters) -> Vec<usize> {
     let n_points = points.len();
-    let fixed_bin = |point: usize| (points[point].0 / parameters.bin_seconds).floor();
+    let fixed_window = |point: usize| (points[point].0 / parameters.window_seconds).floor();
 
     let mut edges = vec![0];
     for stop in 1..=n_points {
-        let ends_fixed_bin = stop == n_points || fixed_bin(stop) != fixed_bin(stop - 1);
-        if ends_fixed_bin && stop - edges[edges.len() - 1] >= parameters.min_ions_per_bin {
+        let ends_fixed_window = stop == n_points || fixed_window(stop) != fixed_window(stop - 1);
+        if ends_fixed_window && stop - edges[edges.len() - 1] >= parameters.min_ions_per_window {
             edges.push(stop);
         }
     }
@@ -364,14 +364,14 @@ fn bin_edges(points: &[(f64, f64)], parameters: &DriftParameters) -> Vec<usize> 
         if edges.len() > 1 {
             *edges.last_mut().unwrap() = n_points;
         } else {
-            // no bin ever filled: all ions form a single bin
+            // no RT window ever filled: all ions form a single one
             edges.push(n_points);
         }
     }
     edges
 }
 
-/// Location of the deviations of one bin. Sorts `deviation`.
+/// Location of the deviations of one RT window. Sorts `deviation`.
 fn location_of(deviation: &mut [f64], statistic: Statistic) -> f64 {
     deviation.sort_by(f64::total_cmp);
     match statistic {

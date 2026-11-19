@@ -10,9 +10,8 @@
 
 use crate::candidate::Candidate;
 use crate::peak_group_scoring::feature_block::feature_block;
-use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 
 /// The mobility is read from the cycles within this many cycles of the candidate's apex.
 pub const MOBILITY_APEX_RADIUS: usize = 1;
@@ -47,19 +46,68 @@ impl MobilityFeatures {
     }
 }
 
-/// The mobility features of one candidate over the observations and scan filters its fragment XICs were read from.
+/// The cycles around a candidate's apex the mobility is read from.
+fn apex_cycles<T: DIADataTrait>(dia_data: &T, cycle_center: usize) -> (usize, usize) {
+    let num_cycles = dia_data.rt_index().rt.len();
+    (
+        cycle_center.saturating_sub(MOBILITY_APEX_RADIUS),
+        (cycle_center + MOBILITY_APEX_RADIUS + 1).min(num_cycles),
+    )
+}
+
+/// The window of `half_width` around the intensity-weighted mean mobility of the precursor's fragment peaks within
+/// `wide`, at the candidate's apex: a mobility peak is much narrower than the tolerance around the library mobility,
+/// so the XICs of the narrow window carry less background. `wide` itself without a mobility dimension, for a
+/// `half_width` that is not positive and finite, or without fragment signal at the apex.
+pub fn recentered_mobility_filter<T: DIADataTrait>(
+    dia_data: &T,
+    precursor: &Precursor,
+    cycle_center: usize,
+    wide: MobilityFilter,
+    mass_tolerance: f32,
+    half_width: f32,
+) -> MobilityFilter {
+    if !(half_width > 0.0 && half_width.is_finite()) {
+        return wide;
+    }
+    let (start, stop) = apex_cycles(dia_data, cycle_center);
+    let observations = dia_data.select_observations(precursor.mz, wide);
+    let mut sums = [0.0f64; 2];
+    for &mz in &precursor.fragment_mz {
+        let Some(moments) = dia_data.mobility_moments(
+            &observations,
+            start,
+            stop,
+            mass_tolerance,
+            mz,
+            f32::NAN,
+            0.0,
+        ) else {
+            return wide;
+        };
+        sums[0] += moments.sums[0];
+        sums[1] += moments.sums[1];
+    }
+    if sums[0] <= 0.0 {
+        return wide;
+    }
+    MobilityFilter::Window {
+        mobility: (sums[1] / sums[0]) as f32,
+        tolerance: half_width,
+    }
+}
+
+/// The mobility features of one candidate over the observations of `filter`, the window around its library mobility.
 pub fn calculate_mobility_features<T: DIADataTrait>(
     dia_data: &T,
     precursor: &Precursor,
     candidate: &Candidate,
-    observation: &PeakGroupObservation,
+    filter: MobilityFilter,
     mass_tolerance: f32,
     mobility_tolerance: f32,
 ) -> MobilityFeatures {
-    let num_cycles = dia_data.rt_index().rt.len();
-    let start = candidate.cycle_center.saturating_sub(MOBILITY_APEX_RADIUS);
-    let stop = (candidate.cycle_center + MOBILITY_APEX_RADIUS + 1).min(num_cycles);
-    let observations = dia_data.select_observations(precursor.mz, observation.mobility);
+    let (start, stop) = apex_cycles(dia_data, candidate.cycle_center);
+    let observations = dia_data.select_observations(precursor.mz, filter);
 
     // per fragment: [Σw, Σw·m, Σw·m²]
     let mut fragments: Vec<[f64; 3]> = Vec::with_capacity(precursor.fragment_mz.len());

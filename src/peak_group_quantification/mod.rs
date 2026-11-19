@@ -11,6 +11,7 @@ use std::time::Instant;
 use crate::any_dia_data::AnyDIAData;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::peak_group_scoring::mobility::recentered_mobility_filter;
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
@@ -100,7 +101,14 @@ impl PeakGroupQuantification {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
-            precursor.mobility_filter(self.params.mobility_tolerance),
+            recentered_mobility_filter(
+                dia_data,
+                precursor,
+                cycle_center,
+                precursor.mobility_filter(self.params.mobility_tolerance),
+                self.params.tolerance_ppm,
+                self.params.mobility_peak_tolerance,
+            ),
             cycle_start,
             cycle_stop,
             self.params.tolerance_ppm,

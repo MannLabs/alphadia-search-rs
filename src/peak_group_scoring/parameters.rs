@@ -13,6 +13,8 @@ pub struct ScoringParameters {
     #[pyo3(get)]
     pub mobility_tolerance: f32,
     #[pyo3(get)]
+    pub mobility_peak_tolerance: f32,
+    #[pyo3(get)]
     pub top_k_fragments: usize,
     #[pyo3(get)]
     pub feature_set: FeatureSet,
@@ -31,6 +33,9 @@ impl ScoringParameters {
             mass_tolerance: 7.0,
             // maximum ion mobility (1/K0) deviation from the precursor's library value, ignored for data without mobility.
             mobility_tolerance: DEFAULT_MOBILITY_TOLERANCE,
+            // half width (1/K0) of the window around each candidate's own apex mobility its XICs are read from; 0 reads
+            // the whole `mobility_tolerance` window around the library mobility
+            mobility_peak_tolerance: 0.0,
             // maximum number of fragments to use for scoring per precursor. depends on the number of fragments in the precursor.
             top_k_fragments: 100,
             feature_set: FeatureSet::Full,
@@ -48,6 +53,10 @@ impl ScoringParameters {
         }
         if let Some(value) = config.get_item("mobility_tolerance")? {
             self.mobility_tolerance =
+                check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
+        }
+        if let Some(value) = config.get_item("mobility_peak_tolerance")? {
+            self.mobility_peak_tolerance =
                 check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
         }
         if let Some(value) = config.get_item("top_k_fragments")? {

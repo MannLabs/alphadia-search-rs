@@ -14,6 +14,11 @@ pub struct QuantificationParameters {
     #[pyo3(get)]
     pub mobility_tolerance: f32,
 
+    /// Half width (1/K0) of the window around each candidate's own apex mobility, 0 for the whole
+    /// `mobility_tolerance` window around the library mobility
+    #[pyo3(get)]
+    pub mobility_peak_tolerance: f32,
+
     /// Maximum number of fragments to use for quantification per precursor
     #[pyo3(get, set)]
     pub top_k_fragments: usize,
@@ -27,6 +32,7 @@ impl QuantificationParameters {
             // maximum mass error expected for fragment matching in part per million (ppm). depends on mass detector will usually be between 3 and 20ppm.
             tolerance_ppm: 7.0,
             mobility_tolerance: DEFAULT_MOBILITY_TOLERANCE,
+            mobility_peak_tolerance: 0.0,
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
             // very large number to capture them all by default
             top_k_fragments: 10000,
@@ -45,6 +51,10 @@ impl QuantificationParameters {
         }
         if let Some(value) = config.get_item("mobility_tolerance")? {
             self.mobility_tolerance =
+                check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
+        }
+        if let Some(value) = config.get_item("mobility_peak_tolerance")? {
+            self.mobility_peak_tolerance =
                 check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
         }
         if let Some(value) = config.get_item("top_k_fragments")? {

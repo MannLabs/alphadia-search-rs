@@ -17,7 +17,9 @@ use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
-use crate::peak_group_scoring::mobility::calculate_mobility_features;
+use crate::peak_group_scoring::mobility::{
+    calculate_mobility_features, recentered_mobility_filter,
+};
 use crate::peak_group_scoring::ms1::{
     calculate_ms1_apex_calibration, calculate_ms1_features, Ms1ApexFeatures,
 };
@@ -325,12 +327,20 @@ impl PeakGroupScoring {
         ms1_observations: &[usize],
         detection_model: Option<&DetectionModel>,
     ) -> Option<ScoredCandidate> {
+        let wide = precursor.mobility_filter(self.params.mobility_tolerance);
         let observation = PeakGroupObservation::new(
             dia_data,
             precursor,
             candidate,
             self.params.mass_tolerance,
-            precursor.mobility_filter(self.params.mobility_tolerance),
+            recentered_mobility_filter(
+                dia_data,
+                precursor,
+                candidate.cycle_center,
+                wide,
+                self.params.mass_tolerance,
+                self.params.mobility_peak_tolerance,
+            ),
         );
 
         let core =
@@ -414,7 +424,7 @@ impl PeakGroupScoring {
                 dia_data,
                 precursor,
                 candidate,
-                &observation,
+                wide,
                 self.params.mass_tolerance,
                 self.params.mobility_tolerance,
             )

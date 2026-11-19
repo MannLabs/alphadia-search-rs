@@ -85,6 +85,24 @@ pub fn build_observations(
         .collect()
 }
 
+/// One observation of all MS1 frames, one per cycle; its scans isolate nothing, so it never serves as an MS2 window
+/// and its isolation window is [-1, -1] like alpharaw's MS1 scans.
+pub fn build_ms1_observation(
+    path: &TimsTofPath,
+    reader: &TdfFrameReader,
+    layout: &RunLayout,
+) -> Result<TimsQuadrupoleObservation, String> {
+    let mz_converter = path.mz_converter().ok_or("no m/z converter")?;
+    let mz_index = MZIndex::global();
+    let binner = TofBinner::new(&mz_converter, mz_index);
+    let num_scans = layout.scan_mobility.len();
+    let mut obs = TimsQuadrupoleObservation::new_ms1(num_scans);
+    let frames: Vec<&Ms2Frame> = layout.ms1_frames.iter().collect();
+    let staged = stage_frames(reader, &frames, &binner, num_scans)?;
+    fill_group(&mut obs, staged, mz_index.len())?;
+    Ok(obs)
+}
+
 fn frames_of(layout: &RunLayout, group: usize) -> Vec<&Ms2Frame> {
     layout
         .ms2_frames

@@ -30,6 +30,8 @@ pub(super) struct FrameMeta {
 pub(super) struct Cycles {
     /// RT of the MS1 frame of every cycle.
     pub cycle_rt_seconds: Vec<f32>,
+    /// Frame index of the MS1 frame of every cycle.
+    pub ms1_frame_indices: Vec<usize>,
     pub ms2_frames: Vec<Ms2Frame>,
     /// Quadrupole settings id of every window group.
     pub settings_ids: Vec<usize>,
@@ -40,12 +42,14 @@ pub(super) struct Cycles {
 pub(super) fn assign_cycles(frames: impl IntoIterator<Item = FrameMeta>) -> Result<Cycles, String> {
     let mut cycles = Cycles {
         cycle_rt_seconds: Vec::new(),
+        ms1_frame_indices: Vec::new(),
         ms2_frames: Vec::new(),
         settings_ids: Vec::new(),
     };
     for frame in frames {
         if frame.is_ms1 {
             cycles.cycle_rt_seconds.push(frame.rt_seconds);
+            cycles.ms1_frame_indices.push(frame.frame_index);
             continue;
         }
         let Some(last_cycle) = cycles.cycle_rt_seconds.len().checked_sub(1) else {
@@ -111,6 +115,8 @@ pub(super) struct RunLayout {
     /// slot `g + 1` the frame of window group `g`. Length `num_cycles * cycle_len`.
     pub frame_rt_seconds: Vec<f32>,
     pub ms2_frames: Vec<Ms2Frame>,
+    /// The MS1 frame of every cycle, its `group` one past the last window group.
+    pub ms1_frames: Vec<Ms2Frame>,
     /// Per window group, the isolation window of every scan, `None` where the quadrupole was not set.
     pub scan_windows: Vec<Vec<Option<[f32; 2]>>>,
     /// 1/K0 of every scan, decreasing with the scan index.
@@ -171,9 +177,23 @@ impl RunLayout {
             return Err("MS2 frames without diaPASEF isolation windows, not a diaPASEF run".into());
         }
 
+        let ms1_frames = cycles
+            .ms1_frame_indices
+            .iter()
+            .zip(&cycles.cycle_rt_seconds)
+            .enumerate()
+            .map(|(cycle, (&frame_index, &rt_seconds))| Ms2Frame {
+                frame_index,
+                // assign_cycles checked that the cycle count fits in u16
+                cycle: cycle as u16,
+                group: cycles.settings_ids.len(),
+                rt_seconds,
+            })
+            .collect();
         Ok(Self {
             frame_rt_seconds: frame_rt_seconds(&cycles),
             ms2_frames: cycles.ms2_frames,
+            ms1_frames,
             scan_windows,
             scan_mobility,
         })

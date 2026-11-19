@@ -28,6 +28,7 @@ fn tims_data() -> TimsDIAData {
         scan_mobility: vec![1.5, 1.25, 1.0, 0.75],
         rt_values: Array1::zeros(0),
         cycle: Array4::zeros((0, 0, 0, 0)),
+        num_groups: 2,
     }
 }
 
@@ -414,4 +415,31 @@ mod layout {
         let windows = window_per_scan(&QuadrupoleSettings::default(), 3);
         assert_eq!(windows, vec![None; 3]);
     }
+}
+
+#[test]
+fn test_ms1_observation_is_never_an_ms2_window_and_comes_first_in_the_cycle() {
+    let mut data = tims_data();
+    data.quadrupole_observations
+        .push(TimsQuadrupoleObservation::new_ms1(4));
+    assert!(data.has_ms1());
+    assert_eq!(data.ms1_observations(), vec![2]);
+    for mz in [450.0, 750.0, 950.0] {
+        assert!(data
+            .select_observations(mz, MobilityFilter::Any)
+            .iter()
+            .all(|(obs, _)| *obs != 2));
+    }
+    assert_eq!(data.cycle_position(2), 0.0);
+    assert_eq!(data.cycle_position(0), 1.0 / 3.0);
+    assert_eq!(
+        data.ms1_scan_filter(
+            2,
+            MobilityFilter::Window {
+                mobility: 1.0,
+                tolerance: 0.3
+            }
+        ),
+        vec![false, true, true, true]
+    );
 }

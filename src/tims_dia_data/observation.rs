@@ -36,6 +36,14 @@ impl TimsQuadrupoleObservation {
         }
     }
 
+    /// An observation of MS1 frames: no scan isolates a precursor.
+    pub fn new_ms1(num_scans: usize) -> Self {
+        Self {
+            isolation_window: [-1.0, -1.0],
+            ..Self::new(vec![None; num_scans])
+        }
+    }
+
     pub fn isolates(&self, scan: usize, precursor_mz: f32) -> bool {
         matches!(self.scan_windows[scan], Some([lo, hi]) if lo <= precursor_mz && precursor_mz <= hi)
     }

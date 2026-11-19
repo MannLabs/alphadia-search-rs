@@ -28,7 +28,8 @@ pub use observation::TimsQuadrupoleObservation;
 /// A timsTOF diaPASEF run (diaPASEF, synchro-/slicePASEF) indexed for peptide-centric search.
 ///
 /// Peaks are raw (not centroided) and their intensities are not corrected for the
-/// frame accumulation time. MS1 frames only define the cycles; their peaks are not read.
+/// frame accumulation time. MS1 frames define the cycles; their peaks, if read, are one observation after the window
+/// groups.
 #[pyclass]
 pub struct TimsDIAData {
     pub(crate) rt_index: RTIndex,
@@ -38,18 +39,21 @@ pub struct TimsDIAData {
     /// RT of every frame slot in cycle order (MS1, then one frame per window group).
     pub(crate) rt_values: Array1<f32>,
     pub(crate) cycle: Array4<f32>,
+    /// Number of diaPASEF window groups; the observations after them hold the MS1 frames.
+    pub(crate) num_groups: usize,
 }
 
 #[pymethods]
 impl TimsDIAData {
-    /// Reads a diaPASEF `.d` folder.
+    /// Reads a diaPASEF `.d` folder, with its MS1 frames if `read_ms1`.
     ///
     /// Raises `ValueError` if the folder cannot be read or is not a diaPASEF run.
     #[staticmethod]
-    pub fn from_bruker(path: &str, py: Python<'_>) -> PyResult<Self> {
+    #[pyo3(signature = (path, read_ms1 = true))]
+    pub fn from_bruker(path: &str, read_ms1: bool, py: Python<'_>) -> PyResult<Self> {
         py.detach(|| {
             // timsrust can panic on malformed metadata; report it like any read error
-            std::panic::catch_unwind(|| Self::read(path)).unwrap_or_else(|payload| {
+            std::panic::catch_unwind(|| Self::read(path, read_ms1)).unwrap_or_else(|payload| {
                 Err(format!(
                     "timsrust failed to read {path}: {}",
                     panic_message(payload.as_ref())
@@ -91,10 +95,10 @@ impl TimsDIAData {
         true
     }
 
-    /// MS1 peaks are not read.
+    /// Whether the MS1 frames were read.
     #[getter]
     pub fn has_ms1(&self) -> bool {
-        false
+        self.quadrupole_observations.len() > self.num_groups
     }
 
     #[getter]
@@ -125,7 +129,7 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
 }
 
 impl TimsDIAData {
-    pub fn read(path: &str) -> Result<Self, String> {
+    pub fn read(path: &str, read_ms1: bool) -> Result<Self, String> {
         let path = TimsTofPath::new(path).map_err(|e| e.to_string())?;
         let reader: TdfFrameReader = path.frame_reader().map_err(|e| e.to_string())?;
         let num_scans = builder::first_scan_count(&reader)?;
@@ -136,7 +140,11 @@ impl TimsDIAData {
         }
 
         let layout = RunLayout::read(&path, &reader, num_scans)?;
-        let quadrupole_observations = builder::build_observations(&path, &reader, &layout)?;
+        let mut quadrupole_observations = builder::build_observations(&path, &reader, &layout)?;
+        let num_groups = quadrupole_observations.len();
+        if read_ms1 {
+            quadrupole_observations.push(builder::build_ms1_observation(&path, &reader, &layout)?);
+        }
 
         let mut cycle = Array4::from_elem((1, layout.cycle_len(), num_scans, 2), -1.0f32);
         for (group, windows) in layout.scan_windows.iter().enumerate() {
@@ -154,6 +162,7 @@ impl TimsDIAData {
             scan_mobility: layout.scan_mobility,
             rt_values: Array1::from_vec(layout.frame_rt_seconds),
             cycle,
+            num_groups,
         })
     }
 
@@ -241,6 +250,16 @@ impl DIADataTrait for TimsDIAData {
             );
         }
         Some(moments)
+    }
+
+    /// The MS1 frame opens the cycle (slot 0), window group `g` is slot `g + 1`.
+    fn cycle_position(&self, obs_idx: usize) -> f32 {
+        let slot = if obs_idx >= self.num_groups {
+            0
+        } else {
+            obs_idx + 1
+        };
+        slot as f32 / (self.num_groups + 1) as f32
     }
 
     fn ms1_scan_filter(&self, _obs_idx: usize, mobility: MobilityFilter) -> Vec<bool> {

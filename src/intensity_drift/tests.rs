@@ -6,10 +6,11 @@ const N_RUNS: usize = 6;
 const N_IONS: usize = 2000;
 const GRADIENT_SECONDS: f64 = 1500.0;
 const MEAN_LEVEL_LOG2: f64 = 15.0;
-/// Spread of the ion levels and of the noise on every cell, in log2. The noise must span more
-/// than `MODE_SMOOTHING_BINS` histogram bins, otherwise the mode falls back to the median.
+/// Spread of the ion levels and of the noise on every cell, in log2. Where the deviations of a
+/// bin span fewer than `MODE_SMOOTHING_BINS` histogram bins, the mode falls back to the median.
 const LEVEL_SPREAD_LOG2: f64 = 4.0;
 const NOISE_LOG2: f64 = 0.3;
+const PEAKED_NOISE_TERMS: usize = 3;
 const CORRELATION: f32 = 0.95;
 /// Tolerance of a log2 value written back to an `f32` cell.
 const F32_LOG2_EPSILON: f64 = 1e-6;
@@ -20,6 +21,24 @@ fn noise(seed: usize) -> f64 {
         .wrapping_mul(6364136223846793005)
         .wrapping_add(1442695040888963407);
     (hashed >> 33) as f64 / (1u64 << 31) as f64 - 0.5
+}
+
+/// Deterministic pseudo-random value in `[-0.5, 0.5)` with a single peak at 0, the mean of
+/// `PEAKED_NOISE_TERMS` values of `noise`. Uniform noise has no mode for the histogram mode to
+/// find, and since the reference is the mean over the runs, no run sits exactly on it.
+fn peaked_noise(seed: usize) -> f64 {
+    (0..PEAKED_NOISE_TERMS)
+        .map(|term| noise(mix(seed * PEAKED_NOISE_TERMS + term)))
+        .sum::<f64>()
+        / PEAKED_NOISE_TERMS as f64
+}
+
+/// SplitMix64 finalizer: `noise` of consecutive seeds steps linearly, so their sum is not peaked.
+fn mix(seed: usize) -> usize {
+    let mut z = seed as u64;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
+    (z ^ (z >> 31)) as usize
 }
 
 /// Run-major tables of `N_RUNS` runs and `N_IONS` ions, one precursor per ion.
@@ -43,7 +62,7 @@ impl Tables {
             for ion in 0..N_IONS {
                 let level = MEAN_LEVEL_LOG2
                     + noise(ion) * LEVEL_SPREAD_LOG2
-                    + noise(ion + 7919 * (run + 1)) * NOISE_LOG2;
+                    + peaked_noise(ion + 7919 * (run + 1)) * NOISE_LOG2;
                 let drift = if run == 0 {
                     drift_log2 * rt[ion] / GRADIENT_SECONDS
                 } else {
@@ -262,7 +281,6 @@ fn test_merges_sparse_bins_and_appends_trailing_ions() {
     let mut intensity = [deviating_run, vec![1.0; n_ions]].concat();
     let parameters = DriftParameters {
         bin_seconds: 10.0,
-        min_observations: 2,
         min_ions_per_bin: 100,
         min_ions_per_run: 0,
         ..parameters(Statistic::Median)

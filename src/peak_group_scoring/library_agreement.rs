@@ -15,7 +15,7 @@ use numpy::ndarray::Array2;
 use crate::constants::FragmentType;
 use crate::peak_group_scoring::feature_block::feature_block;
 use crate::peak_group_scoring::utils::{
-    calculate_correlation_safe, shares, COELUTION_MIN_CORRELATION,
+    apex_window, calculate_correlation_safe, finite_or_zero, shares, COELUTION_MIN_CORRELATION,
 };
 use crate::utils::calculate_std;
 
@@ -127,14 +127,6 @@ fn fitted_spread(
     }
 }
 
-fn finite_or_zero(value: f32) -> f32 {
-    if value.is_finite() {
-        value
-    } else {
-        0.0
-    }
-}
-
 /// Scales `values` to unit sum; all zeros if the sum is not positive.
 fn unit_sum(values: &[f32]) -> Vec<f32> {
     let total: f32 = values.iter().sum();
@@ -243,14 +235,7 @@ fn lib_cosine_over_50(
     {
         return 0.0;
     }
-    let apex = median_profile
-        .iter()
-        .enumerate()
-        .max_by(|a, b| a.1.total_cmp(b.1))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    let start = apex.saturating_sub(LIB_COSINE_APEX_HALF_WIDTH);
-    let stop = (apex + LIB_COSINE_APEX_HALF_WIDTH + 1).min(n_cycles);
+    let (start, stop) = apex_window(median_profile, LIB_COSINE_APEX_HALF_WIDTH);
 
     let coeluting: Vec<usize> = (0..n_fragments)
         .filter(|&i| correlations[i] > COELUTION_MIN_CORRELATION)

@@ -1559,6 +1559,23 @@ fn test_window_share_context_counts_ties_half() {
     assert_close(context[2].0, 0.0);
 }
 
+#[test]
+fn test_apex_window_spans_the_half_width_around_the_profile_maximum() {
+    use super::utils::apex_window;
+    assert_eq!(apex_window(&[0.0, 1.0, 3.0, 1.0, 0.0], 1), (1, 4));
+    assert_eq!(apex_window(&[5.0, 1.0], 1), (0, 2));
+    assert_eq!(apex_window(&[0.0, 3.0, 1.0, 3.0], 1), (2, 4));
+    assert_eq!(apex_window(&[], 1), (0, 0));
+}
+
+#[test]
+fn test_finite_or_zero_replaces_nan_and_infinity() {
+    use super::utils::finite_or_zero;
+    assert_eq!(finite_or_zero(1.5), 1.5);
+    assert_eq!(finite_or_zero(f32::NAN), 0.0);
+    assert_eq!(finite_or_zero(f32::NEG_INFINITY), 0.0);
+}
+
 #[cfg(test)]
 mod feature_sets {
     use crate::candidate::{Candidate, CandidateCollection};

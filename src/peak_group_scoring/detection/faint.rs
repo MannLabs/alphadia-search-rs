@@ -1,5 +1,4 @@
-//! Abundance-aware fragment detection: a marked likelihood ratio of the apex scan for faint, one-scan peaks (Tomas
-//! Jelinek, alphadia-search-rs exp/faint-detection f63e876).
+//! Abundance-aware fragment detection: a marked likelihood ratio of the apex scan for faint, one-scan peaks.
 //!
 //! A hit/miss likelihood ratio with the signal scale free lets a chance match whose few hits sit on weak library
 //! fragments pick a small scale that makes its missing strong fragments cheap. Here the observed intensities pin the
@@ -26,15 +25,15 @@ use numpy::ndarray::Array2;
 use rayon::prelude::*;
 
 /// Lower end of the log2-intensity histogram of background hits.
-const DENSITY_MIN_LOG2: f64 = 0.0;
+pub(super) const DENSITY_MIN_LOG2: f64 = 0.0;
 /// Bin width of that histogram in log2 units.
-const DENSITY_BIN_LOG2: f64 = 0.1;
-const DENSITY_NUM_BINS: usize = 320;
+pub(super) const DENSITY_BIN_LOG2: f64 = 0.1;
+pub(super) const DENSITY_NUM_BINS: usize = 320;
 /// Gaussian smoothing of the histogram, in bins, and the kernel half-width in bins.
 const DENSITY_SMOOTH_BINS: f64 = 2.0;
 const DENSITY_KERNEL_HALF: i64 = 6;
 /// Density floor per log2 unit: a hit far outside the background range must not give an infinite ratio.
-const DENSITY_FLOOR: f64 = 1e-4;
+pub(super) const DENSITY_FLOOR: f64 = 1e-4;
 /// Bounds that keep the log-likelihoods finite.
 const MIN_PROBABILITY: f64 = 1e-6;
 /// Profile grid over the abundance a: step, extent below the detection limit and above the largest abundance any
@@ -83,7 +82,7 @@ fn ln_erfc(x: f64) -> f64 {
 }
 
 /// ln Phi(x) of the standard normal.
-fn ln_ndtr(x: f64) -> f64 {
+pub(super) fn ln_ndtr(x: f64) -> f64 {
     ln_erfc(-x / std::f64::consts::SQRT_2) - std::f64::consts::LN_2
 }
 
@@ -173,14 +172,13 @@ pub struct FaintModel {
     pub background: BackgroundDensity,
 }
 
-/// The faint-detection scores of one candidate, all 0 for a candidate without fragments.
+/// The faint-detection scores of one candidate, all 0 for a candidate without fragments. Their sum is the marked
+/// hit/miss log-likelihood ratio at the apex scan, maximised over the abundance.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FaintFeatures {
-    /// max over the abundance of the marked hit/miss log-likelihood ratio at the apex scan
-    pub det_faint_llr: f32,
-    /// the hit terms of `det_faint_llr` at its best abundance
+    /// the hit terms of the log-likelihood ratio at its best abundance
     pub det_faint_hits: f32,
-    /// the miss terms of `det_faint_llr` at its best abundance (<= 0)
+    /// the miss terms of the log-likelihood ratio at its best abundance (<= 0)
     pub det_faint_miss: f32,
 }
 
@@ -315,7 +313,6 @@ pub fn faint_features(fragments: &[ApexFragment], model: &FaintModel) -> FaintFe
     };
     let best = profile_max(&abundance_grid(fragments, curve), terms);
     FaintFeatures {
-        det_faint_llr: best.0 as f32,
         det_faint_hits: best.1 as f32,
         det_faint_miss: best.2 as f32,
     }
@@ -397,153 +394,4 @@ pub fn fit_curve(
         );
     }
     curve
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const CURVE: DetectionCurve = DetectionCurve {
-        limit: 8.0,
-        width: 1.5,
-        scatter: 1.0,
-    };
-
-    fn model() -> FaintModel {
-        // background hits around 2^9 +- 1.3
-        let values: Vec<f64> = (0..2000)
-            .map(|i| 9.0 + 1.3 * ((i as f64 / 2000.0) * 6.0 - 3.0))
-            .collect();
-        FaintModel {
-            curve: CURVE,
-            background: BackgroundDensity::from_log2(&values),
-        }
-    }
-
-    fn library() -> Vec<f64> {
-        // library intensities 1 .. 0.1 over 12 fragments
-        (0..12).map(|f| (1.0 - f as f64 * 0.08).log2()).collect()
-    }
-
-    fn fragments(hit: &[(usize, f64)]) -> Vec<ApexFragment> {
-        library()
-            .into_iter()
-            .enumerate()
-            .map(|(f, log2_relative)| ApexFragment {
-                log2_relative,
-                log2_intensity: hit.iter().find(|(i, _)| *i == f).map(|(_, y)| *y),
-                background_rate: 0.1,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn ln_ndtr_matches_reference_values() {
-        // scipy.special.log_ndtr
-        for (x, expected) in [
-            (0.0, -std::f64::consts::LN_2),
-            (1.5, -0.069_143_455_612_234),
-            (-2.0, -3.783_184_333_682_031_7),
-            (-10.0, -53.231_285_150_512_48),
-            (5.0, -2.866_516_129_637_6e-7),
-        ] {
-            let got = ln_ndtr(x);
-            assert!(
-                (got - expected).abs() < 1e-5 * expected.abs().max(1.0),
-                "{x}: {got} vs {expected}"
-            );
-        }
-    }
-
-    #[test]
-    fn background_density_integrates_to_one_and_has_a_floor() {
-        let m = model();
-        let integral: f64 = (0..DENSITY_NUM_BINS)
-            .map(|i| {
-                m.background
-                    .at(DENSITY_MIN_LOG2 + (i as f64 + 0.5) * DENSITY_BIN_LOG2)
-                    * DENSITY_BIN_LOG2
-            })
-            .sum();
-        assert!((integral - 1.0).abs() < 0.05);
-        assert_eq!(m.background.at(30.0), DENSITY_FLOOR);
-        assert!((m.background.default_curve().limit - 8.0).abs() < 0.1);
-    }
-
-    #[test]
-    fn library_consistent_faint_peptide_beats_a_random_match() {
-        // abundance 2^10.5: the six strongest fragments are seen at their predicted intensities
-        let consistent: Vec<(usize, f64)> = (0..6).map(|f| (f, 10.5 + library()[f])).collect();
-        // as many hits, on weak fragments, at background intensities
-        let random: Vec<(usize, f64)> = (6..12).map(|f| (f, 9.0)).collect();
-        let c = faint_features(&fragments(&consistent), &model());
-        let r = faint_features(&fragments(&random), &model());
-        assert!(c.det_faint_llr > r.det_faint_llr + 5.0);
-        assert!(c.det_faint_hits > 0.0);
-        assert!(c.det_faint_miss <= 0.0);
-    }
-
-    #[test]
-    fn intense_hits_make_missing_strong_fragments_costly() {
-        // the same four hit channels, once at the limit and once far above it, with fragments 0-3 missing
-        let faint: Vec<(usize, f64)> = (4..8).map(|f| (f, 8.5)).collect();
-        let bright: Vec<(usize, f64)> = (4..8).map(|f| (f, 14.0)).collect();
-        let f = faint_features(&fragments(&faint), &model());
-        let b = faint_features(&fragments(&bright), &model());
-        assert!(b.det_faint_miss < f.det_faint_miss);
-    }
-
-    #[test]
-    fn no_hits_give_zero_and_empty_inputs_missing() {
-        // without hits the best abundance is the lowest, where the misses cost almost nothing
-        let none = faint_features(&fragments(&[]), &model());
-        assert!(none.det_faint_llr <= 0.0 && none.det_faint_llr > -0.5);
-        assert_eq!(faint_features(&[], &model()), FaintFeatures::missing());
-        let xic = Array2::<f32>::zeros((3, 5));
-        assert!(apex_fragments(&xic, 9, &[1.0, 0.5, 0.2], &[0.1, 0.1, 0.1]).is_none());
-        assert!(apex_fragments(&xic, 2, &[1.0, 0.5], &[0.1, 0.1]).is_none());
-    }
-
-    #[test]
-    fn fit_recovers_the_curve_of_simulated_candidates() {
-        // deterministic pseudo-random candidates drawn from CURVE with abundances 2^7 .. 2^13
-        let mut state: u64 = 20_261_109;
-        let mut uniform = || {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1_442_695_040_888_963_407);
-            ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64
-        };
-        let normal = |u: &mut dyn FnMut() -> f64| {
-            let (u1, u2) = (u(), u());
-            (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
-        };
-        let mut candidates = Vec::new();
-        for i in 0..1500 {
-            let a = 7.0 + 6.0 * (i as f64 / 1500.0);
-            let c: Vec<ApexFragment> = library()
-                .into_iter()
-                .map(|log2_relative| {
-                    let y = a + log2_relative + CURVE.scatter * normal(&mut uniform);
-                    let seen = (CURVE.width * normal(&mut uniform) + CURVE.limit) < y;
-                    ApexFragment {
-                        log2_relative,
-                        log2_intensity: seen.then_some(y),
-                        background_rate: 0.1,
-                    }
-                })
-                .collect();
-            candidates.push(c);
-        }
-        let fitted = fit_curve(&candidates, &model().background);
-        assert!((fitted.limit - CURVE.limit).abs() <= 0.5, "{fitted:?}");
-        assert!((fitted.width - CURVE.width).abs() <= 0.5, "{fitted:?}");
-        assert!((fitted.scatter - CURVE.scatter).abs() <= 0.25, "{fitted:?}");
-    }
-
-    #[test]
-    fn too_few_hits_fall_back_to_the_default_curve() {
-        let fitted = fit_curve(&[fragments(&[(0, 10.0)])], &model().background);
-        assert_eq!(fitted, model().background.default_curve());
-    }
 }

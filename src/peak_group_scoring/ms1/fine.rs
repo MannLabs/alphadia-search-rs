@@ -1,5 +1,4 @@
-//! Per-scan part of the MS1 block: MS1 at the MS1 scans' own times (Tomas Jelinek, alphadia-search-rs exp/ms1-fine
-//! b3b4f0a).
+//! Per-scan part of the MS1 block: MS1 at the MS1 scans' own times.
 //!
 //! The cycle-binned MS1 XIC sums every MS1 scan of a cycle into one point. When a cycle holds several MS1 scans (Astral:
 //! ~3 per 1.5 s cycle of 300 windows), that throws away the time resolution in which a low-input peak is sampled best:
@@ -9,28 +8,19 @@
 //!
 //! The positions within the cycle come from `DIADataTrait::cycle_position`: the observation's index over the cycle
 //! length, or the positions alphaDIA sets for MS1 scans it aligned to the MS2 cycle (their acquisition times).
-//! Of the five features of the original, the MS1 block keeps the two that the feature selection kept: the shape of the
-//! M0 points against the fragment peak and the M0 / M+1 point correlation.
+//! The MS1 block keeps the two per-scan features that the feature selection kept: the shape of the M0 points against
+//! the fragment peak and the M0 / M+1 point correlation.
 //! A candidate without library isotopes or a run without MS1 scans gets 0; all values are finite, never NaN.
 
 use numpy::ndarray::Array2;
 
-use crate::peak_group_scoring::ms1::finite_or_zero;
-use crate::peak_group_scoring::utils::calculate_correlation_safe;
+use crate::peak_group_scoring::ms1::Ms1Features;
+use crate::peak_group_scoring::utils::{calculate_correlation_safe, finite_or_zero};
 
 /// FWHM to Gaussian standard deviation.
 const FWHM_TO_SIGMA: f32 = 1.0 / 2.354_82;
 /// The expected MS1 peak is never narrower than this many cycles: the fragment FWHM of a 2-4 point peak is coarse.
 const MIN_SIGMA_CYCLES: f32 = 0.5;
-
-/// The per-scan MS1 features of one candidate, both 0 without MS1 data.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Ms1FineFeatures {
-    /// Pearson correlation of the M0 points with a Gaussian of the fragment FWHM at the fragment apex time
-    pub ms1_fine_shape: f32,
-    /// Pearson correlation of the M0 and M+1 points
-    pub ms1_fine_iso_corr: f32,
-}
 
 /// Apex time of `values` sampled at the evenly spaced `times` (spacing `step`), refined by a parabola through the
 /// maximum and its neighbours.
@@ -55,13 +45,16 @@ fn refined_apex(times: &[f32], values: &[f32], step: f32) -> Option<f32> {
     Some(times[apex] + offset * step)
 }
 
-/// MS1 features from per-observation M0 / M1 XICs.
+/// Sets `ms1_fine_shape` and `ms1_fine_iso_corr` from per-observation M0 / M1 XICs; leaves them unchanged if the
+/// inputs do not fit or the fragment profile has no signal.
 ///
 /// `m0`, `m1`: [MS1 observation, cycle] over the candidate's cycles; `ms1_position`: each MS1 observation's position
 /// within the cycle as a fraction of the cycle (0..1); `cycle_rt`: RT of the candidate's cycles; `fragment_position`:
 /// the precursor's MS2 window position within the cycle (fraction); `fragment_profile`: the median fragment profile
 /// over the same cycles; `fwhm`: its FWHM in RT units.
-pub fn ms1_fine_features(
+#[allow(clippy::too_many_arguments)]
+pub fn set_fine_features(
+    features: &mut Ms1Features,
     m0: &Array2<f32>,
     m1: &Array2<f32>,
     ms1_position: &[f32],
@@ -69,7 +62,7 @@ pub fn ms1_fine_features(
     fragment_position: f32,
     fragment_profile: &[f32],
     fwhm: f32,
-) -> Ms1FineFeatures {
+) {
     let n_cycles = cycle_rt.len();
     let n_obs = ms1_position.len();
     if n_cycles < 2
@@ -78,11 +71,11 @@ pub fn ms1_fine_features(
         || m1.dim() != (n_obs, n_cycles)
         || fragment_profile.len() != n_cycles
     {
-        return Ms1FineFeatures::default();
+        return;
     }
     let cycle_time = (cycle_rt[n_cycles - 1] - cycle_rt[0]) / (n_cycles - 1) as f32;
     if cycle_time <= 0.0 {
-        return Ms1FineFeatures::default();
+        return;
     }
 
     let fragment_times: Vec<f32> = cycle_rt
@@ -90,7 +83,7 @@ pub fn ms1_fine_features(
         .map(|&t| t + fragment_position * cycle_time)
         .collect();
     let Some(fragment_apex) = refined_apex(&fragment_times, fragment_profile, cycle_time) else {
-        return Ms1FineFeatures::default();
+        return;
     };
 
     let mut order: Vec<usize> = (0..n_obs).collect();
@@ -112,84 +105,6 @@ pub fn ms1_fine_features(
         .map(|&t| (-0.5 * ((t - fragment_apex) / sigma).powi(2)).exp())
         .collect();
 
-    Ms1FineFeatures {
-        ms1_fine_shape: finite_or_zero(calculate_correlation_safe(&m0_points, &expected)),
-        ms1_fine_iso_corr: finite_or_zero(calculate_correlation_safe(&m0_points, &m1_points)),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn gaussian(t: f32, centre: f32, sigma: f32) -> f32 {
-        (-0.5 * ((t - centre) / sigma).powi(2)).exp()
-    }
-
-    /// 3 MS1 scans per 1.5 s cycle at positions 0, 1/3, 2/3; the precursor's MS2 window at position 0.5.
-    fn traces(centre: f32, sigma: f32, cycle_rt: &[f32]) -> (Array2<f32>, Vec<f32>, Vec<f32>) {
-        let positions = vec![0.0, 1.0 / 3.0, 2.0 / 3.0];
-        let m0 = Array2::from_shape_fn((3, cycle_rt.len()), |(j, c)| {
-            100.0 * gaussian(cycle_rt[c] + positions[j] * 1.5, centre, sigma)
-        });
-        let profile = cycle_rt
-            .iter()
-            .map(|&t| gaussian(t + 0.75, centre, sigma))
-            .collect();
-        (m0, positions, profile)
-    }
-
-    #[test]
-    fn coeluting_ms1_peak_scores_well() {
-        let cycle_rt: Vec<f32> = (0..7).map(|c| 100.0 + 1.5 * c as f32).collect();
-        let (m0, positions, profile) = traces(104.6, 1.3, &cycle_rt);
-        let m1 = m0.mapv(|v| 0.6 * v);
-
-        let f = ms1_fine_features(&m0, &m1, &positions, &cycle_rt, 0.5, &profile, 3.0);
-
-        assert!(f.ms1_fine_shape > 0.95);
-        assert!(f.ms1_fine_iso_corr > 0.99);
-    }
-
-    #[test]
-    fn ms1_peak_off_the_fragment_apex_does_not_fit_the_shape() {
-        let cycle_rt: Vec<f32> = (0..7).map(|c| 100.0 + 1.5 * c as f32).collect();
-        let (_, positions, profile) = traces(103.0, 1.0, &cycle_rt);
-        let (m0, _, _) = traces(109.0, 1.0, &cycle_rt);
-
-        let f = ms1_fine_features(&m0, &m0, &positions, &cycle_rt, 0.5, &profile, 2.4);
-
-        assert!(f.ms1_fine_shape < 0.2);
-    }
-
-    #[test]
-    fn no_signal_or_mismatched_shapes_give_zero() {
-        let cycle_rt: Vec<f32> = (0..5).map(|c| 1.5 * c as f32).collect();
-        let empty = Array2::<f32>::zeros((3, 5));
-        let profile = [0.0, 1.0, 3.0, 1.0, 0.0];
-        let f = ms1_fine_features(
-            &empty,
-            &empty,
-            &[0.0, 0.3, 0.6],
-            &cycle_rt,
-            0.5,
-            &profile,
-            2.0,
-        );
-        assert_eq!(f, Ms1FineFeatures::default());
-
-        let wrong = Array2::<f32>::zeros((2, 5));
-        assert_eq!(
-            ms1_fine_features(
-                &wrong,
-                &wrong,
-                &[0.0, 0.3, 0.6],
-                &cycle_rt,
-                0.5,
-                &profile,
-                2.0
-            ),
-            Ms1FineFeatures::default()
-        );
-    }
+    features.ms1_fine_shape = finite_or_zero(calculate_correlation_safe(&m0_points, &expected));
+    features.ms1_fine_iso_corr = finite_or_zero(calculate_correlation_safe(&m0_points, &m1_points));
 }

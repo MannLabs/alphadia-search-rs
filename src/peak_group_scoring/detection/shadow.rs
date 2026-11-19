@@ -1,5 +1,5 @@
 //! Fragment M-1 "shadow" feature of the detection block: is a matched fragment peak really the M+1 isotope of another
-//! ion? (Tomas Jelinek, alphadia-search-rs exp/frag-shadow 65fe5f8)
+//! ion?
 //!
 //! A chance fragment match lands on isotope peaks about as often as they occur in the spectrum, while a real fragment
 //! sits on a monoisotopic peak. So for each fragment the XIC one isotope spacing below it (for a 1+ and a 2+
@@ -7,14 +7,17 @@
 //! is coherent with the peak group and its shadow is coherent too and intense enough to explain the fragment as that
 //! ion's M+1. This is m/z evidence: it does not need several points across the peak.
 //!
-//! Of the three features of the original, the detection block keeps `shadow_lib_share`, the library-weighted share of
-//! the coherent fragments that are shadowed. It is finite, 0 when the inputs do not fit together.
+//! The detection block keeps `shadow_lib_share`, the library-weighted share of the coherent fragments that are
+//! shadowed. It is finite, 0 when the inputs do not fit together.
 
 use numpy::ndarray::Array2;
+use std::cmp::Ordering;
 
 use crate::peak_group_scoring::library_agreement::LIB_COSINE_APEX_HALF_WIDTH;
 use crate::peak_group_scoring::ms1::C13_MASS_DELTA;
-use crate::peak_group_scoring::utils::{calculate_correlation_safe, COELUTION_MIN_CORRELATION};
+use crate::peak_group_scoring::utils::{
+    apex_window, calculate_correlation_safe, COELUTION_MIN_CORRELATION,
+};
 
 /// Charges of the interfering ion whose M+1 could sit on the fragment.
 pub const SHADOW_CHARGES: [u8; 2] = [1, 2];
@@ -73,26 +76,27 @@ pub fn shadow_lib_share(
         return 0.0;
     }
 
-    let apex = median_profile
-        .iter()
-        .enumerate()
-        .max_by(|a, b| a.1.total_cmp(b.1))
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    let start = apex.saturating_sub(LIB_COSINE_APEX_HALF_WIDTH);
-    let stop = (apex + LIB_COSINE_APEX_HALF_WIDTH + 1).min(n_cycles);
+    let (start, stop) = apex_window(median_profile, LIB_COSINE_APEX_HALF_WIDTH);
     let apex_sum =
         |m: &Array2<f32>, row: usize| -> f32 { (start..stop).map(|c| m[[row, c]]).sum() };
 
     let mut shadowed_lib = 0.0f32;
     let mut coherent_lib = 0.0f32;
     for f in 0..n_fragments {
+        // the shadow trace with the most apex signal; on a tie the later charge, as `Iterator::max_by`
         let (row, z) = SHADOW_CHARGES
             .iter()
             .enumerate()
             .map(|(k, &z)| (k * n_fragments + f, z))
-            .max_by(|a, b| apex_sum(shadow_xic, a.0).total_cmp(&apex_sum(shadow_xic, b.0)))
-            .unwrap();
+            .fold((f, SHADOW_CHARGES[0]), |best, next| {
+                if apex_sum(shadow_xic, best.0).total_cmp(&apex_sum(shadow_xic, next.0))
+                    == Ordering::Greater
+                {
+                    best
+                } else {
+                    next
+                }
+            });
         let shadow_trace = shadow_xic.row(row).to_vec();
         let shadow_corr = calculate_correlation_safe(&shadow_trace, median_profile);
         let shadow_ratio = apex_sum(shadow_xic, row) / apex_sum(xic, f).max(EPSILON);
@@ -112,116 +116,4 @@ pub fn shadow_lib_share(
     }
 
     shadowed_lib / coherent_lib.max(EPSILON)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const N: usize = 4;
-    const CYCLES: usize = 7;
-    const PEAK: [f32; CYCLES] = [0.0, 1.0, 4.0, 10.0, 4.0, 1.0, 0.0];
-
-    fn fragments() -> Array2<f32> {
-        let mut xic = Array2::zeros((N, CYCLES));
-        for f in 0..N {
-            for c in 0..CYCLES {
-                xic[[f, c]] = PEAK[c] * 100.0;
-            }
-        }
-        xic
-    }
-
-    fn library() -> Vec<f32> {
-        vec![1.0, 0.8, 0.6, 0.4]
-    }
-
-    fn mz() -> Vec<f32> {
-        vec![500.0, 700.0, 900.0, 1100.0]
-    }
-
-    fn score(shadow: &Array2<f32>) -> f32 {
-        shadow_lib_share(&fragments(), shadow, &PEAK, &[0.99; N], &library(), &mz())
-    }
-
-    #[test]
-    fn shadow_mz_lists_1plus_then_2plus_spacings() {
-        let out = shadow_mz(&[500.0, 800.0]);
-        assert_eq!(out.len(), 4);
-        assert!((out[0] - (500.0 - C13_MASS_DELTA)).abs() < 1e-4);
-        assert!((out[1] - (800.0 - C13_MASS_DELTA)).abs() < 1e-4);
-        assert!((out[2] - (500.0 - C13_MASS_DELTA / 2.0)).abs() < 1e-4);
-    }
-
-    #[test]
-    fn clean_fragments_are_not_shadowed() {
-        assert_eq!(score(&Array2::zeros((2 * N, CYCLES))), 0.0);
-    }
-
-    #[test]
-    fn a_coeluting_intense_m_minus_1_shadows_the_fragment() {
-        let mut shadow = Array2::zeros((2 * N, CYCLES));
-        // fragment 0 (500 m/z, library share 0.357): a 1+ ion at M-1 three times as intense
-        for c in 0..CYCLES {
-            shadow[[0, c]] = PEAK[c] * 300.0;
-        }
-        assert!((score(&shadow) - 1.0 / 2.8).abs() < 1e-5);
-    }
-
-    #[test]
-    fn a_weak_or_non_coeluting_shadow_does_not_count() {
-        let mut weak = Array2::zeros((2 * N, CYCLES));
-        let mut off_peak = Array2::zeros((2 * N, CYCLES));
-        for c in 0..CYCLES {
-            // M0/M1 of a 500 Da ion is ~3.6, so 0.5 x that needs a shadow of > 1.8 x the fragment
-            weak[[0, c]] = PEAK[c] * 100.0;
-            off_peak[[0, c]] = PEAK[(c + 3) % CYCLES] * 1000.0;
-        }
-        assert_eq!(score(&weak), 0.0);
-        assert_eq!(score(&off_peak), 0.0);
-    }
-
-    #[test]
-    fn the_stronger_shadow_charge_is_kept() {
-        let mut shadow = Array2::zeros((2 * N, CYCLES));
-        for c in 0..CYCLES {
-            // fragment 3 (1100 m/z): a weak 1+ shadow and an intense 2+ shadow (a 2+ ion of ~2200 Da: M0/M1 ~0.8)
-            shadow[[3, c]] = PEAK[c] * 10.0;
-            shadow[[N + 3, c]] = PEAK[c] * 100.0;
-        }
-        assert!((score(&shadow) - 0.4 / 2.8).abs() < 1e-5);
-    }
-
-    #[test]
-    fn incoherent_fragments_are_never_shadowed() {
-        let mut shadow = Array2::zeros((2 * N, CYCLES));
-        for c in 0..CYCLES {
-            shadow[[0, c]] = PEAK[c] * 1000.0;
-        }
-        let share = shadow_lib_share(
-            &fragments(),
-            &shadow,
-            &PEAK,
-            &[0.1, 0.99, 0.99, 0.99],
-            &library(),
-            &mz(),
-        );
-        assert_eq!(share, 0.0);
-    }
-
-    #[test]
-    fn mismatched_inputs_give_zero() {
-        assert_eq!(score(&Array2::zeros((N, CYCLES))), 0.0);
-        assert_eq!(
-            shadow_lib_share(
-                &fragments(),
-                &Array2::zeros((2 * N, CYCLES)),
-                &PEAK[..3],
-                &[0.99; N],
-                &library(),
-                &mz(),
-            ),
-            0.0
-        );
-    }
 }

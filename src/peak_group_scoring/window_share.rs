@@ -13,6 +13,7 @@ use numpy::ndarray::Array2;
 use std::collections::HashMap;
 
 use crate::peak_group_scoring::feature_block::feature_block;
+use crate::peak_group_scoring::utils::finite_or_zero;
 
 /// Candidates of the same isolation window whose apex lies within this many cycles are compared for the rank and
 /// z-score of the window share.
@@ -76,14 +77,6 @@ pub fn calculate_window_share_features(
         ..Default::default()
     };
     (features, entry)
-}
-
-fn finite_or_zero(value: f32) -> f32 {
-    if value.is_finite() {
-        value
-    } else {
-        0.0
-    }
 }
 
 /// Apex of the candidate (index into the XIC columns): the maximum of the median profile, or `fallback` if the

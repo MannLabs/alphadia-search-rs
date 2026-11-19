@@ -74,7 +74,36 @@ pub(super) fn assign_cycles(frames: impl IntoIterator<Item = FrameMeta>) -> Resu
     if cycles.cycle_rt_seconds.is_empty() || cycles.settings_ids.is_empty() {
         return Err("no MS1 cycles or no diaPASEF window groups found".into());
     }
+    check_each_group_once_per_cycle(&cycles)?;
     Ok(cycles)
+}
+
+fn check_each_group_once_per_cycle(cycles: &Cycles) -> Result<(), String> {
+    let num_cycles = cycles.cycle_rt_seconds.len();
+    let num_groups = cycles.settings_ids.len();
+    let mut seen = vec![false; num_cycles * num_groups];
+    for frame in &cycles.ms2_frames {
+        let slot = &mut seen[usize::from(frame.cycle) * num_groups + frame.group];
+        if *slot {
+            return Err(format!(
+                "window group {} appears more than once in cycle {}",
+                cycles.settings_ids[frame.group], frame.cycle
+            ));
+        }
+        *slot = true;
+    }
+    let incomplete = seen
+        .chunks(num_groups)
+        .take(num_cycles - 1)
+        .position(|groups| groups.contains(&false));
+    if let Some(cycle) = incomplete {
+        return Err(format!(
+            "cycle {cycle} is missing a window group; every cycle but the last needs each window \
+             group once, so runs with more than one MS1 frame per cycle or dropped frames are not \
+             supported"
+        ));
+    }
+    Ok(())
 }
 
 pub(super) struct RunLayout {

@@ -300,6 +300,78 @@ mod layout {
     }
 
     #[test]
+    fn test_two_ms1_frames_per_cycle_are_rejected() {
+        let frames = vec![
+            ms1(1, 1.0),
+            ms2(2, 1, 1.1),
+            ms2(3, 2, 1.2),
+            ms1(4, 1.3),
+            ms2(5, 3, 1.4),
+            ms2(6, 4, 1.5),
+            ms1(7, 2.0),
+            ms2(8, 1, 2.1),
+            ms2(9, 2, 2.2),
+            ms1(10, 2.3),
+            ms2(11, 3, 2.4),
+            ms2(12, 4, 2.5),
+        ];
+        let error = assign_cycles(frames).err().unwrap();
+        assert!(
+            error.contains("cycle 0 is missing a window group"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn test_a_group_twice_in_one_cycle_is_rejected() {
+        let frames = vec![
+            ms1(1, 1.0),
+            ms2(2, 7, 1.1),
+            ms2(3, 3, 1.2),
+            ms1(4, 2.0),
+            ms2(5, 7, 2.1),
+            ms2(6, 3, 2.2),
+            ms2(7, 7, 2.3),
+            ms1(8, 3.0),
+            ms2(9, 7, 3.1),
+            ms2(10, 3, 3.2),
+        ];
+        let error = assign_cycles(frames).err().unwrap();
+        assert!(
+            error.contains("window group 7 appears more than once in cycle 1"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn test_only_the_last_cycle_may_be_incomplete() {
+        let last_cut_off = vec![
+            ms1(1, 1.0),
+            ms2(2, 7, 1.1),
+            ms2(3, 3, 1.2),
+            ms1(4, 2.0),
+            ms2(5, 7, 2.1),
+        ];
+        assert!(assign_cycles(last_cut_off).is_ok());
+
+        let middle_cut_off = vec![
+            ms1(1, 1.0),
+            ms2(2, 7, 1.1),
+            ms2(3, 3, 1.2),
+            ms1(4, 2.0),
+            ms2(5, 7, 2.1),
+            ms1(6, 3.0),
+            ms2(7, 7, 3.1),
+            ms2(8, 3, 3.2),
+        ];
+        let error = assign_cycles(middle_cut_off).err().unwrap();
+        assert!(
+            error.contains("cycle 1 is missing a window group"),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn test_runs_without_cycles_or_windows_are_rejected() {
         assert!(assign_cycles(vec![ms1(1, 1.0), ms1(2, 2.0)]).is_err());
         assert!(assign_cycles(vec![ms2(1, 1, 1.0)]).is_err());

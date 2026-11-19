@@ -17,6 +17,11 @@ num_cpus = "1.17.0"
 ndarray-npy = "0.9.1"
 cpufeatures = "0.2"
 once_cell = "1.20.2"
+timsrust = { version = "0.6.7", optional = true }
+
+[features]
+# timsTOF support (TimsDIAData). Off for plain cargo builds; the Python wheel enables it in pyproject.toml.
+tims = ["dep:timsrust"]
 
 [[bin]]
 name = "benchmark"

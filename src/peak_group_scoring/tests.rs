@@ -1368,7 +1368,7 @@ mod feature_sets {
     fn score(feature_set: FeatureSet) -> CandidateFeatureCollection {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
-        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+        PeakGroupScoring::new(params).score_generic(&dia_data(), &library(), &candidates())
     }
 
     #[test]

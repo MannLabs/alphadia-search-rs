@@ -2,8 +2,8 @@ use pyo3::prelude::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
+use crate::any_dia_data::AnyDIAData;
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
 use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
@@ -44,11 +44,12 @@ impl PeakGroupScoring {
 
     pub fn score(
         &self,
-        dia_data: &DIAData,
+        dia_data: AnyDIAData<'_>,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        self.score_generic(dia_data, lib, candidates)
+        crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .score_generic(data, lib, candidates))
     }
 }
 
@@ -146,8 +147,13 @@ impl PeakGroupScoring {
         precursor: &Precursor,
         candidate: &Candidate,
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
-        let observation =
-            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        let observation = PeakGroupObservation::new(
+            dia_data,
+            precursor,
+            candidate,
+            self.params.mass_tolerance,
+            precursor.mobility_filter(self.params.mobility_tolerance),
+        );
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);

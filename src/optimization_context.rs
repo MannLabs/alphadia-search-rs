@@ -36,12 +36,10 @@ pub struct OptimizationContext {
     /// Minimum selection score for a candidate to be kept.
     #[pyo3(get)]
     pub score_cutoff: f64,
-    /// Scale in seconds of the Student-t prior on the deviation of a peak from the predicted retention time. 0 is off.
+    /// Scale in seconds and degrees of freedom of the Student-t prior on the deviation of a peak from the predicted
+    /// retention time. None without a prior.
     #[pyo3(get)]
-    pub rt_prior_scale: f64,
-    /// Degrees of freedom of the retention time prior. 0 is off.
-    #[pyo3(get)]
-    pub rt_prior_df: f64,
+    pub rt_prior: Option<(f64, f64)>,
 }
 
 impl OptimizationContext {
@@ -55,6 +53,7 @@ impl OptimizationContext {
         fwhm_mobility: f64,
         num_candidates: usize,
         score_cutoff: f64,
+        rt_prior: Option<(f64, f64)>,
     ) -> Result<Self, String> {
         for (name, value) in [
             ("rt_error", rt_error),
@@ -79,6 +78,13 @@ impl OptimizationContext {
         if num_candidates == 0 {
             return Err("num_candidates must be at least 1".to_string());
         }
+        if let Some((scale, df)) = rt_prior {
+            for (name, value) in [("rt_prior scale", scale), ("rt_prior df", df)] {
+                if !(value.is_finite() && value > 0.0) {
+                    return Err(format!("{name} must be a positive number, got {value}"));
+                }
+            }
+        }
 
         Ok(Self {
             rt_error,
@@ -89,25 +95,7 @@ impl OptimizationContext {
             fwhm_mobility,
             num_candidates,
             score_cutoff,
-            rt_prior_scale: 0.0,
-            rt_prior_df: 0.0,
-        })
-    }
-
-    /// Return a copy with the retention time prior. Both values 0 turn it off.
-    pub fn with_rt_prior(&self, rt_prior_scale: f64, rt_prior_df: f64) -> Result<Self, String> {
-        for (name, value) in [
-            ("rt_prior_scale", rt_prior_scale),
-            ("rt_prior_df", rt_prior_df),
-        ] {
-            if !(value.is_finite() && value >= 0.0) {
-                return Err(format!("{name} must be a non-negative number, got {value}"));
-            }
-        }
-        Ok(Self {
-            rt_prior_scale,
-            rt_prior_df,
-            ..self.clone()
+            rt_prior,
         })
     }
 }
@@ -125,8 +113,7 @@ impl OptimizationContext {
         fwhm_mobility,
         num_candidates,
         score_cutoff,
-        rt_prior_scale = 0.0,
-        rt_prior_df = 0.0,
+        rt_prior = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -138,8 +125,7 @@ impl OptimizationContext {
         fwhm_mobility: f64,
         num_candidates: usize,
         score_cutoff: f64,
-        rt_prior_scale: f64,
-        rt_prior_df: f64,
+        rt_prior: Option<(f64, f64)>,
     ) -> PyResult<Self> {
         Self::try_new(
             rt_error,
@@ -150,15 +136,15 @@ impl OptimizationContext {
             fwhm_mobility,
             num_candidates,
             score_cutoff,
+            rt_prior,
         )
-        .and_then(|context| context.with_rt_prior(rt_prior_scale, rt_prior_df))
         .map_err(PyValueError::new_err)
     }
 
     fn __repr__(&self) -> String {
         format!(
             "OptimizationContext(rt_error={}, ms1_error={}, ms2_error={}, mobility_error={}, fwhm_rt={}, \
-             fwhm_mobility={}, num_candidates={}, score_cutoff={}, rt_prior_scale={}, rt_prior_df={})",
+             fwhm_mobility={}, num_candidates={}, score_cutoff={}, rt_prior={:?})",
             self.rt_error,
             self.ms1_error,
             self.ms2_error,
@@ -167,8 +153,7 @@ impl OptimizationContext {
             self.fwhm_mobility,
             self.num_candidates,
             self.score_cutoff,
-            self.rt_prior_scale,
-            self.rt_prior_df,
+            self.rt_prior,
         )
     }
 }
@@ -178,7 +163,7 @@ mod tests {
     use super::*;
 
     fn valid() -> OptimizationContext {
-        OptimizationContext::try_new(120.0, 30.0, 15.0, 0.1, 5.0, 0.01, 3, 0.0).unwrap()
+        OptimizationContext::try_new(120.0, 30.0, 15.0, 0.1, 5.0, 0.01, 3, 0.0, None).unwrap()
     }
 
     fn with(modify: impl FnOnce(&mut OptimizationContext)) -> Result<OptimizationContext, String> {
@@ -193,33 +178,31 @@ mod tests {
             t.fwhm_mobility,
             t.num_candidates,
             t.score_cutoff,
+            t.rt_prior,
         )
     }
 
     #[test]
     fn test_rt_prior_is_off_by_default() {
-        let context = valid();
-        assert_eq!(context.rt_prior_scale, 0.0);
-        assert_eq!(context.rt_prior_df, 0.0);
+        assert_eq!(valid().rt_prior, None);
     }
 
     #[test]
-    fn test_with_rt_prior_keeps_the_values() {
-        let context = valid().with_rt_prior(20.0, 5.0).unwrap();
-        assert_eq!(context.rt_prior_scale, 20.0);
-        assert_eq!(context.rt_prior_df, 5.0);
-        assert_eq!(context.rt_error, 120.0);
+    fn test_try_new_keeps_the_rt_prior() {
+        let context = with(|t| t.rt_prior = Some((20.0, 5.0))).unwrap();
+        assert_eq!(context.rt_prior, Some((20.0, 5.0)));
     }
 
     #[test]
-    fn test_with_rt_prior_rejects_negative_or_infinite_values() {
-        for (scale, df) in [
+    fn test_try_new_rejects_an_rt_prior_that_is_not_positive() {
+        for prior in [
+            (0.0, 5.0),
+            (20.0, 0.0),
             (-1.0, 5.0),
-            (20.0, -1.0),
             (f64::INFINITY, 5.0),
             (20.0, f64::NAN),
         ] {
-            let error = valid().with_rt_prior(scale, df).expect_err("invalid prior");
+            let error = with(|t| t.rt_prior = Some(prior)).expect_err("invalid prior");
             assert!(error.contains("rt_prior"), "{error}");
         }
     }

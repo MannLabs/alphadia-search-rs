@@ -32,9 +32,6 @@ fn candidate_cycle_limits(
     )
 }
 
-/// Finds local maxima in a 1D array.
-/// A local maximum is a point strictly higher than its direct neighbours on both sides.
-/// Returns a tuple of two vectors: (indices, values) sorted by value in descending order.
 /// Add the log density of a Student-t prior on the retention time to the selection score of each cycle.
 ///
 /// `score[j]` belongs to the cycle `start + j`, whose retention time is `rt[start + j]`. The log density is shifted to
@@ -54,6 +51,9 @@ fn add_rt_log_prior(
     }
 }
 
+/// Finds local maxima in a 1D array.
+/// A local maximum is a point strictly higher than its direct neighbours on both sides.
+/// Returns a tuple of two vectors: (indices, values) sorted by value in descending order.
 fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32>) {
     let mut indices = Vec::new();
     let mut values = Vec::new();
@@ -191,14 +191,14 @@ impl PeakGroupSelection {
 
         let mut score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
-        if self.params.rt_prior_scale > 0.0 && self.params.rt_prior_df > 0.0 {
+        if let Some((scale, df)) = self.params.rt_prior {
             add_rt_log_prior(
                 &mut score,
                 &dia_data.rt_index().rt,
                 cycle_start_idx,
                 precursor.rt,
-                self.params.rt_prior_scale,
-                self.params.rt_prior_df,
+                scale,
+                df,
             );
         }
 

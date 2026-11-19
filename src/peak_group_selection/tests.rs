@@ -130,8 +130,7 @@ fn test_candidate_cycle_limits_interior() {
 #[test]
 fn test_rt_prior_defaults_to_off() {
     let params = SelectionParameters::new();
-    assert_eq!(params.rt_prior_scale, 0.0);
-    assert_eq!(params.rt_prior_df, 0.0);
+    assert_eq!(params.rt_prior, None);
 }
 
 #[test]
@@ -139,12 +138,15 @@ fn test_rt_prior_parameters_update() {
     Python::initialize();
     Python::attach(|py| {
         let mut params = SelectionParameters::new();
-        let dict = PyDict::new(py);
-        dict.set_item("rt_prior_scale", 20.0).unwrap();
-        dict.set_item("rt_prior_df", 5.0).unwrap();
-        params.update(&dict).unwrap();
-        assert_eq!(params.rt_prior_scale, 20.0);
-        assert_eq!(params.rt_prior_df, 5.0);
+        let with_prior = PyDict::new(py);
+        with_prior.set_item("rt_prior", (20.0, 5.0)).unwrap();
+        params.update(&with_prior).unwrap();
+        assert_eq!(params.rt_prior, Some((20.0, 5.0)));
+
+        let without_prior = PyDict::new(py);
+        without_prior.set_item("rt_prior", py.None()).unwrap();
+        params.update(&without_prior).unwrap();
+        assert_eq!(params.rt_prior, None);
     });
 }
 

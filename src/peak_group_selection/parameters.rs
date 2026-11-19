@@ -19,9 +19,7 @@ pub struct SelectionParameters {
     #[pyo3(get)]
     pub top_k_fragments: usize,
     #[pyo3(get)]
-    pub rt_prior_scale: f32,
-    #[pyo3(get)]
-    pub rt_prior_df: f32,
+    pub rt_prior: Option<(f32, f32)>,
 }
 
 #[pymethods]
@@ -44,9 +42,8 @@ impl SelectionParameters {
             // maximum number of fragments to use for selecting precursors from a DIAData object.
             top_k_fragments: 12,
             // Scale in seconds and degrees of freedom of a Student-t prior on the deviation of a peak from the predicted
-            // retention time. Its log density, zero at the predicted RT, is added to the selection score. 0 turns it off.
-            rt_prior_scale: 0.0,
-            rt_prior_df: 0.0,
+            // retention time. Its log density, zero at the predicted RT, is added to the selection score.
+            rt_prior: None,
         }
     }
 
@@ -72,11 +69,8 @@ impl SelectionParameters {
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
         }
-        if let Some(value) = config.get_item("rt_prior_scale")? {
-            self.rt_prior_scale = value.extract::<f32>()?;
-        }
-        if let Some(value) = config.get_item("rt_prior_df")? {
-            self.rt_prior_df = value.extract::<f32>()?;
+        if let Some(value) = config.get_item("rt_prior")? {
+            self.rt_prior = value.extract::<Option<(f32, f32)>>()?;
         }
         Ok(())
     }

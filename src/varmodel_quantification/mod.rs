@@ -1,5 +1,5 @@
 mod algorithm;
-mod censored;
+mod dropout;
 mod noise;
 mod numeric;
 #[cfg(test)]
@@ -8,53 +8,12 @@ mod tests;
 mod tests_censored;
 
 use crate::utils::require_c_contiguous;
-use algorithm::{fit, validate_shapes, FitConfig};
-use censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments};
+use algorithm::{fit, validate_correlation, validate_shapes, FitConfig};
 use numpy::ndarray::Array2;
 use numpy::{IntoPyArray, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
-
-const MISSING_DROP: &str = "drop";
-const MISSING_CENSORED: &str = "censored";
-
-/// The plain fit unless missing fragments are censored or the measurement quality weights the
-/// variances.
-fn quantify(
-    intensity: &[f32],
-    intensity_library: &[f32],
-    precursor: &[usize],
-    correlation: Option<&[f32]>,
-    n_runs: usize,
-    n_precursors: usize,
-    config: &CensoredConfig,
-) -> CensoredResult {
-    if config.missing_fragments == MissingFragments::Drop && config.quality_exponent <= 0.0 {
-        let result = fit(
-            intensity,
-            intensity_library,
-            precursor,
-            n_runs,
-            n_precursors,
-            &FitConfig::DEFAULT,
-        );
-        return CensoredResult {
-            quantity: result.quantity,
-            parameters: result.parameters,
-            dropout: None,
-        };
-    }
-    fit_censored(
-        intensity,
-        intensity_library,
-        precursor,
-        correlation,
-        n_runs,
-        n_precursors,
-        config,
-    )
-}
 
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
@@ -70,12 +29,12 @@ impl VarModelQuantification {
     }
 
     /// Gives a dict with the `(n_runs, n_precursors)` log2 `quantity` matrix and the scalars
-    /// `residual_scale`, `loss_scale` and `offset_shrinkage` of the fit; with censored missing
-    /// fragments also the per-run dropout curves `detection_limit`, `dropout_width` and
-    /// `dropout_plateau`.
+    /// `residual_scale`, `loss_scale` and `offset_shrinkage` of the fit; with `censored` also
+    /// the per-run dropout curves `detection_limit`, `dropout_width` and `dropout_plateau`
+    /// (NaN for a run without missing fragments).
     ///
-    /// `missing_fragments` is "drop" or "censored". `correlation` has the shape of
-    /// `intensity` and is needed when `quality_exponent` > 0.
+    /// `correlation` has the shape of `intensity` and values in [0, 1]; it only matters when
+    /// `quality_exponent` > 0.
     ///
     /// This method borrows the arrays and does not copy them. The arrays must therefore be
     /// C-contiguous.
@@ -88,9 +47,9 @@ impl VarModelQuantification {
         intensity_library,
         precursor,
         n_precursors,
+        correlation,
         *,
-        correlation=None,
-        missing_fragments=MISSING_DROP,
+        censored=false,
         quality_exponent=0.0,
     ))]
     fn fit(
@@ -100,8 +59,8 @@ impl VarModelQuantification {
         intensity_library: PyReadonlyArray1<'_, f32>,
         precursor: PyReadonlyArray1<'_, usize>,
         n_precursors: usize,
-        correlation: Option<PyReadonlyArray2<'_, f32>>,
-        missing_fragments: &str,
+        correlation: PyReadonlyArray2<'_, f32>,
+        censored: bool,
         quality_exponent: f64,
     ) -> PyResult<Py<PyAny>> {
         let shape = intensity.shape();
@@ -114,48 +73,35 @@ impl VarModelQuantification {
             n_precursors,
         )
         .map_err(PyValueError::new_err)?;
-        let missing_fragments = match missing_fragments {
-            MISSING_DROP => MissingFragments::Drop,
-            MISSING_CENSORED => MissingFragments::Censored,
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "missing_fragments must be \"{MISSING_DROP}\" or \"{MISSING_CENSORED}\", not \"{other}\""
-                )))
-            }
-        };
-        if quality_exponent > 0.0 && correlation.is_none() {
-            return Err(PyValueError::new_err(
-                "quality_exponent > 0 needs the correlation of every fragment measurement",
-            ));
+        if correlation.shape() != shape {
+            return Err(PyValueError::new_err(format!(
+                "correlation has shape {:?}, intensity {:?}",
+                correlation.shape(),
+                shape
+            )));
         }
-        if let Some(correlation) = &correlation {
-            if correlation.shape() != shape {
-                return Err(PyValueError::new_err(format!(
-                    "correlation has shape {:?}, intensity {:?}",
-                    correlation.shape(),
-                    shape
-                )));
-            }
-            require_c_contiguous(&**correlation, "correlation")?;
+        if quality_exponent < 0.0 {
+            return Err(PyValueError::new_err(format!(
+                "quality_exponent must be >= 0, not {quality_exponent}"
+            )));
         }
-
         require_c_contiguous(&*intensity, "intensity")?;
+        require_c_contiguous(&*correlation, "correlation")?;
         let intensity = intensity.as_slice()?;
         let intensity_library = intensity_library.as_slice()?;
-        let correlation = correlation
-            .as_ref()
-            .map(|correlation| correlation.as_slice())
-            .transpose()?;
-        let result = quantify(
+        let correlation = correlation.as_slice()?;
+        validate_correlation(correlation).map_err(PyValueError::new_err)?;
+        let result = fit(
             intensity,
             intensity_library,
             precursor,
             correlation,
             n_runs,
             n_precursors,
-            &CensoredConfig {
-                missing_fragments,
+            &FitConfig {
+                censored,
                 quality_exponent,
+                ..FitConfig::DEFAULT
             },
         );
 
@@ -168,9 +114,16 @@ impl VarModelQuantification {
         dict.set_item("loss_scale", result.parameters.tau)?;
         dict.set_item("offset_shrinkage", result.parameters.lambda)?;
         if let Some(dropout) = result.dropout {
-            dict.set_item("detection_limit", dropout.limit.into_pyarray(py))?;
-            dict.set_item("dropout_width", dropout.width.into_pyarray(py))?;
-            dict.set_item("dropout_plateau", dropout.plateau.into_pyarray(py))?;
+            let per_run = |value: fn(&dropout::Curve) -> f64| -> Vec<f64> {
+                dropout
+                    .curves
+                    .iter()
+                    .map(|curve| curve.as_ref().map_or(f64::NAN, value))
+                    .collect()
+            };
+            dict.set_item("detection_limit", per_run(|c| c.limit).into_pyarray(py))?;
+            dict.set_item("dropout_width", per_run(|c| c.width).into_pyarray(py))?;
+            dict.set_item("dropout_plateau", per_run(|c| c.plateau).into_pyarray(py))?;
         }
         Ok(dict.into())
     }

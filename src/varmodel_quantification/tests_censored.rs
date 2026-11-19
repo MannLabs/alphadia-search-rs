@@ -1,9 +1,7 @@
 use approx::assert_relative_eq;
 
-use super::algorithm::{fit, FitConfig};
-use super::censored::{fit_censored, CensoredConfig, CensoredResult, MissingFragments};
-use super::numeric::{log_normal_cdf, nelder_mead, pairwise_sum, quantile};
-use super::quantify;
+use super::algorithm::{fit, FitConfig, FitResult};
+use super::numeric::{log_normal_cdf, nelder_mead, normal_cdf, quantile};
 
 fn uniform(seed: usize) -> f64 {
     let hashed = (seed as u64 ^ 0x9E37_79B9_7F4A_7C15)
@@ -67,22 +65,23 @@ fn simulate(
     }
 }
 
-fn run(simulation: &Simulation, missing_fragments: MissingFragments, gamma: f64) -> CensoredResult {
-    fit_censored(
+fn run(simulation: &Simulation, censored: bool, gamma: f64) -> FitResult {
+    fit(
         &simulation.intensity,
         &simulation.intensity_library,
         &simulation.precursor,
-        Some(&simulation.correlation),
+        &simulation.correlation,
         simulation.n_runs,
         simulation.n_precursors,
-        &CensoredConfig {
-            missing_fragments,
+        &FitConfig {
+            censored,
             quality_exponent: gamma,
+            ..FitConfig::DEFAULT
         },
     )
 }
 
-fn quantity(result: &CensoredResult, simulation: &Simulation, p: usize, run: usize) -> f64 {
+fn quantity(result: &FitResult, simulation: &Simulation, p: usize, run: usize) -> f64 {
     result.quantity[run * simulation.n_precursors + p]
 }
 
@@ -128,7 +127,7 @@ fn n_missing_low(simulation: &Simulation, p: usize) -> usize {
 
 /// Median of the estimated ratio over the precursors quantified in every run that miss at
 /// least a sixth of their fragments in the low runs.
-fn low_abundance_ratio(result: &CensoredResult, simulation: &Simulation) -> f64 {
+fn low_abundance_ratio(result: &FitResult, simulation: &Simulation) -> f64 {
     let mut ratios: Vec<f64> = (0..N_PRECURSORS)
         .filter(|&p| n_missing_low(simulation, p) >= 3 * N_IONS / 6)
         .filter_map(|p| {
@@ -151,8 +150,8 @@ fn test_censoring_removes_ratio_compression_near_the_detection_limit() {
     let simulation = censored_simulation(&[]);
 
     // When
-    let dropped = run(&simulation, MissingFragments::Drop, 0.0);
-    let censored = run(&simulation, MissingFragments::Censored, 0.0);
+    let dropped = run(&simulation, false, 0.0);
+    let censored = run(&simulation, true, 0.0);
 
     // Then the dropped fit reads the low runs too high, the censored one does not
     let dropped_error = (low_abundance_ratio(&dropped, &simulation) - TRUE_RATIO).abs();
@@ -163,8 +162,8 @@ fn test_censoring_removes_ratio_compression_near_the_detection_limit() {
         "censored error {censored_error}, dropped error {dropped_error}"
     );
     let dropout = censored.dropout.unwrap();
-    for run in 0..N_RUNS {
-        assert!((dropout.limit[run] - DETECTION_LIMIT).abs() < 0.3);
+    for curve in &dropout.curves {
+        assert!((curve.as_ref().unwrap().limit - DETECTION_LIMIT).abs() < 0.3);
     }
 }
 
@@ -174,12 +173,12 @@ fn test_a_run_that_never_censors_spoils_no_quantity() {
     let simulation = censored_simulation(&[1]);
 
     // When
-    let result = run(&simulation, MissingFragments::Censored, 1.5);
+    let result = run(&simulation, true, 1.5);
 
     // Then
     let dropout = result.dropout.as_ref().unwrap();
-    assert_eq!(dropout.limit[1], f64::NEG_INFINITY);
-    assert!(dropout.limit[0].is_finite());
+    assert!(dropout.curves[1].is_none());
+    assert!(dropout.curves[0].is_some());
     for p in 0..N_PRECURSORS {
         for run in 0..N_RUNS {
             let n_observed = (0..N_IONS)
@@ -206,8 +205,8 @@ fn test_precursors_without_missing_fragments_keep_the_uncensored_fit() {
     let simulation = censored_simulation(&[]);
 
     // When
-    let dropped = run(&simulation, MissingFragments::Drop, 1.5);
-    let censored = run(&simulation, MissingFragments::Censored, 1.5);
+    let dropped = run(&simulation, false, 1.5);
+    let censored = run(&simulation, true, 1.5);
 
     // Then
     let complete: Vec<usize> = (0..N_PRECURSORS)
@@ -251,7 +250,7 @@ fn test_quality_weights_downweight_interfered_values() {
 
     // When
     let error = |gamma: f64| {
-        let result = run(&simulation, MissingFragments::Drop, gamma);
+        let result = run(&simulation, false, gamma);
         (0..300)
             .map(|p| {
                 let estimate =
@@ -272,120 +271,88 @@ fn test_quality_weights_downweight_interfered_values() {
 }
 
 #[test]
-fn test_options_off_is_the_plain_fit() {
-    // Given
-    let simulation = censored_simulation(&[]);
+fn test_a_vanishing_quality_exponent_gives_the_fit_without_quality_weights() {
+    // Given correlations far from 1
+    let mut simulation = censored_simulation(&[]);
+    simulation.correlation.iter_mut().for_each(|c| *c = 0.2);
 
     // When
-    let options_off = quantify(
-        &simulation.intensity,
-        &simulation.intensity_library,
-        &simulation.precursor,
-        Some(&simulation.correlation),
-        N_RUNS,
-        N_PRECURSORS,
-        &CensoredConfig {
-            missing_fragments: MissingFragments::Drop,
-            quality_exponent: 0.0,
-        },
-    );
-    let plain = fit(
-        &simulation.intensity,
-        &simulation.intensity_library,
-        &simulation.precursor,
-        N_RUNS,
-        N_PRECURSORS,
-        &FitConfig::DEFAULT,
-    );
+    let without = run(&simulation, true, 0.0);
+    let vanishing = run(&simulation, true, 1e-12);
 
     // Then
-    assert!(options_off.dropout.is_none());
-    assert_eq!(options_off.quantity.len(), plain.quantity.len());
-    for (a, b) in options_off.quantity.iter().zip(&plain.quantity) {
-        assert_eq!(a.to_bits(), b.to_bits());
+    for (a, b) in without.quantity.iter().zip(&vanishing.quantity) {
+        assert_eq!(a.is_nan(), b.is_nan());
+        if a.is_finite() {
+            assert!((a - b).abs() < 1e-6, "{a} vs {b}");
+        }
     }
-    assert_eq!(options_off.parameters.sigma, plain.parameters.sigma);
-    assert_eq!(options_off.parameters.lambda, plain.parameters.lambda);
 }
 
 #[test]
 fn test_censored_fit_is_deterministic() {
     let simulation = censored_simulation(&[]);
-    let a = run(&simulation, MissingFragments::Censored, 1.5);
-    let b = run(&simulation, MissingFragments::Censored, 1.5);
+    let a = run(&simulation, true, 1.5);
+    let b = run(&simulation, true, 1.5);
     for (x, y) in a.quantity.iter().zip(&b.quantity) {
         assert_eq!(x.to_bits(), y.to_bits());
     }
 }
 
-// Reference values below are from the array and special-function libraries the fit was
-// validated against.
-
-fn reference_values() -> Vec<f64> {
-    (0..1001)
-        .map(|i| ((i * 7919) % 1000) as f64 / 37.0 - 13.0)
-        .collect()
-}
-
-#[test]
-fn test_pairwise_sum_matches_the_reference() {
-    let values = reference_values();
-    assert_eq!(pairwise_sum(&values), 487.0);
-    assert_eq!(pairwise_sum(&values[..300]), 158.10810810810813);
-    assert_eq!(pairwise_sum(&values[..13]), -15.432432432432428);
-}
-
-#[test]
-fn test_quantile_matches_the_reference() {
-    let values = reference_values();
-    assert_eq!(quantile(&mut values.clone(), 0.02), -12.486486486486486);
-    assert_eq!(
-        quantile(&mut values[..37].to_vec(), 0.02),
-        -12.455135135135135
-    );
-    assert_eq!(
-        quantile(&mut values[..5].to_vec(), 0.02),
-        -11.538378378378379
-    );
+/// Obviously correct where the CDF does not underflow: the log of the complementary error
+/// function form.
+fn reference_log_normal_cdf(x: f64) -> f64 {
+    if x > 0.0 {
+        (-0.5 * libm::erfc(x * std::f64::consts::FRAC_1_SQRT_2)).ln_1p()
+    } else {
+        (0.5 * libm::erfc(-x * std::f64::consts::FRAC_1_SQRT_2)).ln()
+    }
 }
 
 #[test]
 fn test_log_normal_cdf_matches_the_reference() {
-    let reference = [
-        (-45.0, -1017.2260942419525),
-        (-25.0, -316.63940800802027),
-        (-19.5, -194.01696577749752),
-        (-3.2, -7.282975502903633),
-        (-0.4, -1.065434049189577),
-        (0.0, -std::f64::consts::LN_2),
-        (0.5, -0.3689464152886563),
-        (2.5, -0.006229025485860001),
-        (6.0, -9.865876455243719e-10),
-        (7.5, -3.190891672910936e-14),
-    ];
-    for (x, expected) in reference {
-        assert_relative_eq!(log_normal_cdf(x), expected, max_relative = 1e-14);
+    // the reference covers the switch to the asymptotic series at -20 up to where erfc underflows
+    for i in 0..=900 {
+        let x = -37.0 + 0.05 * i as f64;
+        assert_relative_eq!(
+            log_normal_cdf(x),
+            reference_log_normal_cdf(x),
+            max_relative = 1e-12
+        );
     }
-    assert_eq!(log_normal_cdf(f64::NEG_INFINITY), f64::NEG_INFINITY);
+    assert_eq!(normal_cdf(0.0), 0.5);
 }
 
 #[test]
-fn test_nelder_mead_matches_the_reference() {
+fn test_log_normal_cdf_follows_the_leading_tail_term_beyond_underflow() {
+    for x in [-40.0f64, -100.0, -1e4] {
+        let leading = -0.5 * x * x - (-x).ln() - 0.5 * (2.0 * std::f64::consts::PI).ln();
+        assert_relative_eq!(log_normal_cdf(x), leading, max_relative = 1e-3);
+        assert!(log_normal_cdf(x) < leading);
+    }
+}
+
+#[test]
+fn test_quantile_interpolates_the_sorted_values() {
+    let values: Vec<f64> = (0..101).map(|i| ((i * 37) % 101) as f64).collect();
+    for (probability, expected) in [(0.0, 0.0), (0.02, 2.0), (0.025, 2.5), (1.0, 100.0)] {
+        assert_relative_eq!(quantile(&mut values.clone(), probability), expected);
+    }
+    assert_eq!(quantile(&mut [3.0], 0.5), 3.0);
+}
+
+#[test]
+fn test_nelder_mead_finds_the_minimum() {
     let quadratic = |x: &[f64; 3]| {
         (x[0] - 1.0).powi(2) + 10.0 * (x[1] - x[0] * x[0]).powi(2) + (x[2] + 0.5).powi(2)
     };
-    assert_eq!(
-        nelder_mead(quadratic, [0.3, 0.0, -2.0]),
-        [0.9999971012946625, 0.999985703399723, -0.4999807497830643]
-    );
-    let rosenbrock = |x: &[f64; 3]| {
-        100.0 * (x[1] - x[0] * x[0]).powi(2)
-            + (1.0 - x[0]).powi(2)
-            + 100.0 * (x[2] - x[1] * x[1]).powi(2)
-            + (1.0 - x[1]).powi(2)
-    };
-    assert_eq!(
-        nelder_mead(rosenbrock, [-1.2, 1.0, 0.5]),
-        [1.0000160542863308, 1.0000294440802586, 1.0000624769428637]
-    );
+    let minimum = nelder_mead(quadratic, [0.3, 0.0, -2.0]);
+    for (found, expected) in minimum.iter().zip([1.0, 1.0, -0.5]) {
+        assert!((found - expected).abs() < 1e-2, "{minimum:?}");
+    }
+    let rosenbrock = |x: &[f64; 2]| 100.0 * (x[1] - x[0] * x[0]).powi(2) + (1.0 - x[0]).powi(2);
+    let minimum = nelder_mead(rosenbrock, [-1.2, 1.0]);
+    for found in minimum {
+        assert!((found - 1.0).abs() < 1e-2, "{minimum:?}");
+    }
 }

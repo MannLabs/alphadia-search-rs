@@ -460,6 +460,14 @@ mod scan_filter {
     impl QuadrupoleObservationTrait for FilterEcho {
         type ScanFilter = f32;
 
+        fn isolation_window(&self) -> [f32; 2] {
+            [0.0, f32::MAX]
+        }
+
+        fn cycle_intensity_sums(&self) -> Vec<f32> {
+            Vec::new()
+        }
+
         fn fill_xic_slice(
             &self,
             _mz_index: &MZIndex,
@@ -520,6 +528,10 @@ mod scan_filter {
                 } => vec![(0, tolerance), (1, mobility)],
                 MobilityFilter::Any => panic!("the tests pass a window"),
             }
+        }
+
+        fn ms1_scan_filter(&self, _obs_idx: usize, _mobility: MobilityFilter) -> f32 {
+            0.0
         }
 
         fn mz_index(&self) -> &MZIndex {

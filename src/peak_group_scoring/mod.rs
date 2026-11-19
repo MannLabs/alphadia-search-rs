@@ -17,6 +17,7 @@ use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
+use crate::peak_group_scoring::mobility::calculate_mobility_features;
 use crate::peak_group_scoring::ms1::{
     calculate_ms1_apex_calibration, calculate_ms1_features, Ms1ApexFeatures,
 };
@@ -36,6 +37,7 @@ pub mod feature_set;
 pub mod features;
 pub mod ion_coverage;
 pub mod library_agreement;
+pub mod mobility;
 pub mod ms1;
 pub mod observation;
 pub mod parameters;
@@ -89,6 +91,15 @@ impl PeakGroupScoring {
     ) -> PyResult<Py<PyAny>> {
         let scored = crate::any_dia_data::with_dia_data!(dia_data, |data| self
             .score_ms1_calibration_generic(data, lib, candidates));
+        Self::ms1_calibration_columns(py, &scored)
+    }
+}
+
+impl PeakGroupScoring {
+    fn ms1_calibration_columns(
+        py: Python,
+        scored: &[(usize, usize, Ms1ApexFeatures)],
+    ) -> PyResult<Py<PyAny>> {
         let mut columns = FeatureColumns::new(Ms1ApexFeatures::NAMES.to_vec(), scored.len());
         for (i, (precursor_idx, rank, apex)) in scored.iter().enumerate() {
             columns.set_row(i, *precursor_idx, *rank, apex.values());
@@ -398,6 +409,17 @@ impl PeakGroupScoring {
                     None => DetectionFeatures::missing(),
                 });
 
+        let mobility = feature_set.has_block(FeatureBlockId::Mobility).then(|| {
+            calculate_mobility_features(
+                dia_data,
+                precursor,
+                candidate,
+                &observation,
+                self.params.mass_tolerance,
+                self.params.mobility_tolerance,
+            )
+        });
+
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
@@ -407,6 +429,7 @@ impl PeakGroupScoring {
             window_share,
             ms1,
             detection,
+            mobility,
         };
         Some(ScoredCandidate {
             feature,

@@ -57,6 +57,15 @@ impl MobilityFilter {
     }
 }
 
+/// Intensity-weighted mobility moments of the peaks of one m/z.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct MobilityMoments {
+    /// [Σw, Σw·m, Σw·m²] over the peaks, m their scan's 1/K0
+    pub sums: [f64; 3],
+    /// Σw of the peaks more than the outer distance away from the reference mobility (0 without a reference)
+    pub outer_weight: f64,
+}
+
 /// The scan restriction of one quadrupole observation for one precursor.
 pub type ScanFilterOf<T> =
     <<T as DIADataTrait>::QuadrupoleObservation as QuadrupoleObservationTrait>::ScanFilter;
@@ -91,6 +100,23 @@ pub trait DIADataTrait {
             .filter(|(_, obs)| obs.isolation_window()[1] < 0.0)
             .map(|(idx, _)| idx)
             .collect()
+    }
+
+    /// Intensity-weighted mobility moments of the peaks within `mz ± mass_tolerance` ppm in cycles
+    /// `[cycle_start, cycle_stop)` of the given observations, with the weight of the peaks more than `outer` away from
+    /// `reference` (NaN: none); `None` for data without an ion mobility dimension.
+    #[allow(clippy::too_many_arguments)]
+    fn mobility_moments(
+        &self,
+        _observations: &[(usize, ScanFilterOf<Self>)],
+        _cycle_start: usize,
+        _cycle_stop: usize,
+        _mass_tolerance: f32,
+        _mz: f32,
+        _reference: f32,
+        _outer: f32,
+    ) -> Option<MobilityMoments> {
+        None
     }
 
     /// The scan restriction of an MS1 survey observation for a precursor at `mobility`.

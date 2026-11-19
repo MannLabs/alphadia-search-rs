@@ -1907,7 +1907,7 @@ mod feature_sets {
     fn score_with_ms1(feature_set: FeatureSet, lib: &SpecLibFlat) -> CandidateFeatureCollection {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
-        PeakGroupScoring::new(params).score(&dia_data_with_ms1(), lib, &candidates())
+        PeakGroupScoring::new(params).score_generic(&dia_data_with_ms1(), lib, &candidates())
     }
 
     #[test]
@@ -1956,7 +1956,7 @@ mod feature_sets {
         params.feature_set = FeatureSet::Full;
 
         // when
-        let full = PeakGroupScoring::new(params).score(
+        let full = PeakGroupScoring::new(params).score_generic(
             &dia_data(),
             &library_with_isotopes(),
             &candidates(),
@@ -1975,15 +1975,15 @@ mod feature_sets {
         let mut params = ScoringParameters::new();
         params.feature_set = FeatureSet::Full;
         let scoring = PeakGroupScoring::new(params);
-        let default = scoring.score(&dia_data_with_ms1(), &lib, &candidates());
+        let default = scoring.score_generic(&dia_data_with_ms1(), &lib, &candidates());
         let mut same = dia_data_with_ms1();
         same.set_cycle_positions(vec![0.0, 0.5]).unwrap();
         let mut moved = dia_data_with_ms1();
         moved.set_cycle_positions(vec![0.9, 0.0]).unwrap();
 
         // when
-        let same = scoring.score(&same, &lib, &candidates());
-        let moved = scoring.score(&moved, &lib, &candidates());
+        let same = scoring.score_generic(&same, &lib, &candidates());
+        let moved = scoring.score_generic(&moved, &lib, &candidates());
 
         // then
         let apex = |collection: &CandidateFeatureCollection| {
@@ -2049,7 +2049,7 @@ mod feature_sets {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
         params.detection_features = detection_features;
-        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+        PeakGroupScoring::new(params).score_generic(&dia_data(), &library(), &candidates())
     }
 
     #[test]
@@ -2107,7 +2107,9 @@ mod feature_sets {
         let with = score_with_detection(FeatureSet::Full, true);
 
         // then
-        let num_other = FeatureSet::Full.feature_names().len() - 3;
+        let num_other = FeatureSet::Full.feature_names().len()
+            - 3
+            - <crate::peak_group_scoring::mobility::MobilityFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len();
         for (a, b) in without.iter().zip(with.iter()) {
             assert_eq!(
                 a.values(FeatureSet::Full).unwrap()[..num_other],
@@ -2154,17 +2156,18 @@ mod feature_sets {
             let scoring = PeakGroupScoring::new(params);
 
             // when
-            let with = scoring
-                .score_ms1_calibration(
-                    py,
-                    &dia_data_with_ms1(),
-                    &library_with_isotopes(),
-                    &candidates(),
-                )
-                .unwrap();
-            let without = scoring
-                .score_ms1_calibration(py, &dia_data_with_ms1(), &library(), &candidates())
-                .unwrap();
+            let with = scoring.score_ms1_calibration_generic(
+                &dia_data_with_ms1(),
+                &library_with_isotopes(),
+                &candidates(),
+            );
+            let with = PeakGroupScoring::ms1_calibration_columns(py, &with).unwrap();
+            let without = scoring.score_ms1_calibration_generic(
+                &dia_data_with_ms1(),
+                &library(),
+                &candidates(),
+            );
+            let without = PeakGroupScoring::ms1_calibration_columns(py, &without).unwrap();
 
             // then
             let column = |obj: &Py<PyAny>, name: &str| -> Vec<f32> {

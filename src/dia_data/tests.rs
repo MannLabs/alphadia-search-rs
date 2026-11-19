@@ -354,8 +354,14 @@ fn test_ms1_observations_and_isotope_xic() {
     // the MS1 scan never serves as an MS2 window
     assert_eq!(dia_data.get_valid_observations(500.0), vec![1]);
 
-    let xic =
-        DenseXICMZObservation::from_observations(&dia_data, ms1, 0, 2, 5.0, &[500.0, 500.5017]);
+    let xic = DenseXICMZObservation::from_observations(
+        &dia_data,
+        ms1.into_iter().map(|obs| (obs, ())).collect(),
+        0,
+        2,
+        5.0,
+        &[500.0, 500.5017],
+    );
     assert_eq!(xic.dense_xic.row(0).to_vec(), vec![100.0, 200.0]);
     assert_eq!(xic.dense_xic.row(1).to_vec(), vec![60.0, 120.0]);
 }

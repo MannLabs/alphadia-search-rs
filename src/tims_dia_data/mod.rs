@@ -21,7 +21,7 @@ mod observation;
 
 use crate::mz_index::MZIndex;
 use crate::rt_index::RTIndex;
-use crate::traits::{DIADataTrait, MobilityFilter};
+use crate::traits::{DIADataTrait, MobilityFilter, MobilityMoments};
 use layout::RunLayout;
 pub use observation::TimsQuadrupoleObservation;
 
@@ -207,6 +207,40 @@ impl DIADataTrait for TimsDIAData {
 
     fn memory_footprint_bytes(&self) -> usize {
         self.memory_footprint_bytes()
+    }
+
+    fn mobility_moments(
+        &self,
+        observations: &[(usize, Vec<bool>)],
+        cycle_start: usize,
+        cycle_stop: usize,
+        mass_tolerance: f32,
+        mz: f32,
+        reference: f32,
+        outer: f32,
+    ) -> Option<MobilityMoments> {
+        let mut moments = MobilityMoments::default();
+        for (obs_idx, scan_mask) in observations {
+            self.quadrupole_observations[*obs_idx].for_each_peak(
+                MZIndex::global(),
+                scan_mask,
+                cycle_start,
+                cycle_stop,
+                mass_tolerance,
+                mz,
+                |_, intensity, _, scan| {
+                    let w = intensity as f64;
+                    let m = self.scan_mobility[scan] as f64;
+                    moments.sums[0] += w;
+                    moments.sums[1] += w * m;
+                    moments.sums[2] += w * m * m;
+                    if (m - reference as f64).abs() > outer as f64 {
+                        moments.outer_weight += w;
+                    }
+                },
+            );
+        }
+        Some(moments)
     }
 
     fn ms1_scan_filter(&self, _obs_idx: usize, mobility: MobilityFilter) -> Vec<bool> {

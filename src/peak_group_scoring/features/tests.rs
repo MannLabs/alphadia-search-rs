@@ -1,8 +1,8 @@
 use super::*;
 use pyo3::types::PyDict;
 
-const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 57;
+const NUM_CALIBRATION_FEATURES: usize = 25;
+const NUM_FULL_FEATURES: usize = 62;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -41,6 +41,13 @@ fn numbered_calibration_feature() -> CandidateFeature {
         window_share: None,
         ms1: None,
         detection: None,
+        mobility: Some(MobilityFeatures {
+            mobility_observed: 21.0,
+            mobility_error: 22.0,
+            mobility_fragment_sd: 23.0,
+            mobility_peak_sd: 24.0,
+            mobility_outer_frac: 25.0,
+        }),
     }
 }
 
@@ -97,6 +104,13 @@ fn numbered_full_feature() -> CandidateFeature {
             det_faint_hits: 56.0,
             det_faint_miss: 57.0,
         }),
+        mobility: Some(MobilityFeatures {
+            mobility_observed: 58.0,
+            mobility_error: 59.0,
+            mobility_fragment_sd: 60.0,
+            mobility_peak_sd: 61.0,
+            mobility_outer_frac: 62.0,
+        }),
     }
 }
 
@@ -138,12 +152,15 @@ fn assert_every_column_at_its_position(
 }
 
 #[test]
-fn test_calibration_feature_names_are_the_core_block() {
+fn test_calibration_feature_names_are_the_core_and_mobility_blocks() {
     // given / when
     let names = FeatureSet::Calibration.feature_names();
 
     // then
-    assert_eq!(names, CoreFeatures::NAMES);
+    assert_eq!(
+        names,
+        [CoreFeatures::NAMES, MobilityFeatures::NAMES].concat()
+    );
     assert_eq!(names.len(), NUM_CALIBRATION_FEATURES);
     assert_unique_without_candidate_keys(&names);
 }
@@ -163,7 +180,8 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_
             LibraryAgreementFeatures::NAMES,
             WindowShareFeatures::NAMES,
             Ms1Features::NAMES,
-            DetectionFeatures::NAMES
+            DetectionFeatures::NAMES,
+            MobilityFeatures::NAMES
         ]
         .concat()
     );
@@ -172,7 +190,7 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_
 }
 
 #[test]
-fn test_calibration_leaves_out_all_blocks_but_core() {
+fn test_calibration_leaves_out_all_blocks_but_core_and_mobility() {
     // given / when
     let names = FeatureSet::Calibration.feature_names();
 
@@ -237,7 +255,7 @@ fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block()
     let names = FeatureSet::Full.feature_names();
 
     // then: the columns before them keep their positions
-    let num_before = NUM_FULL_FEATURES - 13;
+    let num_before = NUM_FULL_FEATURES - 13 - MobilityFeatures::NAMES.len();
     assert_eq!(names[num_before - 1], "apex_window_signal_frac_zscore");
     assert_eq!(
         names[num_before..],
@@ -255,6 +273,11 @@ fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block()
             "shadow_lib_share",
             "det_faint_hits",
             "det_faint_miss",
+            "mobility_observed",
+            "mobility_error",
+            "mobility_fragment_sd",
+            "mobility_peak_sd",
+            "mobility_outer_frac",
         ]
     );
 }

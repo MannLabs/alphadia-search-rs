@@ -9,6 +9,7 @@ use crate::peak_group_scoring::detection::DetectionFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
+use crate::peak_group_scoring::mobility::MobilityFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
 use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
@@ -28,13 +29,14 @@ pub enum FeatureBlockId {
     WindowShare,
     Ms1,
     Detection,
+    Mobility,
 }
 
 impl FeatureSet {
     /// The blocks of each feature set, in column order.
     pub fn blocks(self) -> &'static [FeatureBlockId] {
         match self {
-            FeatureSet::Calibration => &[FeatureBlockId::Core],
+            FeatureSet::Calibration => &[FeatureBlockId::Core, FeatureBlockId::Mobility],
             FeatureSet::Full => &[
                 FeatureBlockId::Core,
                 FeatureBlockId::IonCoverage,
@@ -42,6 +44,7 @@ impl FeatureSet {
                 FeatureBlockId::WindowShare,
                 FeatureBlockId::Ms1,
                 FeatureBlockId::Detection,
+                FeatureBlockId::Mobility,
             ],
         }
     }
@@ -67,6 +70,7 @@ impl FeatureBlockId {
             FeatureBlockId::WindowShare => WindowShareFeatures::NAMES,
             FeatureBlockId::Ms1 => Ms1Features::NAMES,
             FeatureBlockId::Detection => DetectionFeatures::NAMES,
+            FeatureBlockId::Mobility => MobilityFeatures::NAMES,
         }
     }
 }

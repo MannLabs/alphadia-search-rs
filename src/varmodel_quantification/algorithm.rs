@@ -15,7 +15,7 @@ pub struct FitConfig {
     pub min_ions: usize,
     pub tolerance: f64,
     /// Missing fragments of a quantified run enter the fit as censored observations.
-    pub censored: bool,
+    pub fragment_censoring_correction: bool,
     /// gamma of the measurement variance factor `exp(gamma * (1 - sqrt(C)))`; 0 turns it off.
     pub quality_exponent: f64,
 }
@@ -27,7 +27,7 @@ impl FitConfig {
         max_sweeps: DEFAULT_MAX_SWEEPS,
         min_ions: DEFAULT_MIN_IONS,
         tolerance: DEFAULT_TOLERANCE,
-        censored: false,
+        fragment_censoring_correction: false,
         quality_exponent: 0.0,
     };
 }
@@ -68,7 +68,7 @@ pub fn validate_correlation(correlation: &[f32]) -> Result<(), String> {
     }
 }
 
-/// `correlation` is run-major like `intensity`.
+/// `correlation` is run-major like `intensity`; it may be empty without quality weights.
 pub fn fit(
     intensity: &[f32],
     intensity_library: &[f32],
@@ -107,7 +107,7 @@ pub fn fit(
         .map(|index| fit.group(index, None))
         .collect();
     let mut dropout = None;
-    if config.censored {
+    if config.fragment_censoring_correction {
         for _ in 0..CURVE_ROUNDS {
             let curves = Dropout::fit(&groups, &states, n_runs);
             states = fit.refit_censored(&curves, states);
@@ -254,9 +254,14 @@ fn measurement_variances(
     let mut variance = Vec::with_capacity(group.n_ions * group.n_runs);
     for ion in 0..group.n_ions {
         for (run, &q) in quantity.iter().enumerate() {
-            let quality =
-                config.quality_exponent * (1.0 - group.correlation(correlation, ion, run).sqrt());
-            variance.push(curve.variance(group.log_share[ion] + q) * quality.exp());
+            // without quality weights the correlation may be empty
+            let quality = if config.quality_exponent > 0.0 {
+                (config.quality_exponent * (1.0 - group.correlation(correlation, ion, run).sqrt()))
+                    .exp()
+            } else {
+                1.0
+            };
+            variance.push(curve.variance(group.log_share[ion] + q) * quality);
         }
     }
     variance

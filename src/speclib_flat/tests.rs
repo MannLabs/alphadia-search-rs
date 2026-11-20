@@ -413,7 +413,7 @@ fn test_filter_sort_fragments_invariants() {
 
 #[test]
 fn test_speclib_flat_creation_sorting() {
-    use numpy::PyArray1;
+    use numpy::{PyArray1, PyArrayMethods};
     use pyo3::Python;
 
     Python::initialize();
@@ -469,7 +469,9 @@ fn test_speclib_flat_creation_sorting() {
             fragment_number.readonly(),
             fragment_position.readonly(),
             fragment_type.readonly(),
-        );
+            None,
+        )
+        .unwrap();
 
         // Verify precursor_idx is now sorted
         let precursor_1 = speclib.get_precursor(0);
@@ -524,7 +526,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
     pyo3::Python::initialize();
 
     // Create numpy arrays for the test data
-    use numpy::PyArray1;
+    use numpy::{PyArray1, PyArrayMethods};
 
     pyo3::Python::attach(|py| {
         let precursor_idx_arr = PyArray1::from_slice(py, &precursor_idx);
@@ -563,7 +565,9 @@ fn test_speclib_flat_fragment_mz_sorting() {
             fragment_number_arr.readonly(),
             fragment_position_arr.readonly(),
             fragment_type_arr.readonly(),
-        );
+            None,
+        )
+        .unwrap();
 
         let precursor = speclib.get_precursor_filtered(0, false, false, usize::MAX);
 
@@ -677,6 +681,8 @@ fn test_filter_sort_fragments_y1_ion_filtering() {
 mod precursor_mobility {
     use super::super::SpecLibFlat;
     use crate::traits::MobilityFilter;
+    use numpy::{PyArray1, PyArrayMethods};
+    use pyo3::{PyResult, Python};
 
     /// Two precursors given out of order, with idx 7 and 3, one fragment each.
     fn library() -> SpecLibFlat {
@@ -780,6 +786,53 @@ mod precursor_mobility {
             MobilityFilter::Any
         );
         assert_eq!(lib.get_precursor(1).mobility, 1.1);
+    }
+
+    fn library_from_arrays(mobility: Option<&[f32]>) -> PyResult<SpecLibFlat> {
+        Python::initialize();
+        Python::attach(|py| {
+            let mobility = mobility.map(|values| PyArray1::from_slice(py, values));
+            SpecLibFlat::from_arrays(
+                PyArray1::from_slice(py, &[7usize, 3]).readonly(),
+                PyArray1::from_slice(py, &[500.0f32, 600.0]).readonly(),
+                PyArray1::from_slice(py, &[500.0f32, 600.0]).readonly(),
+                PyArray1::from_slice(py, &[10.0f32, 20.0]).readonly(),
+                PyArray1::from_slice(py, &[10.0f32, 20.0]).readonly(),
+                PyArray1::from_slice(py, &[8u8, 9]).readonly(),
+                PyArray1::from_slice(py, &[0usize, 1]).readonly(),
+                PyArray1::from_slice(py, &[1usize, 2]).readonly(),
+                PyArray1::from_slice(py, &[300.0f32, 400.0]).readonly(),
+                PyArray1::from_slice(py, &[300.0f32, 400.0]).readonly(),
+                PyArray1::from_slice(py, &[1.0f32, 1.0]).readonly(),
+                PyArray1::from_slice(py, &[1u8, 1]).readonly(),
+                PyArray1::from_slice(py, &[1u8, 1]).readonly(),
+                PyArray1::from_slice(py, &[0u8, 0]).readonly(),
+                PyArray1::from_slice(py, &[1u8, 1]).readonly(),
+                PyArray1::from_slice(py, &[1u8, 1]).readonly(),
+                PyArray1::from_slice(py, &[0u8, 0]).readonly(),
+                mobility.as_ref().map(|values| values.readonly()),
+            )
+        })
+    }
+
+    #[test]
+    fn test_from_arrays_matches_mobility_to_precursor_idx() {
+        let lib = library_from_arrays(Some(&[1.1, 0.0])).unwrap();
+        assert!(lib.get_precursor(0).mobility.is_nan());
+        assert_eq!(lib.get_precursor(1).mobility, 1.1);
+    }
+
+    #[test]
+    fn test_from_arrays_without_mobility_has_none() {
+        let lib = library_from_arrays(None).unwrap();
+        assert!(lib.get_precursor(0).mobility.is_nan());
+        assert!(lib.get_precursor(1).mobility.is_nan());
+    }
+
+    #[test]
+    fn test_from_arrays_rejects_invalid_mobility() {
+        assert!(library_from_arrays(Some(&[1.1])).is_err());
+        assert!(library_from_arrays(Some(&[1.1, -0.9])).is_err());
     }
 
     #[test]

@@ -165,8 +165,8 @@ has none) or an infinite tolerance gives `Any`, and a NaN or negative tolerance,
 is not finite and positive, is an error.
 
 Selection, scoring and quantification all take the filter from
-`precursor.mobility_filter(mobility_tolerance)`, built from the library ion mobility set with
-`SpecLibFlat.set_precursor_mobility`. `TimsDIAData` needs the `tims` cargo feature.
+`precursor.mobility_filter(mobility_tolerance)`, built from the library ion mobility passed to
+`SpecLibFlat.from_arrays` as `precursor_mobility`. `TimsDIAData` needs the `tims` cargo feature.
 
 # Benefits
 

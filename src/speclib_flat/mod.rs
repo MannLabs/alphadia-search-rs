@@ -28,7 +28,7 @@ pub struct SpecLibFlat {
     precursor_naa: Vec<u8>,
 
     /// Precursor ion mobility (1/K0), sorted according to precursor_idx order.
-    /// Empty when the library has no mobility; set with `set_precursor_mobility`.
+    /// Empty when the library has no mobility; set through `from_arrays`.
     /// It's left to the caller if these are library or calibrated values.
     precursor_mobility: Vec<f32>,
 
@@ -98,6 +98,26 @@ impl SpecLibFlat {
 
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        precursor_idx,
+        precursor_mz_library,
+        precursor_mz,
+        precursor_rt_library,
+        precursor_rt,
+        precursor_naa,
+        flat_frag_start_idx,
+        flat_frag_stop_idx,
+        fragment_mz_library,
+        fragment_mz,
+        fragment_intensity,
+        fragment_cardinality,
+        fragment_charge,
+        fragment_loss_type,
+        fragment_number,
+        fragment_position,
+        fragment_type,
+        precursor_mobility = None,
+    ))]
     fn from_arrays(
         precursor_idx: PyReadonlyArray1<'_, usize>,
         precursor_mz_library: PyReadonlyArray1<'_, f32>,
@@ -116,8 +136,9 @@ impl SpecLibFlat {
         fragment_number: PyReadonlyArray1<'_, u8>,
         fragment_position: PyReadonlyArray1<'_, u8>,
         fragment_type: PyReadonlyArray1<'_, u8>,
-    ) -> Self {
-        Self::from_vecs(
+        precursor_mobility: Option<PyReadonlyArray1<'_, f32>>,
+    ) -> PyResult<Self> {
+        let mut lib = Self::from_vecs(
             precursor_idx.as_array().to_vec(),
             precursor_mz_library.as_array().to_vec(),
             precursor_mz.as_array().to_vec(),
@@ -135,21 +156,15 @@ impl SpecLibFlat {
             fragment_number.as_array().to_vec(),
             fragment_position.as_array().to_vec(),
             fragment_type.as_array().to_vec(),
-        )
-    }
-
-    /// Sets the ion mobility (1/K0) of each precursor, matched by `precursor_idx`.
-    ///
-    /// Replaces any earlier values. Precursors not listed, and those given NaN, have no
-    /// mobility and are not restricted by it. Raises ValueError for unequal lengths, an unknown
-    /// or repeated `precursor_idx`, or a mobility that is infinite or not positive.
-    fn set_precursor_mobility(
-        &mut self,
-        precursor_idx: PyReadonlyArray1<'_, usize>,
-        mobility: PyReadonlyArray1<'_, f32>,
-    ) -> PyResult<()> {
-        self.set_precursor_mobility_from_slices(precursor_idx.as_slice()?, mobility.as_slice()?)
-            .map_err(pyo3::exceptions::PyValueError::new_err)
+        );
+        if let Some(mobility) = precursor_mobility {
+            lib.set_precursor_mobility_from_slices(
+                &precursor_idx.as_array().to_vec(),
+                &mobility.as_array().to_vec(),
+            )
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        }
+        Ok(lib)
     }
 
     #[getter]
@@ -311,7 +326,7 @@ pub fn filter_sort_fragments(
 
 // Regular Rust implementation (not exposed to Python)
 impl SpecLibFlat {
-    /// Sets the ion mobility of each precursor, matched by `precursor_idx`; see `set_precursor_mobility`.
+    /// Sets the ion mobility of each precursor, matched by `precursor_idx`; see `from_arrays`.
     pub fn set_precursor_mobility_from_slices(
         &mut self,
         precursor_idx: &[usize],

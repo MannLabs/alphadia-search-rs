@@ -26,7 +26,7 @@ impl Precursor {
     /// take it from here, so they read the same peaks.
     pub fn mobility_filter(&self, tolerance: f32) -> MobilityFilter {
         MobilityFilter::from_library(self.mobility, tolerance)
-            .expect("set_precursor_mobility and the mobility_tolerance setters validate both")
+            .expect("from_arrays and the mobility_tolerance setters validate both")
     }
 }
 

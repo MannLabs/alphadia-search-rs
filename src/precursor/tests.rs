@@ -10,6 +10,7 @@ fn test_precursor() -> Precursor {
         rt: 100.0,
         rt_library: 100.5,
         mobility: f32::NAN,
+        mobility_tolerance_scale: 1.0,
         naa: 10,
         fragment_mz: vec![200.0, 300.0, 400.0, 500.0, 600.0],
         fragment_mz_library: vec![200.5, 300.5, 400.5, 500.5, 600.5],
@@ -126,6 +127,7 @@ fn test_ordering_preservation() {
         rt: 100.0,
         rt_library: 100.5,
         mobility: f32::NAN,
+        mobility_tolerance_scale: 1.0,
         naa: 12,
         fragment_mz: vec![600.0, 200.0, 800.0, 100.0, 400.0],
         fragment_mz_library: vec![600.5, 200.5, 800.5, 100.5, 400.5],
@@ -172,6 +174,7 @@ fn test_top_k_larger_than_available() {
         rt: 100.0,
         rt_library: 100.5,
         mobility: f32::NAN,
+        mobility_tolerance_scale: 1.0,
         naa: 8,
         fragment_mz: vec![300.0, 400.0],
         fragment_mz_library: vec![300.5, 400.5],
@@ -211,6 +214,7 @@ fn test_all_zero_intensities_filtered() {
         rt: 100.0,
         rt_library: 100.5,
         mobility: f32::NAN,
+        mobility_tolerance_scale: 1.0,
         naa: 6,
         fragment_mz: vec![300.0, 400.0],
         fragment_mz_library: vec![300.5, 400.5],
@@ -259,4 +263,19 @@ fn test_mobility_filter_without_library_mobility_is_any() {
     let mut precursor = test_precursor();
     precursor.mobility = f32::NAN;
     assert_eq!(precursor.mobility_filter(0.05), MobilityFilter::Any);
+}
+
+#[test]
+fn test_mobility_tolerance_scale_widens_the_filter() {
+    let mut precursor = test_precursor();
+    precursor.mobility = 1.0;
+    precursor.mobility_tolerance_scale = 2.0;
+    assert_eq!(precursor.mobility_tolerance(0.025), 0.05);
+    assert_eq!(
+        precursor.mobility_filter(0.025),
+        MobilityFilter::Window {
+            mobility: 1.0,
+            tolerance: 0.05
+        }
+    );
 }

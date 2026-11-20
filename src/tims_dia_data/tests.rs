@@ -452,6 +452,7 @@ fn precursor_at(mz: f32, mobility: f32) -> crate::precursor::Precursor {
         rt: 0.0,
         rt_library: 0.0,
         mobility,
+        mobility_tolerance_scale: 1.0,
         naa: 8,
         fragment_mz: vec![FRAGMENT_MZ],
         fragment_mz_library: vec![FRAGMENT_MZ],

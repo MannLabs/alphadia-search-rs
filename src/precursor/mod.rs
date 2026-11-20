@@ -8,6 +8,9 @@ pub struct Precursor {
     pub rt_library: f32,
     /// Ion mobility (1/K0), NaN when the library has none.
     pub mobility: f32,
+    /// Factor on the mobility tolerance for this precursor (1 for most): charge states whose mobility the library
+    /// predicts less well can search a wider window.
+    pub mobility_tolerance_scale: f32,
     pub naa: u8,
     pub fragment_mz: Vec<f32>,
     pub fragment_mz_library: Vec<f32>,
@@ -25,8 +28,13 @@ impl Precursor {
     /// library mobility, or `Any` when it has none. Selection, scoring and quantification all
     /// take it from here, so they read the same peaks.
     pub fn mobility_filter(&self, tolerance: f32) -> MobilityFilter {
-        MobilityFilter::from_library(self.mobility, tolerance)
+        MobilityFilter::from_library(self.mobility, self.mobility_tolerance(tolerance))
             .expect("set_precursor_mobility and the mobility_tolerance setters validate both")
+    }
+
+    /// The mobility tolerance of this precursor for a run-wide `tolerance`.
+    pub fn mobility_tolerance(&self, tolerance: f32) -> f32 {
+        tolerance * self.mobility_tolerance_scale
     }
 }
 

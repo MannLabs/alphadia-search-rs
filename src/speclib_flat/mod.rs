@@ -31,6 +31,9 @@ pub struct SpecLibFlat {
     /// Empty when the library has no mobility; set with `set_precursor_mobility`.
     /// It's left to the caller if these are library or calibrated values.
     precursor_mobility: Vec<f32>,
+    /// Empty when every precursor uses the run-wide mobility tolerance; set with
+    /// `set_precursor_mobility_tolerance_scale`.
+    precursor_mobility_tolerance_scale: Vec<f32>,
 
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     flat_frag_start_idx: Vec<usize>,
@@ -94,6 +97,7 @@ impl SpecLibFlat {
             precursor_rt: Vec::new(),
             precursor_naa: Vec::new(),
             precursor_mobility: Vec::new(),
+            precursor_mobility_tolerance_scale: Vec::new(),
             flat_frag_start_idx: Vec::new(),
             flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
@@ -193,6 +197,20 @@ impl SpecLibFlat {
     ) -> PyResult<()> {
         self.set_precursor_mobility_from_slices(precursor_idx.as_slice()?, mobility.as_slice()?)
             .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Sets the factor on the mobility tolerance of each precursor, matched by `precursor_idx`; precursors not given
+    /// keep 1.
+    fn set_precursor_mobility_tolerance_scale(
+        &mut self,
+        precursor_idx: PyReadonlyArray1<'_, usize>,
+        scale: PyReadonlyArray1<'_, f32>,
+    ) -> PyResult<()> {
+        self.set_precursor_mobility_tolerance_scale_from_slices(
+            precursor_idx.as_slice()?,
+            scale.as_slice()?,
+        )
+        .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     #[getter]
@@ -386,6 +404,36 @@ impl SpecLibFlat {
         Ok(())
     }
 
+    /// Sets the mobility tolerance factor of each precursor; see `set_precursor_mobility_tolerance_scale`.
+    pub fn set_precursor_mobility_tolerance_scale_from_slices(
+        &mut self,
+        precursor_idx: &[usize],
+        scale: &[f32],
+    ) -> Result<(), String> {
+        if precursor_idx.len() != scale.len() {
+            return Err(format!(
+                "precursor_idx has {} entries but scale has {}",
+                precursor_idx.len(),
+                scale.len()
+            ));
+        }
+        let mut sorted = vec![1.0f32; self.precursor_idx.len()];
+        for (idx, &value) in precursor_idx.iter().zip(scale) {
+            if !(value.is_finite() && value > 0.0) {
+                return Err(format!(
+                    "precursor_idx {idx}: mobility tolerance scale must be positive and finite, not {value}"
+                ));
+            }
+            let position = self
+                .precursor_idx
+                .binary_search(idx)
+                .map_err(|_| format!("precursor_idx {idx} is not in the library"))?;
+            sorted[position] = value;
+        }
+        self.precursor_mobility_tolerance_scale = sorted;
+        Ok(())
+    }
+
     /// Builds the library from plain vectors, without a Python interpreter.
     ///
     /// The precursor arrays are reordered by `precursor_idx` so that lookups can use binary
@@ -434,6 +482,7 @@ impl SpecLibFlat {
             precursor_rt: sorted_precursor_rt,
             precursor_naa: sorted_precursor_naa,
             precursor_mobility: Vec::new(),
+            precursor_mobility_tolerance_scale: Vec::new(),
             flat_frag_start_idx: sorted_flat_frag_start_idx,
             flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library,
@@ -546,6 +595,11 @@ impl SpecLibFlat {
             rt: precursor_rt,
             rt_library: precursor_rt_library,
             mobility: precursor_mobility,
+            mobility_tolerance_scale: self
+                .precursor_mobility_tolerance_scale
+                .get(index)
+                .copied()
+                .unwrap_or(1.0),
             naa: precursor_naa,
             fragment_mz,
             fragment_mz_library,
@@ -622,6 +676,11 @@ impl SpecLibFlat {
             rt: precursor_rt,
             rt_library: precursor_rt_library,
             mobility: precursor_mobility,
+            mobility_tolerance_scale: self
+                .precursor_mobility_tolerance_scale
+                .get(index)
+                .copied()
+                .unwrap_or(1.0),
             naa: precursor_naa,
             fragment_mz,
             fragment_mz_library,

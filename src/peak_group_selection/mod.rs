@@ -133,6 +133,7 @@ impl PeakGroupSelection {
                     i,
                     true, // Always filter non-zero intensities for scoring
                     true, // Filter Y1 ions by default
+                    true, // b1, b2, y1 and y2 add signal at many wrong retention times
                     self.params.top_k_fragments,
                 );
                 self.search_precursor_generic(

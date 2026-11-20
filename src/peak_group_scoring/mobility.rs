@@ -46,6 +46,21 @@ impl MobilityFeatures {
     }
 }
 
+/// `filter` with its tolerance times `factor`: the window the observed mobility is read from. A window as wide as the
+/// search tolerance truncates the observed mobilities, and with them the residuals the tolerance is optimized on.
+pub fn widened(filter: MobilityFilter, factor: f32) -> MobilityFilter {
+    match filter {
+        MobilityFilter::Window {
+            mobility,
+            tolerance,
+        } => MobilityFilter::Window {
+            mobility,
+            tolerance: tolerance * factor,
+        },
+        MobilityFilter::Any => MobilityFilter::Any,
+    }
+}
+
 /// The cycles around a candidate's apex the mobility is read from.
 fn apex_cycles<T: DIADataTrait>(dia_data: &T, cycle_center: usize) -> (usize, usize) {
     let num_cycles = dia_data.rt_index().rt.len();
@@ -56,7 +71,7 @@ fn apex_cycles<T: DIADataTrait>(dia_data: &T, cycle_center: usize) -> (usize, us
 }
 
 /// The window of `half_width` around the intensity-weighted mean mobility of the precursor's fragment peaks within
-/// `wide`, at the candidate's apex: a mobility peak is much narrower than the tolerance around the library mobility,
+/// `wide` times `widening`, at the candidate's apex: a mobility peak is much narrower than the tolerance around the library mobility,
 /// so the XICs of the narrow window carry less background. `wide` itself without a mobility dimension, for a
 /// `half_width` that is not positive and finite, or without fragment signal at the apex.
 pub fn recentered_mobility_filter<T: DIADataTrait>(
@@ -66,12 +81,13 @@ pub fn recentered_mobility_filter<T: DIADataTrait>(
     wide: MobilityFilter,
     mass_tolerance: f32,
     half_width: f32,
+    widening: f32,
 ) -> MobilityFilter {
     if !(half_width > 0.0 && half_width.is_finite()) {
         return wide;
     }
     let (start, stop) = apex_cycles(dia_data, cycle_center);
-    let observations = dia_data.select_observations(precursor.mz, wide);
+    let observations = dia_data.select_observations(precursor.mz, widened(wide, widening));
     let mut sums = [0.0f64; 2];
     for &mz in &precursor.fragment_mz {
         let Some(moments) = dia_data.mobility_moments(
@@ -97,7 +113,8 @@ pub fn recentered_mobility_filter<T: DIADataTrait>(
     }
 }
 
-/// The mobility features of one candidate over the observations of `filter`, the window around its library mobility.
+/// The mobility features of one candidate over the observations of `filter` (the window around its library mobility)
+/// times `widening`.
 pub fn calculate_mobility_features<T: DIADataTrait>(
     dia_data: &T,
     precursor: &Precursor,
@@ -105,9 +122,10 @@ pub fn calculate_mobility_features<T: DIADataTrait>(
     filter: MobilityFilter,
     mass_tolerance: f32,
     mobility_tolerance: f32,
+    widening: f32,
 ) -> MobilityFeatures {
     let (start, stop) = apex_cycles(dia_data, candidate.cycle_center);
-    let observations = dia_data.select_observations(precursor.mz, filter);
+    let observations = dia_data.select_observations(precursor.mz, widened(filter, widening));
 
     // per fragment: [Σw, Σw·m, Σw·m²]
     let mut fragments: Vec<[f64; 3]> = Vec::with_capacity(precursor.fragment_mz.len());

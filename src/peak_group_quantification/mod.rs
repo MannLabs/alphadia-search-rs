@@ -108,6 +108,7 @@ impl PeakGroupQuantification {
                 precursor.mobility_filter(self.params.mobility_tolerance),
                 self.params.tolerance_ppm,
                 self.params.mobility_peak_tolerance,
+                self.params.mobility_observation_widening,
             ),
             cycle_start,
             cycle_stop,

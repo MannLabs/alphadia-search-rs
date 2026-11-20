@@ -473,7 +473,7 @@ fn test_recentering_moves_the_window_to_the_intensity_weighted_apex() {
     let precursor = precursor_at(450.0, 1.25);
     let wide = precursor.mobility_filter(0.3);
 
-    let filter = recentered_mobility_filter(&data, &precursor, 1, wide, 20.0, 0.05);
+    let filter = recentered_mobility_filter(&data, &precursor, 1, wide, 20.0, 0.05, 1.0);
 
     let expected = (1.5 + 12.5 + 100.0) / 111.0;
     match filter {
@@ -496,14 +496,14 @@ fn test_recentering_keeps_the_wide_window_when_off_or_without_signal() {
     let wide = precursor.mobility_filter(0.3);
 
     assert_eq!(
-        recentered_mobility_filter(&data, &precursor, 1, wide, 20.0, 0.0),
+        recentered_mobility_filter(&data, &precursor, 1, wide, 20.0, 0.0, 1.0),
         wide
     );
     // only scan 3 (1/K0 0.75) isolates 950, outside the window around 1.5
     let far = precursor_at(950.0, 1.5);
     let far_wide = far.mobility_filter(0.1);
     assert_eq!(
-        recentered_mobility_filter(&data, &far, 1, far_wide, 20.0, 0.05),
+        recentered_mobility_filter(&data, &far, 1, far_wide, 20.0, 0.05, 1.0),
         far_wide
     );
 }

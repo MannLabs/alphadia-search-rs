@@ -340,6 +340,7 @@ impl PeakGroupScoring {
                 wide,
                 self.params.mass_tolerance,
                 self.params.mobility_peak_tolerance,
+                self.params.mobility_observation_widening,
             ),
         );
 
@@ -427,6 +428,7 @@ impl PeakGroupScoring {
                 wide,
                 self.params.mass_tolerance,
                 self.params.mobility_tolerance,
+                self.params.mobility_observation_widening,
             )
         });
 

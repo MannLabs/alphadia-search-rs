@@ -18,6 +18,9 @@ pub struct QuantificationParameters {
     /// `mobility_tolerance` window around the library mobility
     #[pyo3(get)]
     pub mobility_peak_tolerance: f32,
+    /// factor on the mobility tolerance for the window the observed apex mobility is read from
+    #[pyo3(get)]
+    pub mobility_observation_widening: f32,
 
     /// Maximum number of fragments to use for quantification per precursor
     #[pyo3(get, set)]
@@ -33,6 +36,7 @@ impl QuantificationParameters {
             tolerance_ppm: 7.0,
             mobility_tolerance: DEFAULT_MOBILITY_TOLERANCE,
             mobility_peak_tolerance: 0.0,
+            mobility_observation_widening: 1.0,
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
             // very large number to capture them all by default
             top_k_fragments: 10000,
@@ -52,6 +56,15 @@ impl QuantificationParameters {
         if let Some(value) = config.get_item("mobility_tolerance")? {
             self.mobility_tolerance =
                 check_mobility_tolerance(value.extract::<f32>()?).map_err(PyValueError::new_err)?;
+        }
+        if let Some(value) = config.get_item("mobility_observation_widening")? {
+            let factor = value.extract::<f32>()?;
+            if !(factor >= 1.0 && factor.is_finite()) {
+                return Err(PyValueError::new_err(format!(
+                    "mobility_observation_widening must be finite and at least 1, got {factor}"
+                )));
+            }
+            self.mobility_observation_widening = factor;
         }
         if let Some(value) = config.get_item("mobility_peak_tolerance")? {
             self.mobility_peak_tolerance =

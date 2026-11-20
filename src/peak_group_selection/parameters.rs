@@ -24,6 +24,8 @@ pub struct SelectionParameters {
     pub top_k_fragments: usize,
     #[pyo3(get)]
     pub rt_prior_sigma: f32,
+    #[pyo3(get)]
+    pub mobility_selection_bins: usize,
 }
 
 #[pymethods]
@@ -49,6 +51,9 @@ impl SelectionParameters {
             top_k_fragments: 12,
             // sd in seconds of the gaussian RT prior that ranks the candidates of a precursor; 0 ranks by score only.
             rt_prior_sigma: 0.0,
+            // number of mobility sub-windows the selection scores separately (data with mobility); 1 scores the whole
+            // mobility window at once.
+            mobility_selection_bins: 1,
         }
     }
 
@@ -77,6 +82,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("mobility_selection_bins")? {
+            self.mobility_selection_bins = value.extract::<usize>()?.max(1);
         }
         if let Some(value) = config.get_item("rt_prior_sigma")? {
             self.rt_prior_sigma = value.extract::<f32>()?;

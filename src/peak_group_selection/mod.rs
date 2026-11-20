@@ -11,7 +11,11 @@ use crate::dense_xic_observation::DenseXICObservation;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
+
+/// Each mobility sub-window of the selection is this many times the bin spacing wide, so that a peak between two bin
+/// centres lies fully inside one of them.
+const MOBILITY_BIN_OVERLAP: f32 = 2.0;
 use crate::SpecLibFlat;
 
 pub mod parameters;
@@ -162,6 +166,62 @@ impl PeakGroupSelection {
         CandidateCollection::from_vec(candidates)
     }
 
+    /// The selection score of every cycle in [cycle_start_idx, cycle_stop_idx).
+    ///
+    /// With mobility_selection_bins > 1 the mobility window is split into overlapping sub-windows, each scored on its
+    /// own, and a cycle keeps its best sub-window's score: a precursor at one mobility then no longer competes with the
+    /// summed signal of everything else eluting within the whole window.
+    fn selection_score<T: DIADataTrait>(
+        &self,
+        dia_data: &T,
+        kernel: &GaussianKernel,
+        precursor: &Precursor,
+        cycle_start_idx: usize,
+        cycle_stop_idx: usize,
+        mass_tolerance: f32,
+    ) -> Array1<f32> {
+        let score_of = |filter: MobilityFilter| {
+            let dense_xic_obs = DenseXICObservation::new(
+                dia_data,
+                precursor.mz,
+                filter,
+                cycle_start_idx,
+                cycle_stop_idx,
+                mass_tolerance,
+                &precursor.fragment_mz,
+            );
+            let convolved_xic = convolution(kernel, &dense_xic_obs.dense_xic);
+            axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity)
+        };
+        let filter = precursor.mobility_filter(self.params.mobility_tolerance);
+        let bins = self.params.mobility_selection_bins;
+        match filter {
+            MobilityFilter::Window {
+                mobility,
+                tolerance,
+            } if bins > 1 => {
+                let step = 2.0 * tolerance / bins as f32;
+                let half_width = 0.5 * step * MOBILITY_BIN_OVERLAP;
+                let mut best: Option<Array1<f32>> = None;
+                for bin in 0..bins {
+                    let center = mobility - tolerance + (bin as f32 + 0.5) * step;
+                    let score = score_of(MobilityFilter::Window {
+                        mobility: center,
+                        tolerance: half_width,
+                    });
+                    best = Some(match best {
+                        None => score,
+                        Some(b) => numpy::ndarray::Zip::from(&b)
+                            .and(&score)
+                            .map_collect(|&x, &y| x.max(y)),
+                    });
+                }
+                best.expect("bins > 1")
+            }
+            _ => score_of(filter),
+        }
+    }
+
     /// Generic precursor search function that works with any type implementing DIADataTrait
     fn search_precursor_generic<T: DIADataTrait>(
         &self,
@@ -183,20 +243,14 @@ impl PeakGroupSelection {
             return None;
         }
 
-        // Create dense XIC observation using the filtered precursor fragments
-        let dense_xic_obs = DenseXICObservation::new(
+        let score = self.selection_score(
             dia_data,
-            precursor.mz,
-            precursor.mobility_filter(self.params.mobility_tolerance),
+            kernel,
+            precursor,
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
-            &precursor.fragment_mz,
         );
-
-        let convolved_xic = convolution(kernel, &dense_xic_obs.dense_xic);
-
-        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
         let (mut local_maxima_indices, mut local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);

@@ -156,12 +156,23 @@ type FragmentData = (
     Vec<u8>,
 );
 
+/// Highest ion number of the b and y ions that `filter_short_ions` drops.
+const SHORT_ION_MAX_NUMBER: u8 = 2;
+
+/// b1, b2, y1 and y2 are shared by many precursors and decoys, so they add selection signal at many wrong retention times.
+fn is_short_ion(fragment_type: u8, number: u8) -> bool {
+    (fragment_type == crate::constants::FragmentType::B
+        || fragment_type == crate::constants::FragmentType::Y)
+        && number <= SHORT_ION_MAX_NUMBER
+}
+
 /// Filters and sorts fragments based on intensity and fragment m/z.
 ///
 /// This function performs the following operations:
 /// 1. Optionally filters out fragments with zero intensity (if `non_zero` is true)
-/// 2. Selects the top-k fragments by intensity using partial sorting
-/// 3. Sorts the selected fragments by fragment_mz in ascending order
+/// 2. Optionally filters out y1 ions and the short b1, b2, y1 and y2 ions
+/// 3. Selects the top-k fragments by intensity using partial sorting
+/// 4. Sorts the selected fragments by fragment_mz in ascending order
 ///
 /// # Arguments
 ///
@@ -175,6 +186,8 @@ type FragmentData = (
 /// * `fragment_position` - Fragment position annotations
 /// * `fragment_type` - Fragment type annotations
 /// * `non_zero` - If true, filters out fragments with zero intensity
+/// * `filter_y1_ions` - If true, filters out y1 ions
+/// * `filter_short_ions` - If true, filters out b1, b2, y1 and y2 before the top-k choice
 /// * `top_k_fragments` - Maximum number of fragments to return (top-k by intensity)
 ///
 /// # Returns
@@ -194,6 +207,7 @@ pub fn filter_sort_fragments(
     fragment_type: &[u8],
     non_zero: bool,
     filter_y1_ions: bool,
+    filter_short_ions: bool,
     top_k_fragments: usize,
 ) -> FragmentData {
     let mut fragment_data: Vec<(f32, f32, f32, u8, u8, u8, u8, u8, u8, usize)> = (0..fragment_mz
@@ -223,6 +237,12 @@ pub fn filter_sort_fragments(
     if filter_y1_ions {
         fragment_data.retain(|(_, _, _, _, _, _, number, _, fragment_type, _)| {
             !(*fragment_type == crate::constants::FragmentType::Y && *number == 1)
+        });
+    }
+
+    if filter_short_ions {
+        fragment_data.retain(|(_, _, _, _, _, _, number, _, fragment_type, _)| {
+            !is_short_ion(*fragment_type, *number)
         });
     }
 
@@ -396,6 +416,7 @@ impl SpecLibFlat {
         index: usize,
         non_zero: bool,
         filter_y1_ions: bool,
+        filter_short_ions: bool,
         top_k_fragments: usize,
     ) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
@@ -439,6 +460,7 @@ impl SpecLibFlat {
             raw_fragment_type,
             non_zero,
             filter_y1_ions,
+            filter_short_ions,
             top_k_fragments,
         );
 
@@ -466,6 +488,7 @@ impl SpecLibFlat {
         precursor_idx: usize,
         non_zero: bool,
         filter_y1_ions: bool,
+        filter_short_ions: bool,
         top_k_fragments: usize,
     ) -> Option<Precursor> {
         // Use binary search since precursor_idx is now sorted
@@ -474,6 +497,7 @@ impl SpecLibFlat {
                 array_index,
                 non_zero,
                 filter_y1_ions,
+                filter_short_ions,
                 top_k_fragments,
             )),
             Err(_) => None,

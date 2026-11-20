@@ -545,6 +545,11 @@ impl SpecLibFlat {
         Ok(())
     }
 
+    /// The array position of a precursor, for `get_precursor` / `get_precursor_filtered`.
+    pub fn position_of(&self, precursor_idx: usize) -> Option<usize> {
+        self.precursor_idx.binary_search(&precursor_idx).ok()
+    }
+
     /// Charge, MS1 m/z and library isotope abundances of a precursor, if `set_isotopes` provided them.
     pub fn get_isotopes_by_idx(&self, precursor_idx: usize) -> Option<(u8, f32, &[f32])> {
         if self.num_isotopes == 0 {

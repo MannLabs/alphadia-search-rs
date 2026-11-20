@@ -111,6 +111,119 @@ impl TimsDIAData {
         PyArray1::from_array(py, &self.rt_values)
     }
 
+    /// Per-fragment intensity patches around given apexes, for offline analyses of the raw evidence: for each
+    /// (precursor, apex cycle, apex mobility) the `top_k_fragments` most intense library fragments' summed peak
+    /// intensity on each of `2 * cycle_radius + 1` cycles x `n_scans` scans centred on the apex (zero outside the run,
+    /// outside the precursor's isolation windows and for missing fragments), and those fragments' library intensities.
+    /// Returns (patches [n, top_k, cycles, scans], library intensities [n, top_k], 1/K0 of the patch's first scan [n]).
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    #[pyo3(signature = (speclib, precursor_idx, cycle_center, mobility, cycle_radius, n_scans, mass_tolerance, top_k_fragments))]
+    pub fn mobility_patches<'py>(
+        &self,
+        py: Python<'py>,
+        speclib: &crate::SpecLibFlat,
+        precursor_idx: numpy::PyReadonlyArray1<'_, usize>,
+        cycle_center: numpy::PyReadonlyArray1<'_, usize>,
+        mobility: numpy::PyReadonlyArray1<'_, f32>,
+        cycle_radius: usize,
+        n_scans: usize,
+        mass_tolerance: f32,
+        top_k_fragments: usize,
+    ) -> PyResult<(
+        Bound<'py, PyArray4<f32>>,
+        Bound<'py, numpy::PyArray2<f32>>,
+        Bound<'py, PyArray1<f32>>,
+    )> {
+        use rayon::prelude::*;
+        let precursor_idx = precursor_idx.as_slice()?;
+        let cycle_center = cycle_center.as_slice()?;
+        let mobility = mobility.as_slice()?;
+        let n = precursor_idx.len();
+        if cycle_center.len() != n || mobility.len() != n {
+            return Err(PyValueError::new_err(
+                "precursor_idx, cycle_center and mobility need the same length",
+            ));
+        }
+        let n_cycles = 2 * cycle_radius + 1;
+        let num_cycles = self.rt_index.rt.len();
+        let scan_width = (self.scan_mobility[0] - self.scan_mobility[self.scan_mobility.len() - 1])
+            .abs()
+            / (self.scan_mobility.len() - 1) as f32;
+        let half_width = 0.5 * n_scans as f32 * scan_width;
+        let results: Vec<Result<(Vec<f32>, Vec<f32>, f32), String>> = (0..n)
+            .into_par_iter()
+            .map(|i| {
+                let position = speclib.position_of(precursor_idx[i]).ok_or_else(|| {
+                    format!("precursor_idx {} is not in the library", precursor_idx[i])
+                })?;
+                let precursor =
+                    speclib.get_precursor_filtered(position, true, true, top_k_fragments);
+                let filter = MobilityFilter::Window {
+                    mobility: mobility[i],
+                    tolerance: half_width,
+                };
+                let range = self.scan_range(filter);
+                let scan_start = range.start;
+                let observations = self.select_observations(precursor.mz, filter);
+                let first_cycle = cycle_center[i] as i64 - cycle_radius as i64;
+                let mut patches = vec![0.0f32; top_k_fragments * n_cycles * n_scans];
+                let mut library = vec![0.0f32; top_k_fragments];
+                for (f, &mz) in precursor
+                    .fragment_mz
+                    .iter()
+                    .enumerate()
+                    .take(top_k_fragments)
+                {
+                    library[f] = precursor.fragment_intensity[f];
+                    let lo = first_cycle.max(0) as usize;
+                    let hi = ((first_cycle + n_cycles as i64).max(0) as usize).min(num_cycles);
+                    if hi <= lo {
+                        continue;
+                    }
+                    let mut patch = numpy::ndarray::Array2::<f32>::zeros((hi - lo, n_scans));
+                    self.fill_mobility_patch(
+                        &observations,
+                        lo,
+                        scan_start,
+                        mass_tolerance,
+                        mz,
+                        &mut patch,
+                    );
+                    let row_offset = (lo as i64 - first_cycle) as usize;
+                    for r in 0..(hi - lo) {
+                        for s in 0..n_scans {
+                            patches[(f * n_cycles + r + row_offset) * n_scans + s] = patch[[r, s]];
+                        }
+                    }
+                }
+                let first_mobility = self
+                    .scan_mobility
+                    .get(scan_start)
+                    .copied()
+                    .unwrap_or(f32::NAN);
+                Ok((patches, library, first_mobility))
+            })
+            .collect();
+        let mut all_patches = Vec::with_capacity(n * top_k_fragments * n_cycles * n_scans);
+        let mut all_library = Vec::with_capacity(n * top_k_fragments);
+        let mut first = Vec::with_capacity(n);
+        for result in results {
+            let (patches, library, first_mobility) = result.map_err(PyValueError::new_err)?;
+            all_patches.extend(patches);
+            all_library.extend(library);
+            first.push(first_mobility);
+        }
+        let patches = Array4::from_shape_vec((n, top_k_fragments, n_cycles, n_scans), all_patches)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let library = numpy::ndarray::Array2::from_shape_vec((n, top_k_fragments), all_library)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok((
+            PyArray4::from_array(py, &patches),
+            numpy::PyArray2::from_array(py, &library),
+            PyArray1::from_vec(py, first),
+        ))
+    }
+
     /// Isolation windows as `[1, frames per cycle, scans, 2]`, -1 where nothing was isolated
     /// (the MS1 frame and unset scans), like alphaDIA's Bruker cycle.
     #[getter]

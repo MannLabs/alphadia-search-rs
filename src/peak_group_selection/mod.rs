@@ -32,6 +32,25 @@ fn candidate_cycle_limits(
     )
 }
 
+/// Add the log density of a Student-t prior on the retention time to the selection score of each cycle.
+///
+/// `score[j]` belongs to the cycle `start + j`, whose retention time is `rt[start + j]`. The log density is shifted to
+/// zero at `predicted_rt`, so a peak at the predicted retention time keeps its score.
+fn add_rt_log_prior(
+    score: &mut Array1<f32>,
+    rt: &Array1<f32>,
+    start: usize,
+    predicted_rt: f32,
+    scale: f32,
+    df: f32,
+) {
+    let exponent = -0.5 * (df + 1.0);
+    for (j, value) in score.iter_mut().enumerate() {
+        let deviation = (rt[start + j] - predicted_rt) / scale;
+        *value += exponent * (1.0 + deviation * deviation / df).ln();
+    }
+}
+
 /// Finds local maxima in a 1D array.
 /// A local maximum is a point strictly higher than its direct neighbours on both sides.
 /// Returns a tuple of two vectors: (indices, values) sorted by value in descending order.
@@ -170,7 +189,18 @@ impl PeakGroupSelection {
 
         let convolved_xic = convolution(kernel, &dense_xic_obs.dense_xic);
 
-        let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
+        let mut score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
+
+        if let Some((scale, df)) = self.params.rt_prior {
+            add_rt_log_prior(
+                &mut score,
+                &dia_data.rt_index().rt,
+                cycle_start_idx,
+                precursor.rt,
+                scale,
+                df,
+            );
+        }
 
         let (local_maxima_indices, local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);

@@ -22,6 +22,8 @@ pub struct SelectionParameters {
     pub candidate_count: usize,
     #[pyo3(get)]
     pub top_k_fragments: usize,
+    #[pyo3(get)]
+    pub rt_prior_sigma: f32,
 }
 
 #[pymethods]
@@ -45,6 +47,8 @@ impl SelectionParameters {
             candidate_count: 3,
             // maximum number of fragments to use for selecting precursors from a DIAData object.
             top_k_fragments: 12,
+            // sd in seconds of the gaussian RT prior that ranks the candidates of a precursor; 0 ranks by score only.
+            rt_prior_sigma: 0.0,
         }
     }
 
@@ -73,6 +77,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("rt_prior_sigma")? {
+            self.rt_prior_sigma = value.extract::<f32>()?;
         }
         Ok(())
     }

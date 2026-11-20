@@ -126,3 +126,22 @@ fn test_candidate_cycle_limits_apex_near_run_end() {
 fn test_candidate_cycle_limits_interior() {
     assert_eq!(candidate_cycle_limits(50, 5, 100), (45, 56));
 }
+
+#[test]
+fn test_rt_prior_ranks_a_near_peak_above_a_stronger_far_one() {
+    let cycle_rt = arr1(&[0.0, 100.0, 200.0, 300.0, 400.0]);
+    let mut indices = vec![4, 1];
+    let mut values = vec![10.0, 8.0];
+    rank_by_rt_prior(&mut indices, &mut values, &cycle_rt, 100.0, 100.0);
+    assert_eq!(indices, vec![1, 4]);
+    assert_eq!(values, vec![8.0, 10.0]);
+}
+
+#[test]
+fn test_rt_prior_keeps_a_much_stronger_far_peak_first() {
+    let cycle_rt = arr1(&[0.0, 100.0, 200.0, 300.0, 400.0]);
+    let mut indices = vec![4, 1];
+    let mut values = vec![20.0, 8.0];
+    rank_by_rt_prior(&mut indices, &mut values, &cycle_rt, 100.0, 100.0);
+    assert_eq!(indices, vec![4, 1]);
+}

@@ -74,6 +74,31 @@ fn find_local_maxima(array: &Array1<f32>, offset: usize) -> (Vec<usize>, Vec<f32
     (indices, values)
 }
 
+/// Reorders the maxima by their score plus a gaussian log prior on the distance of their RT to the precursor's
+/// expected RT (sd `sigma` seconds). The values stay the raw scores.
+///
+/// Over a wide RT window, interfering peaks far from the expected RT outscore a faint true peak near it; the prior
+/// keeps the near peak among the candidates without changing the score the classifier sees.
+fn rank_by_rt_prior(
+    indices: &mut Vec<usize>,
+    values: &mut Vec<f32>,
+    cycle_rt: &Array1<f32>,
+    expected_rt: f32,
+    sigma: f32,
+) {
+    let mut order: Vec<(usize, f32, f32)> = indices
+        .iter()
+        .zip(values.iter())
+        .map(|(&idx, &value)| {
+            let z = (cycle_rt[idx] - expected_rt) / sigma;
+            (idx, value, value - 0.5 * z * z)
+        })
+        .collect();
+    order.sort_by(|a, b| b.2.total_cmp(&a.2));
+    *indices = order.iter().map(|o| o.0).collect();
+    *values = order.iter().map(|o| o.1).collect();
+}
+
 #[pyclass]
 pub struct PeakGroupSelection {
     params: SelectionParameters,
@@ -173,8 +198,17 @@ impl PeakGroupSelection {
 
         let score = axis_log_dot_product(&convolved_xic, &precursor.fragment_intensity);
 
-        let (local_maxima_indices, local_maxima_values) =
+        let (mut local_maxima_indices, mut local_maxima_values) =
             find_local_maxima(&score, cycle_start_idx);
+        if self.params.rt_prior_sigma > 0.0 {
+            rank_by_rt_prior(
+                &mut local_maxima_indices,
+                &mut local_maxima_values,
+                &dia_data.rt_index().rt,
+                precursor.rt,
+                self.params.rt_prior_sigma,
+            );
+        }
 
         // Take top maxima (they're already sorted by value in descending order)
         let max_count = std::cmp::min(candidate_count, local_maxima_indices.len());

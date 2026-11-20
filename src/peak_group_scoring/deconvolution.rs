@@ -217,6 +217,7 @@ pub fn compute_shares<T: DIADataTrait + Sync>(
                 candidate.precursor_idx,
                 true,
                 true,
+                false, // the scorer uses the short ions
                 top_k_fragments,
             );
             match precursor {
@@ -459,7 +460,7 @@ mod tests {
         let dia = dia_data(&[(WINDOW_LOW, &ALL_MZ)]);
         let lib = library(&[(0, 500.0, &FRAGMENTS_A), (1, 505.0, &decoy)]);
         let position = |precursor_idx: usize| {
-            lib.get_precursor_by_idx_filtered(precursor_idx, true, true, 12)
+            lib.get_precursor_by_idx_filtered(precursor_idx, true, true, false, 12)
                 .unwrap()
                 .fragment_mz
                 .iter()

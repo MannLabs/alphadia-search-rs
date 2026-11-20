@@ -4,7 +4,9 @@
 //! the same precursor) and the edges of the index (overlapping windows, first and last cycle,
 //! claim tolerance, empty input, thread count).
 
-use super::algorithm::{compute_claim_features, ClaimFeatures, ClaimParameters};
+use super::algorithm::{
+    compute_claim_features, log_mz_bin, log_mz_bin_width, pack_key, ClaimFeatures, ClaimParameters,
+};
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::constants::{FragmentType, Loss};
 use crate::dia_data::{AlphaRawView, DIAData};
@@ -467,4 +469,54 @@ fn a_cycle_beyond_the_index_is_an_error() {
     let result = compute_claim_features(&dia, &lib, &candidates, &params());
     // then
     assert!(result.unwrap_err().contains("cycles"));
+}
+
+#[test]
+fn test_log_mz_bin_is_same_or_adjacent_within_tolerance() {
+    for tolerance_ppm in [1.0f32, 5.0, 10.0, 15.0, 30.0, 50.0] {
+        let width = log_mz_bin_width(tolerance_ppm);
+        let mut mz = 150.0f32;
+        while mz < 2000.0 {
+            let bin = log_mz_bin(mz, width);
+            for fraction in [-1.0f32, -0.5, 0.5, 1.0] {
+                let other = mz * (1.0 + fraction * tolerance_ppm * 1e-6);
+                let other_bin = log_mz_bin(other, width);
+                assert!(
+                    bin.abs_diff(other_bin) <= 1,
+                    "m/z {mz} and {other} at {tolerance_ppm} ppm fall into bins {bin} and {other_bin}"
+                );
+            }
+            mz += 7.3;
+        }
+    }
+}
+
+#[test]
+fn test_log_mz_bin_handles_non_positive_mz() {
+    let width = log_mz_bin_width(10.0);
+    assert_eq!(log_mz_bin(0.0, width), 0);
+    assert_eq!(log_mz_bin(-5.0, width), 0);
+}
+
+#[test]
+fn test_pack_key_follows_lexicographic_order() {
+    let triples = [
+        (0u32, 0u32, 0u32),
+        (0, 0, 1),
+        (0, 0, u32::MAX),
+        (0, 1, 0),
+        (0, 65_535, 5),
+        (1, 0, 0),
+        (7, 3, 9),
+        (7, 4, 0),
+        (65_535, 65_535, u32::MAX),
+    ];
+    let keys: Vec<u64> = triples
+        .iter()
+        .map(|&(window, cycle, bin)| pack_key(window, cycle, bin))
+        .collect();
+
+    assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+    // Consecutive bins of one window and cycle are one contiguous key range.
+    assert_eq!(pack_key(3, 20, 101), pack_key(3, 20, 100) + 1);
 }

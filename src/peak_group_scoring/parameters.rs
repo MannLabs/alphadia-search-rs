@@ -1,6 +1,8 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use crate::peak_group_scoring::feature_set::FeatureSet;
+
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ScoringParameters {
@@ -8,6 +10,8 @@ pub struct ScoringParameters {
     pub mass_tolerance: f32,
     #[pyo3(get)]
     pub top_k_fragments: usize,
+    #[pyo3(get)]
+    pub feature_set: FeatureSet,
 }
 
 #[pymethods]
@@ -19,6 +23,7 @@ impl ScoringParameters {
             mass_tolerance: 7.0,
             // maximum number of fragments to use for scoring per precursor. depends on the number of fragments in the precursor.
             top_k_fragments: 100,
+            feature_set: FeatureSet::Full,
         }
     }
 
@@ -28,6 +33,9 @@ impl ScoringParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("feature_set")? {
+            self.feature_set = value.extract::<FeatureSet>()?;
         }
         Ok(())
     }

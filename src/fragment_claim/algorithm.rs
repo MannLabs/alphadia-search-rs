@@ -7,7 +7,6 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::candidate_context::{log_mz_bin, log_mz_bin_width, pack_key};
 use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::peak_group_scoring::deconvolution::compute_shares;
 use crate::peak_group_scoring::utils::{
@@ -20,13 +19,37 @@ use crate::utils::{calculate_fragment_mz_and_errors, create_ranked_mask};
 
 /// Apex cycles of two co-eluting candidates differ by at most one cycle in practice.
 pub const DEFAULT_CYCLE_RADIUS: u32 = 1;
+/// Layout of the packed index key: 16 bits window, 16 bits cycle, 32 bits log-m/z bin.
+const WINDOW_SHIFT: u32 = 48;
+const CYCLE_SHIFT: u32 = 32;
 const MAX_WINDOWS: usize = 1 << 16;
 const MAX_CYCLES: usize = 1 << 16;
+/// `ln` is undefined at zero; no real fragment is lighter than this.
+const MIN_MZ: f64 = 1.0;
 const EPSILON: f32 = 1e-8;
 /// Fragments that make up the top-3 features.
 const TOP_N_FRAGMENTS: usize = 3;
 /// Library fragments without signal are evidence against a precursor in the mixture model.
 const ABSENT_EVIDENCE: bool = true;
+
+/// Width of one log-m/z bin. It is twice the tolerance, so two m/z values within the tolerance
+/// differ in `ln(m/z)` by less than one bin and therefore fall into the same or an adjacent bin.
+pub fn log_mz_bin_width(mass_tolerance_ppm: f32) -> f64 {
+    (1.0 + 2.0 * mass_tolerance_ppm as f64 * 1e-6).ln()
+}
+
+pub fn log_mz_bin(mz: f32, bin_width: f64) -> u32 {
+    ((mz as f64).max(MIN_MZ).ln() / bin_width).floor() as u32
+}
+
+/// Packs window, cycle and bin into one key whose order is the lexicographic order of
+/// `(window, cycle, bin)`. Consecutive bins of one window and cycle have consecutive keys, so
+/// a bin range is one contiguous key range.
+pub fn pack_key(window: u32, cycle: u32, bin: u32) -> u64 {
+    debug_assert!((window as usize) < MAX_WINDOWS);
+    debug_assert!((cycle as usize) < MAX_CYCLES);
+    ((window as u64) << WINDOW_SHIFT) | ((cycle as u64) << CYCLE_SHIFT) | bin as u64
+}
 
 #[derive(Debug, Clone)]
 pub struct ClaimParameters {
@@ -229,6 +252,7 @@ fn extract_slot<T: DIADataTrait + Sync>(
         candidate.precursor_idx,
         true,
         true,
+        false, // the scorer uses the short ions
         params.top_k_fragments,
     ) else {
         return slot;

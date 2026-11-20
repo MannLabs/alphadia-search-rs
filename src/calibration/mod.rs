@@ -57,7 +57,7 @@ impl CalibrationEstimator {
     }
 
     /// Fit on `input` (uncalibrated property) and `target` (observed property).
-    /// Raises `ValueError` on degenerate input (Python leaves it unfitted).
+    /// Raises `ValueError` on degenerate input and leaves the estimator unfitted.
     fn fit(&mut self, input: Vec<f32>, target: Vec<f32>) -> PyResult<()> {
         self.inner
             .fit(&input, &target)
@@ -101,10 +101,11 @@ impl CalibrationEstimator {
         self.inner.metrics()
     }
 
-    /// Residual deviation at the given confidence interval (e.g. `0.95`).
+    /// Residual deviation at the given confidence interval (e.g. `0.95`), `None` if
+    /// the estimator is not fitted.
     ///
     /// Raises `ValueError` for a `ci` outside `[0, 1]` or mismatched lengths.
-    fn ci(&self, input: Vec<f32>, target: Vec<f32>, ci: f32) -> PyResult<f32> {
+    fn ci(&self, input: Vec<f32>, target: Vec<f32>, ci: f32) -> PyResult<Option<f32>> {
         self.inner
             .ci(&input, &target, ci)
             .map_err(PyValueError::new_err)

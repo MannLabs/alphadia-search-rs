@@ -1,7 +1,25 @@
 use numpy::ndarray::{Array1, Array2};
+use numpy::PyUntypedArrayMethods;
+use pyo3::exceptions::PyTypeError;
+use pyo3::PyResult;
 
 #[cfg(test)]
 mod tests;
+
+/// Raises `TypeError` unless `array` is C-contiguous.
+///
+/// `as_slice` also accepts Fortran-ordered arrays, whose flat layout is the transpose of the
+/// row-major indexing of a borrowed matrix.
+pub fn require_c_contiguous<'py>(
+    array: &impl PyUntypedArrayMethods<'py>,
+    name: &str,
+) -> PyResult<()> {
+    if array.is_c_contiguous() {
+        Ok(())
+    } else {
+        Err(PyTypeError::new_err(format!("{name} must be C-contiguous")))
+    }
+}
 
 /// Calculate observed fragment m/z values and mass errors from dense XIC/m/z observations
 ///

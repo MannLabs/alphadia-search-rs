@@ -8,10 +8,8 @@ target) therefore matches signal that belongs to a peptide that is in the sample
 peptide is abundant the borrowed traces co-elute perfectly. These are the well-matching
 null candidates that set the score threshold.
 
-The candidate context features (`candidate_context`) count how many other candidates could
-claim the same library m/z values. This module goes one step further and looks at the
-signal that was actually matched. For every candidate it extracts the same fragment traces as
-the scorer, keeps the fragments with signal, and asks for each one whether another
+This module looks at the signal that was actually matched. For every candidate it extracts
+the same fragment traces as the scorer, keeps the fragments with signal, and asks for each one whether another
 candidate in the same window, with its apex at most `cycle_radius` cycles away and with a
 higher ownership score, matched a trace at the same observed m/z. Such a fragment is
 *claimed*. The features report how much of the candidate's evidence is claimed and what the
@@ -87,7 +85,7 @@ centroids; its profile correlation is the correlation with the median of the non
 normalised traces, as in the scorer.
 
 **2. Index.** Every matched fragment becomes one entry `(key, candidate, m/z)` with the key
-`window << 48 | apex cycle << 32 | log-m/z bin`, the layout of `candidate_context`. The bin
+`window << 48 | apex cycle << 32 | log-m/z bin`. The bin
 width is `ln(1 + 2 · claim_tolerance)`.
 
 **3. Query.** For every candidate and every matched fragment, the bins `bin - 1 .. bin + 1`

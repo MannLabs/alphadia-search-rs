@@ -10,6 +10,7 @@ from alphadia_search_rs import (
     PeakGroupQuantification,
     QuantificationParameters,
     CandidateFeatureCollection,
+    FeatureSet,
 )
 import os
 import pandas as pd
@@ -24,7 +25,7 @@ from alphabase.spectral_library.flat import SpecLibFlat as AlphaBaseSpecLibFlat
 from alphadia.fdr.fdr import perform_fdr
 from alphadia.fdr.classifiers import BinaryClassifierLegacyNewBatching
 
-FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names()
+FEATURE_COLUMNS = CandidateFeatureCollection.get_feature_names(FeatureSet.Full)
 
 # Configure logging
 logging.basicConfig(
@@ -191,6 +192,7 @@ def run_candidate_scoring(ms_data, alphabase_speclib_flat, candidates_df):
         {
             "top_k_fragments": 99,
             "mass_tolerance": 7.0,
+            "feature_set": FeatureSet.Full,
         }
     )
 

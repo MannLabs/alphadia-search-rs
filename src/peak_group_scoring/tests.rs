@@ -1,13 +1,13 @@
 #[allow(unused_imports)]
 use super::utils::{
-    calculate_dot_product, calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
+    calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
     calculate_longest_ion_series, correlation, correlation_axis_0, intensity_ion_series,
     median_axis_0, normalize_profiles,
 };
 #[allow(unused_imports)]
 use crate::constants::FragmentType;
 #[allow(unused_imports)]
-use numpy::ndarray::{arr1, arr2, Array1};
+use numpy::ndarray::{arr1, arr2, Array1, Array2};
 
 #[test]
 fn test_median_axis_0_basic() {
@@ -612,7 +612,7 @@ fn test_longest_ion_series_mz_sorted_fragments() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_basic() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Fragment data with mass errors
@@ -641,7 +641,7 @@ fn test_hyperscore_inverse_mass_error_basic() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_zero_intensity() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Some fragments with zero intensity
@@ -670,7 +670,7 @@ fn test_hyperscore_inverse_mass_error_zero_intensity() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_all_zero_intensity() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: All fragments have zero intensity
@@ -693,7 +693,7 @@ fn test_hyperscore_inverse_mass_error_all_zero_intensity() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_large_errors() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Fragments with very large mass errors
@@ -718,7 +718,7 @@ fn test_hyperscore_inverse_mass_error_large_errors() {
 
 #[test]
 fn test_hyperscore_inverse_mass_error_small_errors() {
-    use super::calculate_hyperscore_inverse_mass_error;
+    use super::utils::calculate_hyperscore_inverse_mass_error;
     use crate::constants::FragmentType;
 
     // Given: Fragments with very small mass errors
@@ -998,39 +998,483 @@ fn test_calculate_fwhm_rt_no_crossing_clamps_to_window() {
 }
 
 #[test]
-fn test_calculate_dot_product_basic() {
-    let a = vec![1.0, 2.0, 3.0];
-    let b = vec![4.0, 5.0, 6.0];
+fn test_calculate_ion_coverage_features_ion_lengths() {
+    use super::ion_coverage::calculate_ion_coverage_features;
+    let fragment_numbers = [2u8, 3, 6, 8];
+    let correlations = [0.9f32, 0.2, 0.8, 0.6];
+    let intensities = [10.0f32, 10.0, 30.0, 50.0];
+    let types = [
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
 
-    let result = calculate_dot_product(&a, &b);
+    let (features, _) = calculate_ion_coverage_features(
+        &[1.0f32; 4],
+        &intensities,
+        &correlations,
+        &types,
+        &fragment_numbers,
+        &[1u8; 4],
+        10,
+        12,
+    );
 
-    // 1*4 + 2*5 + 3*6 = 4 + 10 + 18 = 32
-    assert_eq!(result, 32.0);
+    // co-eluting fragments: numbers 2, 6 and 8 of a 10-residue peptide
+    assert!((features.ion_position_mean - (0.2 + 0.6 + 0.8) / 3.0).abs() < 1e-6);
+    assert_eq!(features.num_over_50_b_short, 1.0);
+    assert_eq!(features.num_over_50_y_mid, 1.0);
+    assert_eq!(features.num_over_50_y_long, 1.0);
+    // the short ions b2 and y3 carry 20 of 100
+    assert!((features.short_ion_intensity_share - 0.2).abs() < 1e-6);
+    assert!((features.lib_share_over_50 - 0.75).abs() < 1e-6);
 }
 
 #[test]
-fn test_calculate_dot_product_empty() {
-    let a = vec![];
-    let b = vec![];
+fn test_calculate_ion_coverage_features_without_signal() {
+    use super::ion_coverage::{calculate_ion_coverage_features, IonCoverageFeatures};
+    let (features, _) = calculate_ion_coverage_features(
+        &[1.0f32, 1.0],
+        &[0.0f32, 0.0],
+        &[0.0f32, 0.0],
+        &[FragmentType::Y; 2],
+        &[4u8, 7],
+        &[1u8, 1],
+        9,
+        12,
+    );
 
-    let result = calculate_dot_product(&a, &b);
-    assert_eq!(result, 0.0);
+    assert_eq!(features, IonCoverageFeatures::default());
 }
 
 #[test]
-fn test_calculate_dot_product_mismatched_lengths() {
-    let a = vec![1.0, 2.0];
-    let b = vec![3.0, 4.0, 5.0];
+fn test_calculate_ion_coverage_features() {
+    use super::ion_coverage::calculate_ion_coverage_features;
+    let library = [4.0f32, 2.0, 1.0, 1.0];
+    let observed = [8.0f32, 4.0, 0.0, 2.0];
+    let correlations = [0.75f32, 0.625, 0.0, 0.25];
+    let types = [
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+    ];
+    let numbers = [9u8, 2, 5, 3];
+    let charges = [1u8, 1, 2, 2];
 
-    let result = calculate_dot_product(&a, &b);
-    assert_eq!(result, 0.0);
+    let (features, _) = calculate_ion_coverage_features(
+        &library,
+        &observed,
+        &correlations,
+        &types,
+        &numbers,
+        &charges,
+        12,
+        12,
+    );
+
+    assert!((features.xic_libweighted - 0.5625).abs() < 1e-6);
+    assert!((features.xic_obsweighted - 9.0 / 14.0).abs() < 1e-6);
+    // co-eluting: the y9 (long) and the b2 (short)
+    assert_eq!(features.num_over_50_y_long, 1.0);
+    assert_eq!(features.num_over_50_b_short, 1.0);
+    assert_eq!(
+        features.num_over_50_b_long + features.num_over_50_y_short + features.num_over_50_y_mid,
+        0.0
+    );
+    assert!((features.lib_share_over_50 - 0.75).abs() < 1e-6);
+    // neither doubly charged fragment (y5 without signal, y3 at 0.25) co-elutes
+    assert_eq!(features.num_over_50_z2, 0.0);
 }
 
 #[test]
-fn test_calculate_dot_product_zeros() {
-    let a = vec![1.0, 2.0, 3.0];
-    let b = vec![0.0, 0.0, 0.0];
+fn test_calculate_ion_coverage_features_ion_evidence_in_intensity_rank_order() {
+    use super::ion_coverage::calculate_ion_coverage_features;
+    // scored in m/z order; the library intensity ranks order them by intensity
+    let library = [1.0f32, 4.0, 2.0, 1.0];
+    let observed = [0.0f32, 8.0, 4.0, 2.0];
+    let correlations = [0.0f32, 0.75, 0.625, -0.25];
 
-    let result = calculate_dot_product(&a, &b);
-    assert_eq!(result, 0.0);
+    let (_, evidence) = calculate_ion_coverage_features(
+        &library,
+        &observed,
+        &correlations,
+        &[
+            FragmentType::B,
+            FragmentType::Y,
+            FragmentType::B,
+            FragmentType::Y,
+        ],
+        &[2, 9, 2, 3],
+        &[1, 1, 1, 1],
+        12,
+        12,
+    );
+
+    let shares: Vec<f32> = evidence.iter().map(|e| e.library_share).collect();
+    assert_eq!(shares, vec![0.5, 0.25, 0.125, 0.125]);
+    assert_eq!(evidence[0].bin, 75);
+    assert_eq!(evidence[1].bin, 62);
+    assert!(evidence[0].positive && evidence[1].positive);
+    // a hit with a negative correlation is no positive hit, no signal is no hit
+    assert!(evidence[3].hit && !evidence[3].positive);
+    assert!(!evidence[2].hit);
+    // y9 at rank 0, b2 at rank 1 and the b2 at rank 2 share a rank group: only ion class and rank group count
+    assert_ne!(evidence[0].class, evidence[1].class);
+    assert_eq!(evidence[1].class, evidence[2].class);
+}
+
+#[test]
+fn test_ion_noise_model_fisher() {
+    use super::ion_coverage::{IonEvidence, IonNoiseModel};
+    use rayon::prelude::*;
+    let fragment = |bin: u8, hit: bool, positive: bool, library_share: f32| IonEvidence {
+        class: 0,
+        bin,
+        hit,
+        positive,
+        library_share,
+    };
+    // class 0: four fragments, two positive hits at bins 10 and 90
+    let noise = vec![
+        vec![
+            fragment(10, true, true, 0.5),
+            fragment(0, false, false, 0.5),
+        ],
+        vec![
+            fragment(90, true, true, 0.5),
+            fragment(0, false, false, 0.5),
+        ],
+    ];
+    let model = IonNoiseModel::fit(noise.par_iter().map(|e| e.as_slice()), 1);
+
+    // hit rate 0.5 times the share of hits at bin 90 or above (0.5)
+    let weighted = model.fisher(&[fragment(90, true, true, 0.5)]);
+    assert!((weighted - 0.5 * 4f32.ln()).abs() < 1e-6);
+
+    // no noise hit correlates this well: the chance is floored
+    let floored = model.fisher(&[fragment(95, true, true, 1.0)]);
+    assert!((floored - 1e4f32.ln()).abs() < 1e-4);
+
+    // only positive hits add surprise
+    assert_eq!(
+        model.fisher(&[
+            fragment(90, true, false, 1.0),
+            fragment(0, false, false, 1.0)
+        ]),
+        0.0
+    );
+}
+
+#[test]
+fn test_calculate_library_agreement_features() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let types = [
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+    ];
+    let library = [1.0f32, 4.0, 2.0, 1.0, 1.0, 1.0];
+    let correlations = [0.9f32, 0.95, 0.8, 0.1, 0.0, -0.2];
+    let observed = [1.0f32, 4.0, 2.0, 1.0, 1.0, 1.0];
+    let xic = Array2::from_shape_fn((6, 1), |(i, _)| observed[i]);
+
+    let features = calculate_library_agreement_features(
+        &xic,
+        &[1.0],
+        &library,
+        &observed,
+        &correlations,
+        &types,
+    );
+
+    assert!(features.log_ratio_std.abs() < 1e-6);
+    assert!((features.y_intensity_correlation - 1.0).abs() < 1e-6);
+    assert!((features.lib_cosine_over_50 - 1.0).abs() < 1e-5);
+    assert!((features.ent_sim - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_lib_cosine_over_50_uses_only_coeluting_fragments() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let xic = arr2(&[
+        [0.0, 4.0, 8.0, 4.0, 0.0],
+        [0.0, 2.0, 4.0, 2.0, 0.0],
+        [0.0, 1.0, 2.0, 1.0, 0.0],
+        [50.0, 0.0, 0.0, 0.0, 50.0],
+    ]);
+    let profile = [0.0, 0.5, 1.0, 0.5, 0.0];
+    let library = [4.0f32, 2.0, 1.0, 9.0];
+    let observed: Vec<f32> = (0..4).map(|i| xic.row(i).sum()).collect();
+    let types = [FragmentType::Y; 4];
+
+    let coeluting = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[0.99, 0.99, 0.99, -0.5],
+        &types,
+    );
+    let too_few = calculate_library_agreement_features(
+        &xic,
+        &profile,
+        &library,
+        &observed,
+        &[0.99, 0.99, 0.1, -0.5],
+        &types,
+    );
+
+    assert!((coeluting.lib_cosine_over_50 - 1.0).abs() < 1e-5);
+    assert_eq!(too_few.lib_cosine_over_50, 0.0);
+}
+
+#[test]
+fn test_calculate_library_agreement_features_entropy_similarity() {
+    use super::library_agreement::calculate_library_agreement_features;
+    let library = [4.0f32, 2.0, 1.0];
+    let types = [FragmentType::Y; 3];
+    let xic = Array2::<f32>::zeros((3, 1));
+
+    let proportional = calculate_library_agreement_features(
+        &xic,
+        &[0.0],
+        &library,
+        &[40.0, 20.0, 10.0],
+        &[1.0, 1.0, 1.0],
+        &types,
+    );
+    let no_signal = calculate_library_agreement_features(
+        &xic,
+        &[0.0],
+        &library,
+        &[0.0, 0.0, 0.0],
+        &[0.0, 0.0, 0.0],
+        &types,
+    );
+
+    assert!((proportional.ent_sim - 1.0).abs() < 1e-6);
+    assert!((proportional.ent_sim_corrweighted - 1.0).abs() < 1e-6);
+    assert_eq!(no_signal.ent_sim, 0.0);
+    assert_eq!(no_signal.ent_sim_corrweighted, 0.0);
+}
+
+#[cfg(test)]
+mod feature_sets {
+    use crate::candidate::{Candidate, CandidateCollection};
+    use crate::constants::{FragmentType, Loss};
+    use crate::dia_data::{AlphaRawView, DIAData};
+    use crate::dia_data_builder::DIADataBuilder;
+    use crate::peak_group_scoring::features::CandidateFeatureCollection;
+    use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
+    use crate::speclib_flat::SpecLibFlat;
+    use numpy::ndarray::{Array1, Array4};
+    use pyo3::prelude::*;
+    use pyo3::types::PyDict;
+
+    const NUM_CYCLES: usize = 20;
+    const APEX_CYCLE: usize = 10;
+    const PRECURSOR_MZ: f32 = 500.0;
+    const FRAGMENTS: [(f32, f32); 6] = [
+        (300.0, 6.0),
+        (400.0, 5.0),
+        (500.0, 4.0),
+        (600.0, 3.0),
+        (700.0, 2.0),
+        (800.0, 1.0),
+    ];
+
+    /// One isolation window and one spectrum per cycle, in which the fragments of the library elute as a triangle
+    /// around APEX_CYCLE.
+    fn dia_data() -> DIAData {
+        let mut peak_mz = Vec::new();
+        let mut peak_intensity = Vec::new();
+        let mut peak_start = Vec::new();
+        let mut peak_stop = Vec::new();
+        for cycle in 0..NUM_CYCLES {
+            peak_start.push(peak_mz.len() as i64);
+            let elution = 5.0 - (cycle as f32 - APEX_CYCLE as f32).abs();
+            if elution > 0.0 {
+                for (mz, intensity) in FRAGMENTS {
+                    peak_mz.push(mz);
+                    peak_intensity.push(intensity * elution * 100.0);
+                }
+            }
+            peak_stop.push(peak_mz.len() as i64);
+        }
+        let delta_scan_idx = Array1::<i64>::zeros(NUM_CYCLES);
+        let lower = Array1::<f32>::from_elem(NUM_CYCLES, 400.0);
+        let upper = Array1::<f32>::from_elem(NUM_CYCLES, 600.0);
+        let peak_start = Array1::from(peak_start);
+        let peak_stop = Array1::from(peak_stop);
+        let cycle_idx = Array1::from_iter(0..NUM_CYCLES as i64);
+        let rt = Array1::from_iter((0..NUM_CYCLES).map(|c| c as f32 * 2.0));
+        let peak_mz = Array1::from(peak_mz);
+        let peak_intensity = Array1::from(peak_intensity);
+        let mut cycle = Array4::<f32>::zeros((1, 1, 1, 2));
+        cycle[[0, 0, 0, 0]] = 400.0;
+        cycle[[0, 0, 0, 1]] = 600.0;
+        let view = AlphaRawView::new(
+            delta_scan_idx.view(),
+            lower.view(),
+            upper.view(),
+            peak_start.view(),
+            peak_stop.view(),
+            cycle_idx.view(),
+            rt.view(),
+            peak_mz.view(),
+            peak_intensity.view(),
+            cycle.view(),
+        );
+        DIADataBuilder::from_alpha_raw(&view)
+    }
+
+    fn library() -> SpecLibFlat {
+        let n = FRAGMENTS.len();
+        let fragment_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
+        SpecLibFlat::from_vecs(
+            vec![0],
+            vec![PRECURSOR_MZ],
+            vec![PRECURSOR_MZ],
+            vec![20.0],
+            vec![20.0],
+            vec![10],
+            vec![0],
+            vec![n],
+            fragment_mz.clone(),
+            fragment_mz,
+            FRAGMENTS.iter().map(|&(_, intensity)| intensity).collect(),
+            vec![1; n],
+            vec![1; n],
+            vec![Loss::NONE; n],
+            (2..2 + n as u8).collect(),
+            (2..2 + n as u8).collect(),
+            vec![FragmentType::Y; n],
+        )
+    }
+
+    /// The precursor at its apex (rank 0) and off its apex (rank 1)
+    fn candidates() -> CandidateCollection {
+        CandidateCollection::from_vec(vec![
+            Candidate::new(0, 0, 2.0, APEX_CYCLE - 3, APEX_CYCLE, APEX_CYCLE + 3),
+            Candidate::new(0, 1, 1.0, 1, 3, 6),
+        ])
+    }
+
+    fn score(feature_set: FeatureSet) -> CandidateFeatureCollection {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_sets_the_feature_set() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config
+                .set_item("feature_set", FeatureSet::Calibration)
+                .unwrap();
+
+            // when
+            params.update(&config).unwrap();
+
+            // then
+            assert_eq!(params.feature_set, FeatureSet::Calibration);
+        });
+    }
+
+    #[test]
+    fn test_scoring_parameters_update_rejects_a_feature_set_name() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let mut params = ScoringParameters::new();
+            let config = PyDict::new(py);
+            config.set_item("feature_set", "calibration").unwrap();
+
+            // when
+            let result = params.update(&config);
+
+            // then
+            assert!(result.is_err());
+        });
+    }
+
+    #[test]
+    fn test_feature_set_is_hashable_in_python() {
+        pyo3::Python::initialize();
+        Python::attach(|py| {
+            // given
+            let full = Bound::new(py, FeatureSet::Full).unwrap();
+            let other_full = Bound::new(py, FeatureSet::Full).unwrap();
+            let calibration = Bound::new(py, FeatureSet::Calibration).unwrap();
+
+            // when
+            let full_hash = full.as_any().hash().unwrap();
+
+            // then
+            assert_eq!(full_hash, other_full.as_any().hash().unwrap());
+            assert_ne!(full_hash, calibration.as_any().hash().unwrap());
+        });
+    }
+
+    #[test]
+    fn test_scoring_parameters_default_to_the_full_feature_set() {
+        // given / when
+        let params = ScoringParameters::new();
+
+        // then
+        assert_eq!(params.feature_set, FeatureSet::Full);
+    }
+
+    #[test]
+    fn test_calibration_and_full_share_the_core_block() {
+        // given
+        let full = score(FeatureSet::Full);
+
+        // when
+        let calibration = score(FeatureSet::Calibration);
+
+        // then
+        assert_eq!(calibration.feature_set(), FeatureSet::Calibration);
+        assert_eq!(full.feature_set(), FeatureSet::Full);
+        assert_eq!(calibration.len(), full.len());
+        for (calibration_feature, full_feature) in calibration.iter().zip(full.iter()) {
+            assert_eq!(calibration_feature.core, full_feature.core);
+        }
+    }
+
+    #[test]
+    fn test_calibration_scores_the_core_block_only() {
+        // given / when
+        let calibration = score(FeatureSet::Calibration);
+
+        // then
+        let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
+        assert_eq!(apex.ion_coverage, None);
+        assert_eq!(apex.library_agreement, None);
+        assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
+    }
+
+    #[test]
+    fn test_full_scores_the_apex_candidate_with_signal_in_every_block() {
+        // given / when
+        let full = score(FeatureSet::Full);
+
+        // then
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let ion_coverage = apex.ion_coverage.unwrap();
+        let library_agreement = apex.library_agreement.unwrap();
+        assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
+        assert!(ion_coverage.lib_share_over_50 > 0.99);
+        assert!(ion_coverage.ion_fisher_lib > 0.0);
+        assert!(library_agreement.ent_sim > 0.99);
+    }
 }

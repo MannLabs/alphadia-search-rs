@@ -45,7 +45,7 @@ for &obs_idx in &valid_obs_idxs {
 
 ```rust
 use numpy::ndarray::Array2;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, MobilityFilter};
 
 /// Encapsulates a dense XIC matrix with metadata about its construction
 pub struct DenseXICObservation {
@@ -72,6 +72,7 @@ impl DenseXICObservation {
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
         precursor_mz: f32,
+        mobility: MobilityFilter,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
         mass_tolerance: f32,
@@ -82,14 +83,17 @@ impl DenseXICObservation {
             cycle_stop_idx - cycle_start_idx
         ));
 
-        let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
+        // Each observation that isolated the precursor, with the scan restriction
+        // (e.g. ion mobility) to apply while filling.
+        let valid_obs = dia_data.select_observations(precursor_mz, mobility);
 
-        for &obs_idx in &valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
+        for (obs_idx, scan_filter) in &valid_obs {
+            let obs = &dia_data.quadrupole_observations()[*obs_idx];
 
             for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
                     dia_data.mz_index(),
+                    scan_filter,
                     &mut dense_xic.row_mut(f_idx),
                     cycle_start_idx,
                     cycle_stop_idx,
@@ -101,7 +105,7 @@ impl DenseXICObservation {
 
         Self {
             dense_xic,
-            contributing_obs_indices: valid_obs_idxs,
+            contributing_obs_indices: valid_obs.iter().map(|(obs_idx, _)| *obs_idx).collect(),
             cycle_start_idx,
             cycle_stop_idx,
             mass_tolerance,
@@ -109,6 +113,9 @@ impl DenseXICObservation {
     }
 }
 ```
+
+`select_observations` and `MobilityFilter` are described under "Ion mobility filter" in
+`src/dia_data/DOCS.md`.
 
 ## Usage Examples
 
@@ -125,6 +132,7 @@ let valid_obs_idxs = dia_data.get_valid_observations(precursor.mz);
 let dense_xic_obs = DenseXICObservation::new(
     &dia_data,
     precursor.mz,
+    precursor.mobility_filter(),
     cycle_start_idx,
     cycle_stop_idx,
     mass_tolerance,
@@ -148,6 +156,7 @@ let convolved_xic = convolution(&self.kernel, &dense_xic);
 let dense_xic_obs = DenseXICObservation::new(
     &dia_data,
     precursor.mz,
+    precursor.mobility_filter(),
     cycle_start_idx,
     cycle_stop_idx,
     mass_tolerance,

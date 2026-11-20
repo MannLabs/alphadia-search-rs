@@ -15,6 +15,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
+/// gamma of the quality weights, which come with the fragment censoring correction.
+const QUALITY_EXPONENT: f64 = 1.5;
+
 #[doc = include_str!("DOCS.md")]
 #[pyclass]
 pub struct VarModelQuantification;
@@ -29,12 +32,12 @@ impl VarModelQuantification {
     }
 
     /// Gives a dict with the `(n_runs, n_precursors)` log2 `quantity` matrix and the scalars
-    /// `residual_scale`, `loss_scale` and `offset_shrinkage` of the fit; with `censored` also
-    /// the per-run dropout curves `detection_limit`, `dropout_width` and `dropout_plateau`
-    /// (NaN for a run without missing fragments).
+    /// `residual_scale`, `loss_scale` and `offset_shrinkage` of the fit; with
+    /// `fragment_censoring_correction` also the per-run dropout curves `detection_limit`,
+    /// `dropout_width` and `dropout_plateau` (NaN for a run without missing fragments).
     ///
-    /// `correlation` has the shape of `intensity` and values in [0, 1]; it only matters when
-    /// `quality_exponent` > 0.
+    /// `correlation` has the shape of `intensity` and values in [0, 1]; it is required with, and
+    /// only used by, `fragment_censoring_correction`.
     ///
     /// This method borrows the arrays and does not copy them. The arrays must therefore be
     /// C-contiguous.
@@ -47,10 +50,9 @@ impl VarModelQuantification {
         intensity_library,
         precursor,
         n_precursors,
-        correlation,
+        correlation=None,
         *,
-        censored=false,
-        quality_exponent=0.0,
+        fragment_censoring_correction=false,
     ))]
     fn fit(
         &self,
@@ -59,9 +61,8 @@ impl VarModelQuantification {
         intensity_library: PyReadonlyArray1<'_, f32>,
         precursor: PyReadonlyArray1<'_, usize>,
         n_precursors: usize,
-        correlation: PyReadonlyArray2<'_, f32>,
-        censored: bool,
-        quality_exponent: f64,
+        correlation: Option<PyReadonlyArray2<'_, f32>>,
+        fragment_censoring_correction: bool,
     ) -> PyResult<Py<PyAny>> {
         let shape = intensity.shape();
         let n_runs = shape[0];
@@ -73,23 +74,28 @@ impl VarModelQuantification {
             n_precursors,
         )
         .map_err(PyValueError::new_err)?;
-        if correlation.shape() != shape {
-            return Err(PyValueError::new_err(format!(
-                "correlation has shape {:?}, intensity {:?}",
-                correlation.shape(),
-                shape
-            )));
+        if fragment_censoring_correction && correlation.is_none() {
+            return Err(PyValueError::new_err(
+                "correlation is required with fragment_censoring_correction",
+            ));
         }
-        if quality_exponent < 0.0 {
-            return Err(PyValueError::new_err(format!(
-                "quality_exponent must be >= 0, not {quality_exponent}"
-            )));
+        if let Some(correlation) = &correlation {
+            if correlation.shape() != shape {
+                return Err(PyValueError::new_err(format!(
+                    "correlation has shape {:?}, intensity {:?}",
+                    correlation.shape(),
+                    shape
+                )));
+            }
+            require_c_contiguous(&**correlation, "correlation")?;
         }
         require_c_contiguous(&*intensity, "intensity")?;
-        require_c_contiguous(&*correlation, "correlation")?;
         let intensity = intensity.as_slice()?;
         let intensity_library = intensity_library.as_slice()?;
-        let correlation = correlation.as_slice()?;
+        let correlation = match &correlation {
+            Some(correlation) => correlation.as_slice()?,
+            None => &[],
+        };
         validate_correlation(correlation).map_err(PyValueError::new_err)?;
         let result = fit(
             intensity,
@@ -99,8 +105,12 @@ impl VarModelQuantification {
             n_runs,
             n_precursors,
             &FitConfig {
-                censored,
-                quality_exponent,
+                fragment_censoring_correction,
+                quality_exponent: if fragment_censoring_correction {
+                    QUALITY_EXPONENT
+                } else {
+                    0.0
+                },
                 ..FitConfig::DEFAULT
             },
         );

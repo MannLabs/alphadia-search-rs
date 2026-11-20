@@ -86,8 +86,8 @@ A dict with
 - `quantity` — `(n_runs, n_precursors)` log2 run quantities, NaN where the run of the
   precursor has fewer than 2 observed fragments (`min_ions`).
 - `residual_scale`, `loss_scale`, `offset_shrinkage` — the scalars of the fit, for logging.
-- with `censored=True`: `detection_limit`, `dropout_width`, `dropout_plateau` — the dropout curve
-  of every run, NaN for a run without missing fragments.
+- with `fragment_censoring_correction=True`: `detection_limit`, `dropout_width`,
+  `dropout_plateau` — the dropout curve of every run, NaN for a run without missing fragments.
 
 # Algorithm
 
@@ -133,7 +133,8 @@ still downweights its outliers.
 
 # Censored missing fragments
 
-Advanced mode for missing fragments, controlled by `censored=True`.
+Advanced mode for missing fragments, controlled by `fragment_censoring_correction=True`.
+Without it, missing fragments are dropped from the fit.
 
 The backend reports a fragment only when its XIC carries signal, so a missing fragment of a
 quantified run (at least one observed fragment) says "below the detection limit". Leaving it out
@@ -168,7 +169,7 @@ keep the fit without censoring.
 
 # Quality weights
 
-Controlled by `quality_exponent = gamma` (0, the default, turns them off).
+On together with `fragment_censoring_correction`, with `gamma = 1.5`.
 
 The variance of measurement `(f, r)` is multiplied by `exp(gamma * (1 - sqrt(C[f, r])))`, `C`
 the XIC correlation of the fragment in that run, so that a value with a poor correlation in one

@@ -65,7 +65,7 @@ fn simulate(
     }
 }
 
-fn run(simulation: &Simulation, censored: bool, gamma: f64) -> FitResult {
+fn run(simulation: &Simulation, fragment_censoring_correction: bool, gamma: f64) -> FitResult {
     fit(
         &simulation.intensity,
         &simulation.intensity_library,
@@ -74,7 +74,7 @@ fn run(simulation: &Simulation, censored: bool, gamma: f64) -> FitResult {
         simulation.n_runs,
         simulation.n_precursors,
         &FitConfig {
-            censored,
+            fragment_censoring_correction,
             quality_exponent: gamma,
             ..FitConfig::DEFAULT
         },

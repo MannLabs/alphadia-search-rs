@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 25;
-const NUM_FULL_FEATURES: usize = 62;
+const NUM_FULL_FEATURES: usize = 67;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -48,6 +48,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
             mobility_peak_sd: 24.0,
             mobility_outer_frac: 25.0,
         }),
+        mobility_profile: None,
     }
 }
 
@@ -110,6 +111,13 @@ fn numbered_full_feature() -> CandidateFeature {
             mobility_fragment_sd: 60.0,
             mobility_peak_sd: 61.0,
             mobility_outer_frac: 62.0,
+        }),
+        mobility_profile: Some(MobilityProfileFeatures {
+            mob2d_corr_mean: 63.0,
+            mob2d_coherent_share: 64.0,
+            mob2d_apex_sd: 65.0,
+            mob2d_peak_share: 66.0,
+            mob2d_fwhm: 67.0,
         }),
     }
 }
@@ -181,7 +189,8 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_
             WindowShareFeatures::NAMES,
             Ms1Features::NAMES,
             DetectionFeatures::NAMES,
-            MobilityFeatures::NAMES
+            MobilityFeatures::NAMES,
+            MobilityProfileFeatures::NAMES
         ]
         .concat()
     );
@@ -255,7 +264,10 @@ fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block()
     let names = FeatureSet::Full.feature_names();
 
     // then: the columns before them keep their positions
-    let num_before = NUM_FULL_FEATURES - 13 - MobilityFeatures::NAMES.len();
+    let num_before = NUM_FULL_FEATURES
+        - 13
+        - MobilityFeatures::NAMES.len()
+        - MobilityProfileFeatures::NAMES.len();
     assert_eq!(names[num_before - 1], "apex_window_signal_frac_zscore");
     assert_eq!(
         names[num_before..],
@@ -278,6 +290,11 @@ fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block()
             "mobility_fragment_sd",
             "mobility_peak_sd",
             "mobility_outer_frac",
+            "mob2d_corr_mean",
+            "mob2d_coherent_share",
+            "mob2d_apex_sd",
+            "mob2d_peak_share",
+            "mob2d_fwhm",
         ]
     );
 }

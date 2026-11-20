@@ -2109,7 +2109,8 @@ mod feature_sets {
         // then
         let num_other = FeatureSet::Full.feature_names().len()
             - 3
-            - <crate::peak_group_scoring::mobility::MobilityFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len();
+            - <crate::peak_group_scoring::mobility::MobilityFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len()
+            - <crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len();
         for (a, b) in without.iter().zip(with.iter()) {
             assert_eq!(
                 a.values(FeatureSet::Full).unwrap()[..num_other],

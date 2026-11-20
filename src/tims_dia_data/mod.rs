@@ -262,6 +262,38 @@ impl DIADataTrait for TimsDIAData {
         slot as f32 / (self.num_groups + 1) as f32
     }
 
+    fn mobility_scans(&self, mobility: MobilityFilter) -> Option<(usize, usize, Vec<f32>)> {
+        let range = self.scan_range(mobility);
+        Some((range.start, range.end, self.scan_mobility[range].to_vec()))
+    }
+
+    fn fill_mobility_patch(
+        &self,
+        observations: &[(usize, Vec<bool>)],
+        cycle_start: usize,
+        scan_start: usize,
+        mass_tolerance: f32,
+        mz: f32,
+        patch: &mut numpy::ndarray::Array2<f32>,
+    ) {
+        let (n_cycles, n_scans) = patch.dim();
+        for (obs_idx, scan_mask) in observations {
+            self.quadrupole_observations[*obs_idx].for_each_peak(
+                MZIndex::global(),
+                scan_mask,
+                cycle_start,
+                cycle_start + n_cycles,
+                mass_tolerance,
+                mz,
+                |cycle, intensity, _, scan| {
+                    if scan >= scan_start && scan - scan_start < n_scans {
+                        patch[[cycle, scan - scan_start]] += intensity;
+                    }
+                },
+            );
+        }
+    }
+
     fn ms1_scan_filter(&self, _obs_idx: usize, mobility: MobilityFilter) -> Vec<bool> {
         let mut mask = vec![false; self.scan_mobility.len()];
         mask[self.scan_range(mobility)].fill(true);

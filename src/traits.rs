@@ -119,6 +119,25 @@ pub trait DIADataTrait {
         None
     }
 
+    /// The scans `[start, stop)` of `mobility` and their 1/K0, for data with an ion mobility dimension; `None` without one.
+    fn mobility_scans(&self, _mobility: MobilityFilter) -> Option<(usize, usize, Vec<f32>)> {
+        None
+    }
+
+    /// Adds the peaks within `mz ± mass_tolerance` ppm of the observations to `patch` (cycles `cycle_start..` ×
+    /// scans `scan_start..`); peaks outside the patch are left out. Only for data with an ion mobility dimension.
+    #[allow(clippy::too_many_arguments)]
+    fn fill_mobility_patch(
+        &self,
+        _observations: &[(usize, ScanFilterOf<Self>)],
+        _cycle_start: usize,
+        _scan_start: usize,
+        _mass_tolerance: f32,
+        _mz: f32,
+        _patch: &mut numpy::ndarray::Array2<f32>,
+    ) {
+    }
+
     /// The scan restriction of an MS1 survey observation for a precursor at `mobility`.
     fn ms1_scan_filter(&self, obs_idx: usize, mobility: MobilityFilter) -> ScanFilterOf<Self>;
 

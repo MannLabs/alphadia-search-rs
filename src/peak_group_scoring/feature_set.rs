@@ -10,6 +10,7 @@ use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use crate::peak_group_scoring::mobility::MobilityFeatures;
+use crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
 use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
@@ -30,6 +31,7 @@ pub enum FeatureBlockId {
     Ms1,
     Detection,
     Mobility,
+    MobilityProfile,
 }
 
 impl FeatureSet {
@@ -45,6 +47,7 @@ impl FeatureSet {
                 FeatureBlockId::Ms1,
                 FeatureBlockId::Detection,
                 FeatureBlockId::Mobility,
+                FeatureBlockId::MobilityProfile,
             ],
         }
     }
@@ -71,6 +74,7 @@ impl FeatureBlockId {
             FeatureBlockId::Ms1 => Ms1Features::NAMES,
             FeatureBlockId::Detection => DetectionFeatures::NAMES,
             FeatureBlockId::Mobility => MobilityFeatures::NAMES,
+            FeatureBlockId::MobilityProfile => MobilityProfileFeatures::NAMES,
         }
     }
 }

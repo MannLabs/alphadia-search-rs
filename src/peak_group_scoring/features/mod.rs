@@ -13,6 +13,7 @@ use crate::peak_group_scoring::feature_set::{FeatureBlockId, FeatureSet};
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use crate::peak_group_scoring::mobility::MobilityFeatures;
+use crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
 use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
@@ -31,6 +32,7 @@ pub struct CandidateFeature {
     pub ms1: Option<Ms1Features>,
     pub detection: Option<DetectionFeatures>,
     pub mobility: Option<MobilityFeatures>,
+    pub mobility_profile: Option<MobilityProfileFeatures>,
 }
 
 impl CandidateFeature {
@@ -55,6 +57,9 @@ impl CandidateFeature {
             FeatureBlockId::Ms1 => self.ms1.map(|features| features.values()),
             FeatureBlockId::Detection => self.detection.map(|features| features.values()),
             FeatureBlockId::Mobility => self.mobility.map(|features| features.values()),
+            FeatureBlockId::MobilityProfile => {
+                self.mobility_profile.map(|features| features.values())
+            }
         }
     }
 }

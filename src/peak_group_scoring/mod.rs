@@ -20,6 +20,7 @@ use crate::peak_group_scoring::library_agreement::calculate_library_agreement_fe
 use crate::peak_group_scoring::mobility::{
     calculate_mobility_features, recentered_mobility_filter,
 };
+use crate::peak_group_scoring::mobility_profile::calculate_mobility_profile_features;
 use crate::peak_group_scoring::ms1::{
     calculate_ms1_apex_calibration, calculate_ms1_features, Ms1ApexFeatures,
 };
@@ -40,6 +41,7 @@ pub mod features;
 pub mod ion_coverage;
 pub mod library_agreement;
 pub mod mobility;
+pub mod mobility_profile;
 pub mod ms1;
 pub mod observation;
 pub mod parameters;
@@ -432,6 +434,18 @@ impl PeakGroupScoring {
             )
         });
 
+        let mobility_profile = feature_set
+            .has_block(FeatureBlockId::MobilityProfile)
+            .then(|| {
+                calculate_mobility_profile_features(
+                    dia_data,
+                    precursor,
+                    candidate,
+                    wide,
+                    self.params.mass_tolerance,
+                )
+            });
+
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
@@ -442,6 +456,7 @@ impl PeakGroupScoring {
             ms1,
             detection,
             mobility,
+            mobility_profile,
         };
         Some(ScoredCandidate {
             feature,

@@ -17,6 +17,7 @@ use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
 
 pub mod core;
+pub mod deconvolution;
 pub mod feature_block;
 pub mod feature_set;
 pub mod features;

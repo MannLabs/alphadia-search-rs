@@ -30,6 +30,30 @@ pub struct PeakGroupObservation {
 }
 
 impl PeakGroupObservation {
+    /// Construct a `PeakGroupObservation` from pre-extracted candidate XIC and m/z arrays (`fragments x cycles`).
+    pub fn from_dense(dense_xic: Array2<f32>, dense_mz: Array2<f32>) -> Self {
+        let normalized_xic = normalize_profiles(&dense_xic, 1);
+        let filtered_xic = filter_non_zero(&normalized_xic);
+
+        let median_profile = median_axis_0(&normalized_xic);
+        let median_profile_filtered = median_axis_0(&filtered_xic);
+        let correlations = correlation_axis_0(&median_profile_filtered, &normalized_xic);
+
+        let observation_intensities = dense_xic.sum_axis(Axis(1)).to_vec();
+        let matched_mask = observation_intensities.iter().map(|&x| x > 0.0).collect();
+
+        Self {
+            dense_xic,
+            dense_mz,
+            median_profile,
+            median_profile_filtered,
+            num_profiles_filtered: filtered_xic.shape()[0],
+            correlations,
+            observation_intensities,
+            matched_mask,
+        }
+    }
+
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
         precursor: &Precursor,
@@ -44,26 +68,6 @@ impl PeakGroupObservation {
             mass_tolerance,
             &precursor.fragment_mz,
         );
-
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
-        let filtered_xic = filter_non_zero(&normalized_xic);
-
-        let median_profile = median_axis_0(&normalized_xic);
-        let median_profile_filtered = median_axis_0(&filtered_xic);
-        let correlations = correlation_axis_0(&median_profile_filtered, &normalized_xic);
-
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1)).to_vec();
-        let matched_mask = observation_intensities.iter().map(|&x| x > 0.0).collect();
-
-        Self {
-            dense_xic: dense_xic_mz_obs.dense_xic,
-            dense_mz: dense_xic_mz_obs.dense_mz,
-            median_profile,
-            median_profile_filtered,
-            num_profiles_filtered: filtered_xic.shape()[0],
-            correlations,
-            observation_intensities,
-            matched_mask,
-        }
+        Self::from_dense(dense_xic_mz_obs.dense_xic, dense_xic_mz_obs.dense_mz)
     }
 }

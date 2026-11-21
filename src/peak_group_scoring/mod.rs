@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
+use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
@@ -12,9 +13,13 @@ use crate::peak_group_scoring::ion_coverage::{
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
+use crate::peak_group_scoring::symbolic::{
+    calculate_symbolic_features_from_dense, SYMBOLIC_HALF_WINDOW,
+};
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
+use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::SpecLibFlat;
+use numpy::ndarray::s;
 
 pub mod core;
 pub mod feature_block;
@@ -24,6 +29,7 @@ pub mod ion_coverage;
 pub mod library_agreement;
 pub mod observation;
 pub mod parameters;
+pub mod symbolic;
 pub mod tests;
 pub mod utils;
 pub use feature_set::FeatureSet;
@@ -59,8 +65,22 @@ impl PeakGroupScoring {
         dia_data: &T,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
-    ) -> CandidateFeatureCollection {
+    ) -> CandidateFeatureCollection
+    where
+        T::QuadrupoleObservation: Sync,
+    {
         let start_time = Instant::now();
+
+        let crowding_tables: Vec<Option<Vec<u8>>> =
+            if self.params.feature_set.has_block(FeatureBlockId::Symbolic) {
+                dia_data
+                    .quadrupole_observations()
+                    .par_iter()
+                    .map(|obs| obs.build_1da_crowding_table(dia_data.mz_index()))
+                    .collect()
+            } else {
+                Vec::new()
+            };
 
         // Parallel iteration over candidates to score each one
         let (mut scored_candidates, ion_evidence): (Vec<_>, Vec<Vec<IonEvidence>>) = candidates
@@ -74,9 +94,12 @@ impl PeakGroupScoring {
                     false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
-                    }
+                    Some(precursor) => self.score_candidate_generic(
+                        dia_data,
+                        &precursor,
+                        candidate,
+                        &crowding_tables,
+                    ),
                     None => {
                         eprintln!(
                             "Warning: Candidate precursor_idx {} not found in library. Skipping.",
@@ -146,14 +169,69 @@ impl PeakGroupScoring {
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
+        crowding_tables: &[Option<Vec<u8>>],
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
-        let observation =
-            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        let feature_set = self.params.feature_set;
+        let has_symbolic = feature_set.has_block(FeatureBlockId::Symbolic);
+
+        let (observation, symbolic) = if has_symbolic {
+            let n_cycles = dia_data.rt_index().rt.len();
+            let sym_lo = candidate
+                .cycle_center
+                .saturating_sub(SYMBOLIC_HALF_WINDOW)
+                .min(n_cycles);
+            let sym_hi = (candidate.cycle_center + SYMBOLIC_HALF_WINDOW + 1).min(n_cycles);
+            let cand_lo = candidate.cycle_start;
+            let cand_hi = candidate.cycle_stop.max(cand_lo);
+            let union_lo = cand_lo.min(sym_lo);
+            let union_hi = cand_hi.max(sym_hi);
+
+            let union_dense = DenseXICMZObservation::new(
+                dia_data,
+                precursor.mz,
+                union_lo,
+                union_hi,
+                self.params.mass_tolerance,
+                &precursor.fragment_mz,
+            );
+            let rel_lo = cand_lo - union_lo;
+            let rel_hi = cand_hi - union_lo;
+            let obs = PeakGroupObservation::from_dense(
+                union_dense
+                    .dense_xic
+                    .slice(s![.., rel_lo..rel_hi])
+                    .to_owned(),
+                union_dense
+                    .dense_mz
+                    .slice(s![.., rel_lo..rel_hi])
+                    .to_owned(),
+            );
+            let sym = calculate_symbolic_features_from_dense(
+                dia_data,
+                precursor,
+                candidate,
+                self.params.mass_tolerance,
+                &union_dense.dense_xic,
+                &union_dense.dense_mz,
+                union_lo,
+                &union_dense.contributing_obs_indices,
+                crowding_tables,
+            );
+            (obs, Some(sym))
+        } else {
+            (
+                PeakGroupObservation::new(
+                    dia_data,
+                    precursor,
+                    candidate,
+                    self.params.mass_tolerance,
+                ),
+                None,
+            )
+        };
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
-
-        let feature_set = self.params.feature_set;
 
         let (ion_coverage, ion_evidence) = if feature_set.has_block(FeatureBlockId::IonCoverage) {
             let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
@@ -190,6 +268,7 @@ impl PeakGroupScoring {
             core,
             ion_coverage,
             library_agreement,
+            symbolic,
         };
         Some((feature, ion_evidence))
     }

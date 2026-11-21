@@ -27,6 +27,9 @@ pub struct SpecLibFlat {
     /// Number of amino acids in the precursor sequence, sorted according to precursor_idx order
     precursor_naa: Vec<u8>,
 
+    /// Precursor charge state, sorted according to precursor_idx order
+    precursor_charge: Vec<u8>,
+
     /// Start indices into fragment arrays for each precursor, sorted according to precursor_idx order
     flat_frag_start_idx: Vec<usize>,
 
@@ -76,6 +79,7 @@ impl SpecLibFlat {
             precursor_rt_library: Vec::new(),
             precursor_rt: Vec::new(),
             precursor_naa: Vec::new(),
+            precursor_charge: Vec::new(),
             flat_frag_start_idx: Vec::new(),
             flat_frag_stop_idx: Vec::new(),
             fragment_mz_library: Vec::new(),
@@ -92,6 +96,26 @@ impl SpecLibFlat {
 
     #[staticmethod]
     #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (
+        precursor_idx,
+        precursor_mz_library,
+        precursor_mz,
+        precursor_rt_library,
+        precursor_rt,
+        precursor_naa,
+        flat_frag_start_idx,
+        flat_frag_stop_idx,
+        fragment_mz_library,
+        fragment_mz,
+        fragment_intensity,
+        fragment_cardinality,
+        fragment_charge,
+        fragment_loss_type,
+        fragment_number,
+        fragment_position,
+        fragment_type,
+        precursor_charge = None,
+    ))]
     fn from_arrays(
         precursor_idx: PyReadonlyArray1<'_, usize>,
         precursor_mz_library: PyReadonlyArray1<'_, f32>,
@@ -110,14 +134,19 @@ impl SpecLibFlat {
         fragment_number: PyReadonlyArray1<'_, u8>,
         fragment_position: PyReadonlyArray1<'_, u8>,
         fragment_type: PyReadonlyArray1<'_, u8>,
+        precursor_charge: Option<PyReadonlyArray1<'_, u8>>,
     ) -> Self {
-        Self::from_vecs(
+        let charges = precursor_charge
+            .map(|c| c.as_array().to_vec())
+            .unwrap_or_else(|| vec![2; precursor_idx.len().unwrap_or(0)]);
+        Self::from_vecs_with_charge(
             precursor_idx.as_array().to_vec(),
             precursor_mz_library.as_array().to_vec(),
             precursor_mz.as_array().to_vec(),
             precursor_rt_library.as_array().to_vec(),
             precursor_rt.as_array().to_vec(),
             precursor_naa.as_array().to_vec(),
+            charges,
             flat_frag_start_idx.as_array().to_vec(),
             flat_frag_stop_idx.as_array().to_vec(),
             fragment_mz_library.as_array().to_vec(),
@@ -335,6 +364,50 @@ impl SpecLibFlat {
         fragment_position: Vec<u8>,
         fragment_type: Vec<u8>,
     ) -> Self {
+        let precursor_charge = vec![2; precursor_idx.len()];
+        Self::from_vecs_with_charge(
+            precursor_idx,
+            precursor_mz_library,
+            precursor_mz,
+            precursor_rt_library,
+            precursor_rt,
+            precursor_naa,
+            precursor_charge,
+            flat_frag_start_idx,
+            flat_frag_stop_idx,
+            fragment_mz_library,
+            fragment_mz,
+            fragment_intensity,
+            fragment_cardinality,
+            fragment_charge,
+            fragment_loss_type,
+            fragment_number,
+            fragment_position,
+            fragment_type,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_vecs_with_charge(
+        precursor_idx: Vec<usize>,
+        precursor_mz_library: Vec<f32>,
+        precursor_mz: Vec<f32>,
+        precursor_rt_library: Vec<f32>,
+        precursor_rt: Vec<f32>,
+        precursor_naa: Vec<u8>,
+        precursor_charge: Vec<u8>,
+        flat_frag_start_idx: Vec<usize>,
+        flat_frag_stop_idx: Vec<usize>,
+        fragment_mz_library: Vec<f32>,
+        fragment_mz: Vec<f32>,
+        fragment_intensity: Vec<f32>,
+        fragment_cardinality: Vec<u8>,
+        fragment_charge: Vec<u8>,
+        fragment_loss_type: Vec<u8>,
+        fragment_number: Vec<u8>,
+        fragment_position: Vec<u8>,
+        fragment_type: Vec<u8>,
+    ) -> Self {
         let mut indices: Vec<usize> = (0..precursor_idx.len()).collect();
         indices.sort_by_key(|&i| precursor_idx[i]);
 
@@ -346,6 +419,10 @@ impl SpecLibFlat {
             indices.iter().map(|&i| precursor_rt_library[i]).collect();
         let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt[i]).collect();
         let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa[i]).collect();
+        let sorted_precursor_charge: Vec<u8> = indices
+            .iter()
+            .map(|&i| precursor_charge.get(i).copied().unwrap_or(2))
+            .collect();
         let sorted_flat_frag_start_idx: Vec<usize> =
             indices.iter().map(|&i| flat_frag_start_idx[i]).collect();
         let sorted_flat_frag_stop_idx: Vec<usize> =
@@ -358,6 +435,7 @@ impl SpecLibFlat {
             precursor_rt_library: sorted_precursor_rt_library,
             precursor_rt: sorted_precursor_rt,
             precursor_naa: sorted_precursor_naa,
+            precursor_charge: sorted_precursor_charge,
             flat_frag_start_idx: sorted_flat_frag_start_idx,
             flat_frag_stop_idx: sorted_flat_frag_stop_idx,
             fragment_mz_library,
@@ -379,6 +457,7 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
+        let precursor_charge = self.precursor_charge[index];
         let start_idx = self.flat_frag_start_idx[index];
         let stop_idx = self.flat_frag_stop_idx[index];
 
@@ -399,6 +478,7 @@ impl SpecLibFlat {
             rt: precursor_rt,
             rt_library: precursor_rt_library,
             naa: precursor_naa,
+            charge: precursor_charge,
             fragment_mz,
             fragment_mz_library,
             fragment_intensity,
@@ -425,6 +505,7 @@ impl SpecLibFlat {
         let precursor_rt = self.precursor_rt[index];
         let precursor_rt_library = self.precursor_rt_library[index];
         let precursor_naa = self.precursor_naa[index];
+        let precursor_charge = self.precursor_charge[index];
         let start_idx = self.flat_frag_start_idx[index];
         let stop_idx = self.flat_frag_stop_idx[index];
 
@@ -471,6 +552,7 @@ impl SpecLibFlat {
             rt: precursor_rt,
             rt_library: precursor_rt_library,
             naa: precursor_naa,
+            charge: precursor_charge,
             fragment_mz,
             fragment_mz_library,
             fragment_intensity,

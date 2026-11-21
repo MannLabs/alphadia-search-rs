@@ -5,6 +5,7 @@ pub struct Precursor {
     pub rt: f32,
     pub rt_library: f32,
     pub naa: u8,
+    pub charge: u8,
     pub fragment_mz: Vec<f32>,
     pub fragment_mz_library: Vec<f32>,
     pub fragment_intensity: Vec<f32>,

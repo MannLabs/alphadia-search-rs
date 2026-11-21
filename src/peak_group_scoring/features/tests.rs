@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 37;
+const NUM_FULL_FEATURES: usize = 45;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -38,6 +38,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         core: numbered_core(),
         ion_coverage: None,
         library_agreement: None,
+        symbolic: None,
     }
 }
 
@@ -67,6 +68,16 @@ fn numbered_full_feature() -> CandidateFeature {
             lib_cosine_over_50: 35.0,
             ent_sim: 36.0,
             ent_sim_corrweighted: 37.0,
+        }),
+        symbolic: Some(SymbolicFeatures {
+            sym_tgp_crowding_ppm_top5: 38.0,
+            sym_tgp_crowding_sqrt_top3: 39.0,
+            sym_interf_trimmed2_entropy: 40.0,
+            sym_lib_clean_entropy_full: 41.0,
+            sym_kan_coel_specificity: 42.0,
+            sym_ctx_specificity_hits: 43.0,
+            sym_nov_n_clean_ppm: 44.0,
+            sym_mz_n_clean_within_tol: 45.0,
         }),
     }
 }
@@ -130,7 +141,8 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
         [
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
-            LibraryAgreementFeatures::NAMES
+            LibraryAgreementFeatures::NAMES,
+            SymbolicFeatures::NAMES,
         ]
         .concat()
     );
@@ -144,7 +156,13 @@ fn test_calibration_leaves_out_the_ion_coverage_and_library_agreement_features()
     let names = FeatureSet::Calibration.feature_names();
 
     // then
-    for name in [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat() {
+    for name in [
+        IonCoverageFeatures::NAMES,
+        LibraryAgreementFeatures::NAMES,
+        SymbolicFeatures::NAMES,
+    ]
+    .concat()
+    {
         assert!(!names.contains(&name), "{name}");
     }
 }

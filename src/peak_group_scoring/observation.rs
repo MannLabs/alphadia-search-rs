@@ -39,6 +39,7 @@ impl PeakGroupObservation {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
             precursor.mz,
+            precursor.mobility_filter(),
             candidate.cycle_start,
             candidate.cycle_stop,
             mass_tolerance,

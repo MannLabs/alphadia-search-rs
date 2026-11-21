@@ -23,6 +23,18 @@ pub const PATCH_CYCLE_RADIUS: usize = 2;
 pub const SCAN_SMOOTHING_RADIUS: usize = 3;
 /// A fragment whose patch correlates with the consensus of the others above this value is coherent.
 pub const COHERENT_CORRELATION: f32 = 0.5;
+/// The hit count of `mob2d_hit_excess` takes its background from the cycles this far from the apex ...
+pub const HIT_FLANK_MIN: usize = 5;
+/// ... up to this far.
+pub const HIT_FLANK_MAX: usize = 9;
+/// The inner region of `mob2d_hit_excess`: the apex cycle +- this many cycles ...
+pub const HIT_INNER_CYCLES: usize = 2;
+/// ... and the consensus apex scan +- this many scans (about the half width of a mobility peak).
+pub const HIT_INNER_SCANS: usize = 8;
+/// Bounds of a fragment's background hit rate per patch pixel.
+const HIT_RATE_BOUNDS: (f32, f32) = (1e-4, 0.9);
+/// Floor of the variance of the expected inner hit count.
+const MIN_HIT_VARIANCE: f32 = 1e-3;
 
 feature_block! {
     /// The RT x mobility peak features of one candidate.
@@ -39,6 +51,10 @@ feature_block! {
         pub mob2d_peak_share: f32,
         /// full width at half maximum (1/K0) of the consensus mobilogram at the apex
         pub mob2d_fwhm: f32,
+        /// fragments with a peak in the inner region (apex +- HIT_INNER_CYCLES cycles, consensus apex scan +-
+        /// HIT_INNER_SCANS scans) minus the number their background hit rates (cycles HIT_FLANK_MIN..=HIT_FLANK_MAX
+        /// from the apex, same scans) predict, in SDs: counts ions, where correlations fail for faint precursors
+        pub mob2d_hit_excess: f32,
     }
 }
 
@@ -55,6 +71,9 @@ pub fn calculate_mobility_profile_features<T: DIADataTrait>(
     };
     let n_scans = scan_stop - scan_start;
     let num_cycles = dia_data.rt_index().rt.len();
+    // one extraction over the hit-count flanks; the correlation features use its central PATCH_CYCLE_RADIUS cycles
+    let wide_start = candidate.cycle_center.saturating_sub(HIT_FLANK_MAX);
+    let wide_stop = (candidate.cycle_center + HIT_FLANK_MAX + 1).min(num_cycles);
     let cycle_start = candidate.cycle_center.saturating_sub(PATCH_CYCLE_RADIUS);
     let cycle_stop = (candidate.cycle_center + PATCH_CYCLE_RADIUS + 1).min(num_cycles);
     let n_cycles = cycle_stop.saturating_sub(cycle_start);
@@ -64,28 +83,107 @@ pub fn calculate_mobility_profile_features<T: DIADataTrait>(
     let apex_row = candidate.cycle_center - cycle_start;
 
     let observations = dia_data.select_observations(precursor.mz, filter);
-    let patches: Vec<Array2<f32>> = precursor
+    let raw: Vec<Array2<f32>> = precursor
         .fragment_mz
         .iter()
         .map(|&mz| {
-            let mut patch = Array2::<f32>::zeros((n_cycles, n_scans));
+            let mut patch = Array2::<f32>::zeros((wide_stop - wide_start, n_scans));
             dia_data.fill_mobility_patch(
                 &observations,
-                cycle_start,
+                wide_start,
                 scan_start,
                 mass_tolerance,
                 mz,
                 &mut patch,
             );
-            smooth_scans(&patch, SCAN_SMOOTHING_RADIUS)
+            patch
         })
         .collect();
-    features_from_patches(
+    let offset = cycle_start - wide_start;
+    let patches: Vec<Array2<f32>> = raw
+        .iter()
+        .map(|patch| {
+            smooth_scans(
+                &patch
+                    .slice(numpy::ndarray::s![offset..offset + n_cycles, ..])
+                    .to_owned(),
+                SCAN_SMOOTHING_RADIUS,
+            )
+        })
+        .collect();
+    let mut features = features_from_patches(
         &patches,
         &precursor.fragment_intensity,
         &scan_mobility,
         apex_row,
-    )
+    );
+    if let Some(apex_scan) = consensus_apex_scan(&patches, apex_row) {
+        features.mob2d_hit_excess =
+            hit_excess(&raw, candidate.cycle_center - wide_start, apex_scan);
+    }
+    features
+}
+
+/// The scan of the consensus mobilogram's maximum at the apex (+-1 cycle), from the smoothed patches; None without
+/// fragment signal.
+fn consensus_apex_scan(patches: &[Array2<f32>], apex_row: usize) -> Option<usize> {
+    let mut mobilogram: Option<numpy::ndarray::Array1<f32>> = None;
+    for patch in patches {
+        let total = patch.sum();
+        if total <= 0.0 {
+            continue;
+        }
+        let rows = apex_row.saturating_sub(1)..(apex_row + 2).min(patch.nrows());
+        let m = patch.slice(numpy::ndarray::s![rows, ..]).sum_axis(Axis(0)) / total;
+        mobilogram = Some(match mobilogram {
+            None => m,
+            Some(acc) => acc + m,
+        });
+    }
+    mobilogram?
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(scan, _)| scan)
+}
+
+/// `mob2d_hit_excess` from the raw patches (cycles x scans, hits = intensity > 0) with the apex at `apex_row`,
+/// `apex_scan`.
+pub fn hit_excess(raw: &[Array2<f32>], apex_row: usize, apex_scan: usize) -> f32 {
+    let mut observed = 0.0f32;
+    let mut expected = 0.0f32;
+    let mut variance = 0.0f32;
+    for patch in raw {
+        let (n_rows, n_cols) = patch.dim();
+        let scans = apex_scan.saturating_sub(HIT_INNER_SCANS)
+            ..(apex_scan + HIT_INNER_SCANS + 1).min(n_cols);
+        let inner_rows = apex_row.saturating_sub(HIT_INNER_CYCLES)
+            ..(apex_row + HIT_INNER_CYCLES + 1).min(n_rows);
+        let mut background_hits = 0usize;
+        let mut background_pixels = 0usize;
+        for row in 0..n_rows {
+            let distance = row.abs_diff(apex_row);
+            if (HIT_FLANK_MIN..=HIT_FLANK_MAX).contains(&distance) {
+                background_pixels += n_cols;
+                background_hits += patch.row(row).iter().filter(|&&v| v > 0.0).count();
+            }
+        }
+        let rate = if background_pixels > 0 {
+            (background_hits as f32 / background_pixels as f32)
+                .clamp(HIT_RATE_BOUNDS.0, HIT_RATE_BOUNDS.1)
+        } else {
+            HIT_RATE_BOUNDS.0
+        };
+        let n_inner = (inner_rows.len() * scans.len()) as i32;
+        let p_hit = 1.0 - (1.0 - rate).powi(n_inner);
+        let hit = inner_rows
+            .clone()
+            .any(|row| scans.clone().any(|scan| patch[[row, scan]] > 0.0));
+        observed += hit as u8 as f32;
+        expected += p_hit;
+        variance += p_hit * (1.0 - p_hit);
+    }
+    (observed - expected) / variance.max(MIN_HIT_VARIANCE).sqrt()
 }
 
 /// The features from the smoothed patches (cycles x scans) of each fragment, their library intensities, the 1/K0 of
@@ -194,6 +292,7 @@ pub fn features_from_patches(
         mob2d_apex_sd: apex_var.sqrt(),
         mob2d_peak_share: if all > 0.0 { inside / all } else { 0.0 },
         mob2d_fwhm: peak_scans as f32 * scan_width,
+        mob2d_hit_excess: 0.0,
     }
 }
 
@@ -266,6 +365,20 @@ mod tests {
             features_from_patches(&patches, &[1.0], &mobilities(), 1),
             MobilityProfileFeatures::default()
         );
+    }
+
+    #[test]
+    fn test_hits_at_the_apex_of_quiet_fragments_are_an_excess() {
+        let mut quiet = Array2::<f32>::zeros((19, 30));
+        quiet[[9, 15]] = 5.0;
+        let mut busy = Array2::<f32>::zeros((19, 30));
+        busy.fill(1.0);
+        let at_apex = hit_excess(&[quiet.clone(), quiet.clone()], 9, 15);
+        let everywhere = hit_excess(&[busy.clone(), busy], 9, 15);
+        let missing = hit_excess(&[Array2::zeros((19, 30)), Array2::zeros((19, 30))], 9, 15);
+        assert!(at_apex > 5.0, "{at_apex}");
+        assert!(everywhere.abs() < 1.0, "{everywhere}");
+        assert!(missing <= 0.0, "{missing}");
     }
 
     #[test]

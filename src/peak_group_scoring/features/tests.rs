@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 25;
-const NUM_FULL_FEATURES: usize = 67;
+const NUM_FULL_FEATURES: usize = 68;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -118,6 +118,7 @@ fn numbered_full_feature() -> CandidateFeature {
             mob2d_apex_sd: 65.0,
             mob2d_peak_share: 66.0,
             mob2d_fwhm: 67.0,
+            mob2d_hit_excess: 68.0,
         }),
     }
 }
@@ -295,6 +296,7 @@ fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block()
             "mob2d_apex_sd",
             "mob2d_peak_share",
             "mob2d_fwhm",
+            "mob2d_hit_excess",
         ]
     );
 }

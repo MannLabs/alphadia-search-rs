@@ -45,9 +45,4 @@ pub trait QuadrupoleObservationTrait {
         mass_tolerance: f32,
         mz: f32,
     );
-
-    /// Build a compact per-cycle 1 Da peak count table `[num_cycles * CROWD_BINS]` for O(1) spectral crowding queries.
-    fn build_1da_crowding_table(&self, _mz_index: &MZIndex) -> Option<Vec<u8>> {
-        None
-    }
 }

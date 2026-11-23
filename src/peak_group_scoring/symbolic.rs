@@ -1,64 +1,334 @@
-//! Compact scale-free symbolic scoring features discovered by `symdia`
-//! (GPU TensorGP + Adversarial Sparse KAN + Physical Co-Elution Primitives)
-//! across multi-raw post-calibration DIA regimes.
+//! Symbolic neural-network features: closed-form expressions over the raw MS2 traces of a candidate, learned
+//! end-to-end by `symdia` and evaluated here from the exported network in `symbolic_weights.rs`.
 //!
-//! All 8 features are pure MS2 (zero MS1 scan lookups), intensity-scale-free,
-//! leakage-audited (`decoy-vs-entrapment AUC ~ 0.500-0.508`), reuse the single-pass
-//! `DenseXICMZObservation` buffer without duplicate MS2 XIC scans, and look up
-//! 1 Da spectral crowding in O(1).
+//! Each network has three sparse symbolic layers. A voxel layer maps every (fragment, cycle) point to a few units,
+//! fixed reductions over cycles turn them into per-fragment values, a fragment layer combines those with library
+//! properties, and fixed reductions over fragments give the candidate-level features. Every unit is
+//! `(sum_i w_i * op_i(s_i * x_i) + b) * exp(-sum_j g_j * gate_op_j(x_j))`.
+//!
+//! Intensities are used relative to the candidate, the fragment and the run; mass error and retention time
+//! deviation are expressed in units of their spread among the best-scoring candidates of the run (`RunScales`).
 
-use numpy::ndarray::Array2;
+use numpy::ndarray::{Array1, Array2};
+use rayon::prelude::*;
 
-use crate::candidate::Candidate;
+use crate::candidate::{Candidate, CandidateCollection};
+use crate::constants::FragmentType;
 use crate::dense_xic_observation::DenseXICMZObservation;
-use crate::peak_group_scoring::feature_block::feature_block;
-use crate::peak_group_scoring::library_agreement::entropy_similarity;
+use crate::peak_group_scoring::feature_block::FeatureBlock;
+use crate::peak_group_scoring::symbolic_weights::{FEATURE_NAMES, MODELS, NUM_FEATURES};
 use crate::precursor::Precursor;
-use crate::quadrupole_observation::lookup_1da_crowding;
 use crate::traits::DIADataTrait;
+use crate::SpecLibFlat;
 
-/// Half-width (in cycles) around `candidate.cycle_center` for MS2 context extraction (T = 15).
+/// Half-width in cycles of the window around `candidate.cycle_center` that the features read.
 pub const SYMBOLIC_HALF_WINDOW: usize = 7;
-const WINDOW_LEN: usize = 2 * SYMBOLIC_HALF_WINDOW + 1;
-const CORE_HALF_WIDTH: usize = 2;
-const CORE_LO: usize = SYMBOLIC_HALF_WINDOW - CORE_HALF_WIDTH; // 5
-const CORE_HI: usize = SYMBOLIC_HALF_WINDOW + CORE_HALF_WIDTH + 1; // 10
+pub const WINDOW_LEN: usize = 2 * SYMBOLIC_HALF_WINDOW + 1;
+/// The most intense library fragments of a precursor that the features read.
+pub const MAX_FRAGMENTS: usize = 12;
 
-const EPS: f32 = 1e-6;
+const NUM_ANCHOR_FRAGMENTS: usize = 6;
+const NUM_SCALE_CANDIDATES: usize = 1000;
+const NUM_PEAK_SAMPLE_CANDIDATES: usize = 8192;
+const MAD_TO_STD: f32 = 1.4826;
+const MIN_SIGMA_MZ_FRACTION: f32 = 0.05;
+const FALLBACK_TOLERANCE_TO_SIGMA: f32 = 3.0;
+const MIN_SIGMA_RT_CYCLES: f32 = 0.5;
 
-// Adversarial KAN robust standardization parameters fitted on multi-regime calibrated candidates.
-const MED_COEL_CLEAN_TOP3: f32 = 0.696878;
-const SCL_COEL_CLEAN_TOP3: f32 = 0.182273;
-const MED_CLIQUE_SUM: f32 = 1.857143;
-const SCL_CLIQUE_SUM: f32 = 1.911732;
-const MED_CTX_SPEC_HITS: f32 = 1.388889;
-const SCL_CTX_SPEC_HITS: f32 = 0.746103;
-const MED_NOV_TOP5_PPM: f32 = 0.459167;
-const SCL_NOV_TOP5_PPM: f32 = 0.143157;
+const U_MZ_CLAMP: f32 = 4.0;
+const U_RT_CLAMP: f32 = 5.0;
+const LOG_INTENSITY_DIVISOR: f32 = 5.0;
+const MAX_GATE_EXPONENT: f32 = 6.0;
 
-feature_block! {
-    /// 8 MS2-only scale-free, leakage-audited `symdia` features from calibrated TensorGP and Adversarial KAN.
-    pub struct SymbolicFeatures {
-        /// TensorGP: top-5 mean of crowding-normalized clean-template correlation over exp(-0.25*|ppm|)-weighted XICs.
-        pub sym_tgp_crowding_ppm_top5: f32,
-        /// TensorGP: top-3 mean of crowding-normalized clean-template correlation over sqrt-XICs.
-        pub sym_tgp_crowding_sqrt_top3: f32,
-        /// Spectral entropy similarity to the library after dropping the 2 most excess-intense fragments.
-        pub sym_interf_trimmed2_entropy: f32,
-        /// Spectral entropy similarity of co-eluting clean fragments against the full library.
-        pub sym_lib_clean_entropy_full: f32,
-        /// Adversarial KAN sigmoid-gated interaction over clean co-elution, clique sum, m/z crowding specificity, and ppm-weighted correlation.
-        pub sym_kan_coel_specificity: f32,
-        /// m/z specificity-weighted count of clean co-eluting fragments: sum(1 / (1 + crowd_1da / 10)).
-        pub sym_ctx_specificity_hits: f32,
-        /// Count of active fragments with ppm-gated clean-template correlation > 0.65.
-        pub sym_nov_n_clean_ppm: f32,
-        /// Count of clean co-eluting fragments with core intensity-weighted |ppm| <= calibrated inner tolerance.
-        pub sym_mz_n_clean_within_tol: f32,
+pub const NUM_VOXEL_CHANNELS: usize = 9;
+pub const NUM_TIME_REDUCTIONS: usize = 9;
+pub const NUM_FRAGMENT_SCALARS: usize = 7;
+pub const NUM_CANDIDATE_SCALARS: usize = 3;
+
+/// The symbolic features of one candidate, in the order of `symbolic_weights::FEATURE_NAMES`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SymbolicFeatures {
+    pub values: [f32; NUM_FEATURES],
+}
+
+impl Default for SymbolicFeatures {
+    fn default() -> Self {
+        Self {
+            values: [0.0; NUM_FEATURES],
+        }
     }
 }
 
-#[inline]
+impl FeatureBlock for SymbolicFeatures {
+    const NAMES: &'static [&'static str] = &FEATURE_NAMES;
+
+    fn values(&self) -> Vec<f32> {
+        self.values.to_vec()
+    }
+}
+
+/// One additive term of a unit: `weight * op(scale * input)`.
+pub struct Term {
+    pub input: usize,
+    pub op: u8,
+    pub weight: f32,
+    pub scale: f32,
+}
+
+/// One multiplicative gate of a unit: it contributes `strength * gate_op(input)` to the negative exponent.
+pub struct Gate {
+    pub input: usize,
+    pub op: u8,
+    pub strength: f32,
+}
+
+pub struct Unit {
+    pub bias: f32,
+    pub terms: &'static [Term],
+    pub gates: &'static [Gate],
+}
+
+/// Where an input of the joint layer or an output feature comes from.
+pub enum Source {
+    /// Reduction `reduction` over fragments of fragment unit `unit`
+    FragmentSet {
+        unit: usize,
+        reduction: u8,
+    },
+    /// `tanh` of a `FragmentSet`
+    FragmentSetTanh {
+        unit: usize,
+        reduction: u8,
+    },
+    Joint(usize),
+    CandidateScalar(usize),
+}
+
+pub struct Model {
+    pub voxel_units: &'static [Unit],
+    pub fragment_units: &'static [Unit],
+    pub joint_inputs: &'static [Source],
+    pub joint_units: &'static [Unit],
+    pub outputs: &'static [Source],
+}
+
+/// Spread of the mass error and of the retention time deviation among the best-scoring candidates of a run, and the
+/// median intensity of the peaks around its candidates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RunScales {
+    pub median_peak: f32,
+    pub sigma_mz: f32,
+    pub sigma_rt: f32,
+}
+
+/// What the networks read for one candidate. Fragments are ordered by decreasing library intensity.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SymbolicInputs {
+    pub num_fragments: usize,
+    pub xic: [[f32; WINDOW_LEN]; MAX_FRAGMENTS],
+    pub ppm_error: [[f32; WINDOW_LEN]; MAX_FRAGMENTS],
+    pub library_intensity: [f32; MAX_FRAGMENTS],
+    pub is_y: [f32; MAX_FRAGMENTS],
+    pub charge: [f32; MAX_FRAGMENTS],
+    pub number: [f32; MAX_FRAGMENTS],
+    pub delta_rt: f32,
+    pub naa: f32,
+    pub cycle_start_offset: f32,
+    pub cycle_stop_offset: f32,
+}
+
+impl SymbolicInputs {
+    /// Reads the inputs from XIC and m/z arrays (`fragments x cycles`) that start at cycle `dense_lo` and cover the
+    /// window of the candidate; cycles outside the run stay zero.
+    pub fn from_dense(
+        dense_xic: &Array2<f32>,
+        dense_mz: &Array2<f32>,
+        dense_lo: usize,
+        precursor: &Precursor,
+        candidate: &Candidate,
+        rt: &Array1<f32>,
+    ) -> Self {
+        let mut order: Vec<usize> = (0..precursor.fragment_mz.len()).collect();
+        order.sort_by(|&a, &b| {
+            precursor.fragment_intensity[b]
+                .partial_cmp(&precursor.fragment_intensity[a])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        order.truncate(MAX_FRAGMENTS);
+
+        let mut inputs = Self {
+            num_fragments: order.len(),
+            xic: [[0.0; WINDOW_LEN]; MAX_FRAGMENTS],
+            ppm_error: [[0.0; WINDOW_LEN]; MAX_FRAGMENTS],
+            library_intensity: [0.0; MAX_FRAGMENTS],
+            is_y: [0.0; MAX_FRAGMENTS],
+            charge: [0.0; MAX_FRAGMENTS],
+            number: [0.0; MAX_FRAGMENTS],
+            delta_rt: rt[candidate.cycle_center] - precursor.rt,
+            naa: precursor.naa as f32,
+            cycle_start_offset: candidate.cycle_start as f32 - candidate.cycle_center as f32,
+            cycle_stop_offset: candidate.cycle_stop as f32 - candidate.cycle_center as f32,
+        };
+
+        let window_start = candidate.cycle_center as isize - SYMBOLIC_HALF_WINDOW as isize;
+        let dense_hi = dense_lo + dense_xic.shape()[1];
+        for (slot, &f) in order.iter().enumerate() {
+            inputs.library_intensity[slot] = precursor.fragment_intensity[f].max(0.0);
+            inputs.is_y[slot] = (precursor.fragment_type[f] == FragmentType::Y) as u8 as f32;
+            inputs.charge[slot] = precursor.fragment_charge[f] as f32;
+            inputs.number[slot] = precursor.fragment_number[f] as f32;
+            let target_mz = precursor.fragment_mz[f];
+            for t in 0..WINDOW_LEN {
+                let cycle = window_start + t as isize;
+                if cycle < dense_lo as isize || cycle >= dense_hi as isize {
+                    continue;
+                }
+                let col = cycle as usize - dense_lo;
+                let intensity = dense_xic[[f, col]];
+                let observed_mz = dense_mz[[f, col]];
+                inputs.xic[slot][t] = intensity;
+                if intensity > 0.0 && observed_mz > 0.0 && target_mz > 0.0 {
+                    inputs.ppm_error[slot][t] = (observed_mz - target_mz) / target_mz * 1e6;
+                }
+            }
+        }
+        inputs
+    }
+
+    /// Extracts the window of the candidate from the raw data and reads the inputs from it.
+    pub fn extract<T: DIADataTrait>(
+        dia_data: &T,
+        precursor: &Precursor,
+        candidate: &Candidate,
+        mass_tolerance: f32,
+    ) -> Self {
+        let rt = &dia_data.rt_index().rt;
+        let lo = candidate
+            .cycle_center
+            .saturating_sub(SYMBOLIC_HALF_WINDOW)
+            .min(rt.len());
+        let hi = (candidate.cycle_center + SYMBOLIC_HALF_WINDOW + 1).min(rt.len());
+        let dense = DenseXICMZObservation::new(
+            dia_data,
+            precursor.mz,
+            lo,
+            hi,
+            mass_tolerance,
+            &precursor.fragment_mz,
+        );
+        Self::from_dense(
+            &dense.dense_xic,
+            &dense.dense_mz,
+            lo,
+            precursor,
+            candidate,
+            rt,
+        )
+    }
+}
+
+fn median(values: &mut [f32]) -> Option<f32> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    Some(values[(values.len() - 1) / 2])
+}
+
+/// Robust standard deviation: the median absolute deviation from the median, scaled to a normal distribution.
+fn robust_std(values: &mut [f32]) -> Option<f32> {
+    let center = median(values)?;
+    let mut deviations: Vec<f32> = values.iter().map(|v| (v - center).abs()).collect();
+    median(&mut deviations).map(|mad| MAD_TO_STD * mad)
+}
+
+impl RunScales {
+    /// Estimates the scales from all candidates of a run. The spreads come from the `NUM_SCALE_CANDIDATES` candidates
+    /// with the highest score, the peak intensity from an even subsample of all candidates.
+    pub fn estimate<T: DIADataTrait + Sync>(
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+        mass_tolerance: f32,
+        top_k_fragments: usize,
+    ) -> Self
+    where
+        T::QuadrupoleObservation: Sync,
+    {
+        let extract = |candidate: &Candidate| {
+            lib.get_precursor_by_idx_filtered(
+                candidate.precursor_idx,
+                true,
+                true,
+                false,
+                top_k_fragments,
+            )
+            .map(|precursor| {
+                SymbolicInputs::extract(dia_data, &precursor, candidate, mass_tolerance)
+            })
+        };
+
+        let mut by_score: Vec<&Candidate> = candidates.iter().collect();
+        let num_top = NUM_SCALE_CANDIDATES.min(by_score.len());
+        if num_top > 0 && num_top < by_score.len() {
+            by_score.select_nth_unstable_by(num_top - 1, |a, b| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        let top_inputs: Vec<SymbolicInputs> = by_score[..num_top]
+            .par_iter()
+            .filter_map(|candidate| extract(candidate))
+            .collect();
+
+        let mut delta_rt: Vec<f32> = top_inputs.iter().map(|inputs| inputs.delta_rt).collect();
+        let mut ppm_error: Vec<f32> = top_inputs
+            .iter()
+            .flat_map(|inputs| {
+                (0..inputs.num_fragments)
+                    .filter(|&f| inputs.xic[f][SYMBOLIC_HALF_WINDOW] > 0.0)
+                    .map(|f| inputs.ppm_error[f][SYMBOLIC_HALF_WINDOW])
+            })
+            .collect();
+
+        let rt = &dia_data.rt_index().rt;
+        let mut cycle_durations: Vec<f32> = rt
+            .windows(2)
+            .into_iter()
+            .map(|pair| pair[1] - pair[0])
+            .collect();
+        let min_sigma_rt = MIN_SIGMA_RT_CYCLES * median(&mut cycle_durations).unwrap_or(1.0);
+        let sigma_rt = robust_std(&mut delta_rt).unwrap_or(0.0).max(min_sigma_rt);
+        let sigma_mz = robust_std(&mut ppm_error)
+            .unwrap_or(mass_tolerance / FALLBACK_TOLERANCE_TO_SIGMA)
+            .max(MIN_SIGMA_MZ_FRACTION * mass_tolerance);
+
+        let step = (candidates.len() / NUM_PEAK_SAMPLE_CANDIDATES).max(1);
+        let sample: Vec<&Candidate> = candidates.iter().step_by(step).collect();
+        let mut peaks: Vec<f32> = sample
+            .par_iter()
+            .filter_map(|candidate| extract(candidate))
+            .flat_map_iter(|inputs| {
+                inputs
+                    .xic
+                    .iter()
+                    .flatten()
+                    .copied()
+                    .filter(|&intensity| intensity > 0.0)
+                    .collect::<Vec<f32>>()
+            })
+            .collect();
+        let median_peak = median(&mut peaks).unwrap_or(1.0);
+
+        Self {
+            median_peak,
+            sigma_mz,
+            sigma_rt,
+        }
+    }
+}
+
 fn sanitize(v: f32) -> f32 {
     if v.is_finite() {
         v
@@ -67,659 +337,469 @@ fn sanitize(v: f32) -> f32 {
     }
 }
 
-#[inline]
-fn robust_z(val: f32, median: f32, scale: f32) -> f32 {
-    ((val - median) / scale.max(EPS)).clamp(-3.5, 3.5)
-}
-
-/// Pearson correlation matching `_safe_pearson` (`den > 1e-7 -> num / (den + 1e-6)`).
-fn safe_pearson(a: &[f32], b: &[f32]) -> f32 {
-    let n = a.len();
-    if n == 0 || b.len() != n {
-        return 0.0;
-    }
-    let inv_n = 1.0 / n as f32;
-    let a_mean = a.iter().sum::<f32>() * inv_n;
-    let b_mean = b.iter().sum::<f32>() * inv_n;
-    let mut num = 0.0f32;
-    let mut va = 0.0f32;
-    let mut vb = 0.0f32;
-    for i in 0..n {
-        let da = a[i] - a_mean;
-        let db = b[i] - b_mean;
-        num += da * db;
-        va += da * da;
-        vb += db * db;
-    }
-    let den = (va * vb).sqrt();
-    if den > 1e-7 {
-        (num / (den + EPS)).clamp(-1.0, 1.0)
-    } else {
-        0.0
+fn apply_op(op: u8, x: f32) -> f32 {
+    match op {
+        0 => x,
+        1 => x * x,
+        2 => (x.abs() + 1e-4).sqrt(),
+        3 => x.abs().ln_1p(),
+        4 => (-x.abs().min(8.0)).exp(),
+        5 => (-(x * x).min(8.0)).exp(),
+        _ => x.clamp(-6.0, 6.0).tanh(),
     }
 }
 
-fn spectral_entropy_sim(p: &[f32], q: &[f32]) -> f32 {
-    let p_sum: f32 = p.iter().copied().filter(|&x| x > 0.0).sum();
-    let q_sum: f32 = q.iter().copied().filter(|&x| x > 0.0).sum();
-    if p_sum <= 1e-7 || q_sum <= 1e-7 {
-        return 0.0;
+fn apply_gate_op(op: u8, x: f32) -> f32 {
+    match op {
+        0 => x.abs(),
+        1 => x * x,
+        _ => 1.0 / (1.0 + (2.0 * x).exp()),
     }
-    let pf: Vec<f64> = p.iter().map(|&x| x.max(0.0) as f64).collect();
-    let qf: Vec<f64> = q.iter().map(|&x| x.max(0.0) as f64).collect();
-    (entropy_similarity(&pf, &qf) as f32).clamp(0.0, 1.0)
 }
 
-fn topk_mean(values: &[f32], k: usize) -> f32 {
-    if values.is_empty() || k == 0 {
-        return 0.0;
-    }
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| b.total_cmp(a));
-    let take = k.min(sorted.len());
-    sorted[..take].iter().sum::<f32>() / take as f32
-}
-
-fn kth_largest(values: &[f32], k: usize) -> f32 {
-    let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| b.total_cmp(a));
-    sorted[k.saturating_sub(1).min(sorted.len().saturating_sub(1))]
-}
-
-fn quantile_linear(sorted: &[f32], q: f32) -> f32 {
-    if sorted.is_empty() {
-        return 0.0;
-    }
-    if sorted.len() == 1 {
-        return sorted[0];
-    }
-    let pos = q * (sorted.len() - 1) as f32;
-    let lo = pos.floor() as usize;
-    let hi = pos.ceil() as usize;
-    let frac = pos - lo as f32;
-    sorted[lo] * (1.0 - frac) + sorted[hi] * frac
-}
-
-/// Copy `[center-7..center+8)` MS2 intensities and signed ppm errors from an already extracted union buffer.
-fn copy_window_from_union(
-    union_dense_xic: &Array2<f32>,
-    union_dense_mz: &Array2<f32>,
-    union_lo: usize,
-    fragment_mz: &[f32],
-    cycle_center: usize,
-    n_cycles: usize,
-) -> (Vec<[f32; WINDOW_LEN]>, Vec<[f32; WINDOW_LEN]>) {
-    let n_frags = fragment_mz.len();
-    let mut ms2_xic = vec![[0.0f32; WINDOW_LEN]; n_frags];
-    let mut ms2_err = vec![[0.0f32; WINDOW_LEN]; n_frags];
-    if n_frags == 0 || n_cycles == 0 || cycle_center >= n_cycles {
-        return (ms2_xic, ms2_err);
-    }
-
-    let win_start = cycle_center as isize - SYMBOLIC_HALF_WINDOW as isize;
-    let sym_lo = win_start.max(0) as usize;
-    let sym_hi = (cycle_center + SYMBOLIC_HALF_WINDOW + 1).min(n_cycles);
-    let max_cols = union_dense_xic.shape()[1];
-    let available_hi = (union_lo + max_cols).min(sym_hi);
-    if sym_lo < union_lo || sym_lo >= available_hi {
-        return (ms2_xic, ms2_err);
-    }
-
-    let t_offset = (sym_lo as isize - win_start) as usize;
-    let src_start = sym_lo - union_lo;
-    let len = available_hi - sym_lo;
-
-    for (f, &target_mz) in fragment_mz.iter().enumerate() {
-        for c in 0..len {
-            let inten = union_dense_xic[[f, src_start + c]];
-            let obs_mz = union_dense_mz[[f, src_start + c]];
-            ms2_xic[f][t_offset + c] = inten;
-            if inten > 0.0 && obs_mz > 0.0 && target_mz > 0.0 {
-                ms2_err[f][t_offset + c] = ((obs_mz - target_mz) / target_mz) * 1e6;
-            }
-        }
-    }
-    (ms2_xic, ms2_err)
-}
-
-/// Compute all 8 MS2-only `symdia` features reusing the single-pass `union_dense` buffer and O(1) crowding tables.
-#[allow(clippy::too_many_arguments)]
-pub fn calculate_symbolic_features_from_dense<T: DIADataTrait>(
-    dia_data: &T,
-    precursor: &Precursor,
-    candidate: &Candidate,
-    mass_tolerance: f32,
-    union_dense_xic: &Array2<f32>,
-    union_dense_mz: &Array2<f32>,
-    union_lo: usize,
-    contributing_obs_indices: &[usize],
-    crowding_tables: &[Option<Vec<u8>>],
-) -> SymbolicFeatures {
-    let n_frags = precursor.fragment_mz.len();
-    if n_frags == 0 {
-        return SymbolicFeatures::default();
-    }
-
-    let n_cycles = dia_data.rt_index().rt.len();
-    let (ms2_xic, ms2_err) = copy_window_from_union(
-        union_dense_xic,
-        union_dense_mz,
-        union_lo,
-        &precursor.fragment_mz,
-        candidate.cycle_center,
-        n_cycles,
-    );
-
-    let lib_raw: Vec<f32> = precursor
-        .fragment_intensity
+fn eval_unit(unit: &Unit, inputs: &[f32]) -> f32 {
+    let add: f32 = unit
+        .terms
         .iter()
-        .map(|&v| v.max(0.0))
-        .collect();
-    let lib_sum: f32 = lib_raw.iter().sum::<f32>() + EPS;
-    let lib_norm: Vec<f32> = lib_raw.iter().map(|&v| v / lib_sum).collect();
+        .map(|term| term.weight * apply_op(term.op, term.scale * inputs[term.input]))
+        .sum::<f32>()
+        + unit.bias;
+    let attenuation: f32 = unit
+        .gates
+        .iter()
+        .map(|gate| gate.strength * apply_gate_op(gate.op, inputs[gate.input]))
+        .sum();
+    add * (-attenuation.clamp(0.0, MAX_GATE_EXPONENT)).exp()
+}
 
-    let mut obs_core = Vec::with_capacity(n_frags);
-    let mut has_sig = Vec::with_capacity(n_frags);
-    let mut xic_norm = Vec::with_capacity(n_frags);
-    for row in &ms2_xic {
-        let s: f32 = row[CORE_LO..CORE_HI].iter().sum();
-        obs_core.push(s);
-        has_sig.push(s > 0.0);
-        let row_max = row.iter().copied().fold(0.0f32, f32::max);
-        let inv = 1.0 / (row_max + EPS);
-        let mut rn = [0.0f32; WINDOW_LEN];
-        for t in 0..WINDOW_LEN {
-            rn[t] = row[t] * inv;
-        }
-        xic_norm.push(rn);
-    }
+/// The voxel channels of every (fragment, cycle) point: intensity relative to the candidate, to the fragment and to
+/// the run, detection, mass error in units of its spread, position in the window and in the candidate boundaries.
+fn voxel_channels(
+    inputs: &SymbolicInputs,
+    scales: &RunScales,
+) -> Vec<[[f32; NUM_VOXEL_CHANNELS]; WINDOW_LEN]> {
+    let n = inputs.num_fragments;
+    let candidate_max = inputs.xic[..n]
+        .iter()
+        .flatten()
+        .copied()
+        .fold(0.0f32, f32::max)
+        .max(1e-12);
+    let half = SYMBOLIC_HALF_WINDOW as f32;
 
-    let mut frag_crowd = vec![0.0f32; n_frags];
-    for (f, &fmz) in precursor.fragment_mz.iter().enumerate() {
-        let mut c_sum = 0.0f32;
-        for &obs_idx in contributing_obs_indices {
-            if let Some(Some(tbl)) = crowding_tables.get(obs_idx) {
-                c_sum += lookup_1da_crowding(tbl, candidate.cycle_center, fmz);
-            }
-        }
-        frag_crowd[f] = c_sum;
-    }
-
-    let inv_t = 1.0 / WINDOW_LEN as f32;
-    let mut xu = Vec::with_capacity(n_frags);
-    for f in 0..n_frags {
-        let mean = ms2_xic[f].iter().sum::<f32>() * inv_t;
-        let mut centered = [0.0f32; WINDOW_LEN];
-        let mut sq = 0.0f32;
-        for t in 0..WINDOW_LEN {
-            let d = ms2_xic[f][t] - mean;
-            centered[t] = d;
-            sq += d * d;
-        }
-        let norm = sq.sqrt();
-        if norm > 1e-7 {
-            let inv = 1.0 / (norm + EPS);
-            for v in &mut centered {
-                *v *= inv;
-            }
-        } else {
-            centered = [0.0f32; WINDOW_LEN];
-        }
-        xu.push(centered);
-    }
-
-    let mut frag_clique_score = vec![0.0f32; n_frags];
-    for i in 0..n_frags {
-        if !has_sig[i] || n_frags <= 1 {
-            continue;
-        }
-        let mut top1 = -1.0f32;
-        let mut top2 = -1.0f32;
-        for j in 0..n_frags {
-            if i == j || !has_sig[j] {
-                continue;
-            }
-            let mut dot = 0.0f32;
+    (0..n)
+        .map(|f| {
+            let fragment_max = inputs.xic[f]
+                .iter()
+                .copied()
+                .fold(0.0f32, f32::max)
+                .max(1e-12);
+            let mut channels = [[0.0f32; NUM_VOXEL_CHANNELS]; WINDOW_LEN];
             for t in 0..WINDOW_LEN {
-                dot += xu[i][t] * xu[j][t];
+                let intensity = inputs.xic[f][t];
+                let detected = intensity > 0.0;
+                let u = (inputs.ppm_error[f][t] / scales.sigma_mz).clamp(-U_MZ_CLAMP, U_MZ_CLAMP);
+                let offset = t as f32 - half;
+                let in_boundaries =
+                    offset >= inputs.cycle_start_offset && offset < inputs.cycle_stop_offset;
+                channels[t] = [
+                    intensity / candidate_max,
+                    intensity / fragment_max,
+                    (intensity / scales.median_peak.max(1e-12)).ln_1p() / LOG_INTENSITY_DIVISOR,
+                    detected as u8 as f32,
+                    if detected { u.abs() } else { U_MZ_CLAMP },
+                    if detected { u } else { 0.0 },
+                    (offset / half).abs(),
+                    offset / half,
+                    in_boundaries as u8 as f32,
+                ];
             }
-            let c = dot.clamp(-1.0, 1.0);
-            if c > top1 {
-                top2 = top1;
-                top1 = c;
-            } else if c > top2 {
-                top2 = c;
-            }
-        }
-        let avg_top2 = if n_frags > 2 {
-            0.5 * (top1 + top2)
-        } else {
-            top1
-        };
-        frag_clique_score[i] = avg_top2.max(0.0);
-    }
-    let coel_clique_score_sum: f32 = frag_clique_score.iter().sum();
-
-    let mut clique_w_sum = 0.0f32;
-    let mut clique_w = vec![0.0f32; n_frags];
-    for f in 0..n_frags {
-        if has_sig[f] {
-            let w = frag_clique_score[f] * frag_clique_score[f] * (lib_norm[f] + 0.05);
-            clique_w[f] = w;
-            clique_w_sum += w;
-        }
-    }
-    let mut clean_template = [0.0f32; WINDOW_LEN];
-    for f in 0..n_frags {
-        let wn = clique_w[f] / (clique_w_sum + EPS);
-        for t in 0..WINDOW_LEN {
-            clean_template[t] += xic_norm[f][t] * wn;
-        }
-    }
-    let corr_clean: Vec<f32> = (0..n_frags)
-        .map(|f| {
-            if has_sig[f] {
-                safe_pearson(&ms2_xic[f], &clean_template)
-            } else {
-                0.0
-            }
+            channels
         })
-        .collect();
-    let clean_mask: Vec<bool> = (0..n_frags)
-        .map(|f| has_sig[f] && corr_clean[f] > 0.60)
-        .collect();
-    let coel_clean_top3_corr = topk_mean(&corr_clean, 3);
+        .collect()
+}
 
-    let mut w_lib_sum = 0.0f32;
-    let mut w_lib = vec![0.0f32; n_frags];
-    for f in 0..n_frags {
-        if has_sig[f] {
-            w_lib[f] = lib_norm[f];
-            w_lib_sum += lib_norm[f];
-        }
-    }
-    let mut lib_tpl = [0.0f32; WINDOW_LEN];
-    for f in 0..n_frags {
-        let wn = w_lib[f] / (w_lib_sum + EPS);
-        for t in 0..WINDOW_LEN {
-            lib_tpl[t] += xic_norm[f][t] * wn;
-        }
-    }
+/// Reduces the traces of one voxel unit (`fragments x cycles`) over the cycles, appending `NUM_TIME_REDUCTIONS`
+/// values per fragment to `out`: mean, max, apex, mean within the candidate boundaries, intensity-weighted mean,
+/// standard deviation, and the mean correlation to the other fragments weighted evenly, by library intensity and
+/// towards the most intense library fragments.
+fn time_reductions(
+    traces: &[[f32; WINDOW_LEN]],
+    inputs: &SymbolicInputs,
+    library_share: &[f32],
+    relative_xic: &[[f32; WINDOW_LEN]],
+    out: &mut [Vec<f32>],
+) {
+    let n = traces.len();
+    let inv_t = 1.0 / WINDOW_LEN as f32;
+    let mut unit_traces = vec![[0.0f32; WINDOW_LEN]; n];
+    let mut has_variation = vec![0.0f32; n];
+    let mut basic = vec![[0.0f32; 6]; n];
 
-    let mut tgp_ppm_terms = Vec::with_capacity(n_frags);
-    let mut tgp_sqrt_terms = Vec::with_capacity(n_frags);
-    let mut corr_exp_ppm = Vec::with_capacity(n_frags);
-    let mut nov_n_clean_ppm = 0.0f32;
-
-    for f in 0..n_frags {
-        let mut x_exp = [0.0f32; WINDOW_LEN];
-        let mut x_sqrt = [0.0f32; WINDOW_LEN];
-        for t in 0..WINDOW_LEN {
-            let v = ms2_xic[f][t].max(0.0);
-            x_exp[t] = v * (-0.25 * ms2_err[f][t].abs()).exp();
-            x_sqrt[t] = v.sqrt();
-        }
-        let ce = safe_pearson(&x_exp, &lib_tpl).max(0.0);
-        let cs = safe_pearson(&x_sqrt, &lib_tpl).max(0.0);
-        let crowd_div = 1.0 / (1.0 + frag_crowd[f] / 10.0);
-        tgp_ppm_terms.push(ce * crowd_div);
-        tgp_sqrt_terms.push(cs * crowd_div);
-        corr_exp_ppm.push(ce);
-        if has_sig[f] && ce > 0.65 {
-            nov_n_clean_ppm += 1.0;
-        }
-    }
-    let sym_tgp_crowding_ppm_top5 = topk_mean(&tgp_ppm_terms, 5);
-    let sym_tgp_crowding_sqrt_top3 = topk_mean(&tgp_sqrt_terms, 3);
-    let nov_top5_corr_exp_ppm = topk_mean(&corr_exp_ppm, 5);
-
-    let tol_thresh = (0.57 * mass_tolerance).max(4.0);
-    let mut sym_ctx_specificity_hits = 0.0f32;
-    let mut sym_mz_n_clean_within_tol = 0.0f32;
-    let mut obs_clean = vec![0.0f32; n_frags];
-    for f in 0..n_frags {
-        if clean_mask[f] {
-            obs_clean[f] = obs_core[f];
-            sym_ctx_specificity_hits += 1.0 / (1.0 + frag_crowd[f] / 10.0);
-            let mut err_w_sum = 0.0f32;
-            for t in CORE_LO..CORE_HI {
-                err_w_sum += ms2_err[f][t] * ms2_xic[f][t];
-            }
-            let mean_ppm = (err_w_sum / (obs_core[f] + EPS)).abs();
-            if mean_ppm <= tol_thresh {
-                sym_mz_n_clean_within_tol += 1.0;
-            }
-        }
-    }
-    let sym_lib_clean_entropy_full = spectral_entropy_sim(&obs_clean, &lib_norm);
-
-    let mut active_ratios: Vec<f32> = (0..n_frags)
-        .filter(|&f| has_sig[f])
-        .map(|f| obs_core[f] / (lib_norm[f] + 1e-4))
-        .collect();
-    active_ratios.sort_by(|a, b| a.total_cmp(b));
-    let alpha_hat = quantile_linear(&active_ratios, 0.35);
-    let n_active = active_ratios.len();
-
-    let excess: Vec<f32> = (0..n_frags)
-        .map(|f| {
-            if has_sig[f] {
-                (obs_core[f] + 1.0) / (alpha_hat * lib_norm[f] + 1.0)
-            } else {
-                -1.0
-            }
+    let num_in_boundaries = (0..WINDOW_LEN)
+        .filter(|&t| {
+            let offset = t as f32 - SYMBOLIC_HALF_WINDOW as f32;
+            offset >= inputs.cycle_start_offset && offset < inputs.cycle_stop_offset
         })
-        .collect();
-    let drop_k = n_frags.saturating_sub(3).min(2);
-    let cutoff = if drop_k > 0 {
-        kth_largest(&excess, drop_k)
-    } else {
-        f32::INFINITY
+        .count()
+        .max(1) as f32;
+
+    for f in 0..n {
+        let trace = &traces[f];
+        let mean = trace.iter().sum::<f32>() * inv_t;
+        let max = trace.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        let mut in_boundaries_sum = 0.0f32;
+        let mut weight_sum = 0.0f32;
+        let mut weighted_sum = 0.0f32;
+        let mut squares = 0.0f32;
+        for t in 0..WINDOW_LEN {
+            let offset = t as f32 - SYMBOLIC_HALF_WINDOW as f32;
+            if offset >= inputs.cycle_start_offset && offset < inputs.cycle_stop_offset {
+                in_boundaries_sum += trace[t];
+            }
+            let weight = relative_xic[f][t] + 1e-9;
+            weight_sum += weight;
+            weighted_sum += trace[t] * weight;
+            let centered = trace[t] - mean;
+            unit_traces[f][t] = centered;
+            squares += centered * centered;
+        }
+        let norm = squares.max(1e-10).sqrt();
+        has_variation[f] = (norm > 1e-4) as u8 as f32;
+        for value in unit_traces[f].iter_mut() {
+            *value = *value / norm * has_variation[f];
+        }
+        basic[f] = [
+            mean,
+            max,
+            trace[SYMBOLIC_HALF_WINDOW],
+            in_boundaries_sum / num_in_boundaries,
+            weighted_sum / weight_sum,
+            (squares * inv_t).max(1e-7).sqrt(),
+        ];
+    }
+
+    let correlation_to_others = |weight_of: &dyn Fn(usize) -> f32| -> Vec<f32> {
+        let weights: Vec<f32> = (0..n).map(|f| weight_of(f) * has_variation[f]).collect();
+        let weight_sum: f32 = weights.iter().sum();
+        let mut template = [0.0f32; WINDOW_LEN];
+        for f in 0..n {
+            for t in 0..WINDOW_LEN {
+                template[t] += unit_traces[f][t] * weights[f];
+            }
+        }
+        (0..n)
+            .map(|f| {
+                let dot: f32 = (0..WINDOW_LEN)
+                    .map(|t| unit_traces[f][t] * template[t])
+                    .sum();
+                let others = weight_sum - weights[f];
+                if others > 1e-9 {
+                    (dot - weights[f]) / others * has_variation[f]
+                } else {
+                    0.0
+                }
+            })
+            .collect()
     };
-    let mut obs_strip = vec![0.0f32; n_frags];
-    let mut lib_strip = vec![0.0f32; n_frags];
-    for f in 0..n_frags {
-        if n_active <= 4 || excess[f] < cutoff {
-            obs_strip[f] = obs_core[f];
-            lib_strip[f] = lib_norm[f];
-        }
-    }
-    let sym_interf_trimmed2_entropy = spectral_entropy_sim(&obs_strip, &lib_strip);
+    let corr_mean = correlation_to_others(&|_| 1.0);
+    let corr_library = correlation_to_others(&|f| library_share[f]);
+    let corr_anchor = correlation_to_others(&|f| (f < NUM_ANCHOR_FRAGMENTS) as u8 as f32);
 
-    let z_c3 = robust_z(
-        coel_clean_top3_corr,
-        MED_COEL_CLEAN_TOP3,
-        SCL_COEL_CLEAN_TOP3,
-    );
-    let z_csum = robust_z(coel_clique_score_sum, MED_CLIQUE_SUM, SCL_CLIQUE_SUM);
-    let z_hits = robust_z(
-        sym_ctx_specificity_hits,
-        MED_CTX_SPEC_HITS,
-        SCL_CTX_SPEC_HITS,
-    );
-    let z_nov5 = robust_z(nov_top5_corr_exp_ppm, MED_NOV_TOP5_PPM, SCL_NOV_TOP5_PPM);
-    let sym_kan_coel_specificity = (-0.3685 * z_csum - 0.7647 * z_hits - 0.3671 * z_nov5.max(0.0)
-        + 1.1899)
-        - 0.9707 / (1.0 + (-2.0 * z_c3).exp());
-
-    SymbolicFeatures {
-        sym_tgp_crowding_ppm_top5: sanitize(sym_tgp_crowding_ppm_top5),
-        sym_tgp_crowding_sqrt_top3: sanitize(sym_tgp_crowding_sqrt_top3),
-        sym_interf_trimmed2_entropy: sanitize(sym_interf_trimmed2_entropy),
-        sym_lib_clean_entropy_full: sanitize(sym_lib_clean_entropy_full),
-        sym_kan_coel_specificity: sanitize(sym_kan_coel_specificity),
-        sym_ctx_specificity_hits: sanitize(sym_ctx_specificity_hits),
-        sym_nov_n_clean_ppm: sanitize(nov_n_clean_ppm),
-        sym_mz_n_clean_within_tol: sanitize(sym_mz_n_clean_within_tol),
+    for f in 0..n {
+        out[f].extend(basic[f].iter().map(|&v| sanitize(v)));
+        out[f].push(sanitize(corr_mean[f]));
+        out[f].push(sanitize(corr_library[f]));
+        out[f].push(sanitize(corr_anchor[f]));
     }
 }
 
-/// Convenience entry point computing symbolic features standalone (used in unit tests).
-pub fn calculate_symbolic_features<T: DIADataTrait>(
-    dia_data: &T,
-    precursor: &Precursor,
-    candidate: &Candidate,
-    mass_tolerance: f32,
-) -> SymbolicFeatures {
-    let n_cycles = dia_data.rt_index().rt.len();
-    let sym_lo = candidate
-        .cycle_center
-        .saturating_sub(SYMBOLIC_HALF_WINDOW)
-        .min(n_cycles);
-    let sym_hi = (candidate.cycle_center + SYMBOLIC_HALF_WINDOW + 1).min(n_cycles);
-    if sym_lo >= sym_hi || precursor.fragment_mz.is_empty() {
-        return SymbolicFeatures::default();
+fn entropy(probabilities: impl Iterator<Item = f32>) -> f32 {
+    -probabilities.map(|p| p * p.max(1e-10).ln()).sum::<f32>()
+}
+
+/// Reduces the values of one fragment unit over the fragments: mean, lower median, standard deviation, library
+/// weighted sum, library weighted mean over the detected fragments, soft count of positive values, log of the
+/// positive sum, mean of the three largest, and cosine and Jensen-Shannon similarity of the positive part to the
+/// library.
+fn set_reduction(reduction: u8, values: &[f32], library_share: &[f32], detected: &[f32]) -> f32 {
+    let n = values.len();
+    if n == 0 {
+        return 0.0;
     }
-    let union_dense = DenseXICMZObservation::new(
-        dia_data,
-        precursor.mz,
-        sym_lo,
-        sym_hi,
-        mass_tolerance,
-        &precursor.fragment_mz,
-    );
-    calculate_symbolic_features_from_dense(
-        dia_data,
-        precursor,
-        candidate,
-        mass_tolerance,
-        &union_dense.dense_xic,
-        &union_dense.dense_mz,
-        sym_lo,
-        &union_dense.contributing_obs_indices,
-        &[],
-    )
+    let mean = values.iter().sum::<f32>() / n as f32;
+    let positive = || values.iter().map(|v| v.max(0.0));
+    let result = match reduction {
+        0 => mean,
+        1 => {
+            let mut sorted = values.to_vec();
+            median(&mut sorted).unwrap_or(0.0)
+        }
+        2 => (values.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / n as f32)
+            .max(1e-8)
+            .sqrt(),
+        3 => values.iter().zip(library_share).map(|(v, l)| v * l).sum(),
+        4 => {
+            let weight_sum: f32 = library_share.iter().zip(detected).map(|(l, d)| l * d).sum();
+            values
+                .iter()
+                .zip(library_share.iter().zip(detected))
+                .map(|(v, (l, d))| v * l * d)
+                .sum::<f32>()
+                / weight_sum.max(1e-9)
+        }
+        5 => values.iter().map(|v| 1.0 / (1.0 + (-3.0 * v).exp())).sum(),
+        6 => positive().sum::<f32>().ln_1p(),
+        7 => {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+            let k = n.min(3);
+            sorted[..k].iter().sum::<f32>() / k as f32
+        }
+        8 => {
+            let dot: f32 = positive().zip(library_share).map(|(p, l)| p * l).sum();
+            let norm_positive = positive().map(|p| p * p).sum::<f32>().sqrt();
+            let norm_library = library_share.iter().map(|l| l * l).sum::<f32>().sqrt();
+            dot / (norm_positive * norm_library).max(1e-10)
+        }
+        _ => {
+            let positive_sum: f32 = positive().sum();
+            if positive_sum <= 1e-6 {
+                0.0
+            } else {
+                let share = || positive().map(move |p| p / positive_sum.max(1e-10));
+                let mixed = share().zip(library_share).map(|(p, l)| 0.5 * (p + l));
+                let divergence = (2.0 * entropy(mixed)
+                    - entropy(share())
+                    - entropy(library_share.iter().copied()))
+                    / 4.0f32.ln();
+                (1.0 - divergence).clamp(0.0, 1.0)
+            }
+        }
+    };
+    sanitize(result)
+}
+
+/// Evaluates one network on the inputs of a candidate, appending its output features to `out`.
+fn eval_model(model: &Model, inputs: &SymbolicInputs, scales: &RunScales, out: &mut Vec<f32>) {
+    let n = inputs.num_fragments;
+    let channels = voxel_channels(inputs, scales);
+    let library_sum: f32 = inputs.library_intensity[..n].iter().sum::<f32>().max(1e-12);
+    let library_share: Vec<f32> = inputs.library_intensity[..n]
+        .iter()
+        .map(|l| l / library_sum)
+        .collect();
+    let relative_xic: Vec<[f32; WINDOW_LEN]> = channels
+        .iter()
+        .map(|fragment| std::array::from_fn(|t| fragment[t][0]))
+        .collect();
+    let detected: Vec<f32> = (0..n)
+        .map(|f| inputs.xic[f].iter().any(|&v| v > 0.0) as u8 as f32)
+        .collect();
+
+    let mut fragment_inputs: Vec<Vec<f32>> = vec![
+        Vec::with_capacity(
+            model.voxel_units.len() * NUM_TIME_REDUCTIONS + NUM_FRAGMENT_SCALARS
+        );
+        n
+    ];
+    for unit in model.voxel_units {
+        let traces: Vec<[f32; WINDOW_LEN]> = channels
+            .iter()
+            .map(|fragment| std::array::from_fn(|t| eval_unit(unit, &fragment[t])))
+            .collect();
+        time_reductions(
+            &traces,
+            inputs,
+            &library_share,
+            &relative_xic,
+            &mut fragment_inputs,
+        );
+    }
+    for f in 0..n {
+        fragment_inputs[f].extend([
+            library_share[f],
+            (100.0 * library_share[f]).ln_1p(),
+            detected[f],
+            inputs.is_y[f],
+            (inputs.charge[f] >= 2.0) as u8 as f32,
+            (inputs.number[f] / inputs.naa.max(1.0)).clamp(0.0, 1.0),
+            (f + 1) as f32 / n as f32,
+        ]);
+    }
+
+    let fragment_values: Vec<Vec<f32>> = model
+        .fragment_units
+        .iter()
+        .map(|unit| fragment_inputs.iter().map(|x| eval_unit(unit, x)).collect())
+        .collect();
+
+    let deviation = inputs.delta_rt.abs() / scales.sigma_rt;
+    let candidate_scalars: [f32; NUM_CANDIDATE_SCALARS] = [
+        deviation.min(U_RT_CLAMP),
+        deviation.ln_1p(),
+        n as f32 / MAX_FRAGMENTS as f32,
+    ];
+
+    let fragment_set = |unit: usize, reduction: u8| {
+        set_reduction(reduction, &fragment_values[unit], &library_share, &detected)
+    };
+    let joint_inputs: Vec<f32> = model
+        .joint_inputs
+        .iter()
+        .map(|source| match source {
+            Source::FragmentSet { unit, reduction } => fragment_set(*unit, *reduction),
+            Source::FragmentSetTanh { unit, reduction } => fragment_set(*unit, *reduction).tanh(),
+            Source::CandidateScalar(i) => candidate_scalars[*i],
+            Source::Joint(_) => 0.0,
+        })
+        .collect();
+    let joint_values: Vec<f32> = model
+        .joint_units
+        .iter()
+        .map(|unit| eval_unit(unit, &joint_inputs))
+        .collect();
+
+    out.extend(model.outputs.iter().map(|source| {
+        sanitize(match source {
+            Source::FragmentSet { unit, reduction } => fragment_set(*unit, *reduction),
+            Source::FragmentSetTanh { unit, reduction } => fragment_set(*unit, *reduction).tanh(),
+            Source::Joint(i) => joint_values[*i],
+            Source::CandidateScalar(i) => candidate_scalars[*i],
+        })
+    }));
+}
+
+/// The symbolic features of a candidate from its inputs.
+pub fn calculate_symbolic_features(
+    inputs: &SymbolicInputs,
+    scales: &RunScales,
+) -> SymbolicFeatures {
+    let mut features = SymbolicFeatures::default();
+    if inputs.num_fragments == 0 {
+        return features;
+    }
+    let mut values = Vec::with_capacity(NUM_FEATURES);
+    for model in MODELS {
+        eval_model(model, inputs, scales, &mut values);
+    }
+    features.values.copy_from_slice(&values);
+    features
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mz_index::MZIndex;
-    use crate::peak_group_scoring::feature_block::FeatureBlock;
-    use crate::rt_index::RTIndex;
-    use crate::traits::QuadrupoleObservationTrait;
-    use numpy::ndarray::{Array1, ArrayViewMut1};
-    use std::collections::HashSet;
+    use crate::peak_group_scoring::symbolic_fixture::{
+        FixtureCase, FIXTURE_CASES, FIXTURE_MEDIAN_PEAK, FIXTURE_SIGMA_MZ, FIXTURE_SIGMA_RT,
+    };
 
-    struct MockObs {
-        iso: [f32; 2],
-        mz_peaks: Vec<(f32, usize, f32)>,
-        table: Option<Vec<u8>>,
-    }
+    const FIXTURE_SCALES: RunScales = RunScales {
+        median_peak: FIXTURE_MEDIAN_PEAK,
+        sigma_mz: FIXTURE_SIGMA_MZ,
+        sigma_rt: FIXTURE_SIGMA_RT,
+    };
 
-    impl QuadrupoleObservationTrait for MockObs {
-        fn fill_xic_slice(
-            &self,
-            _mz_index: &MZIndex,
-            dense_xic: &mut ArrayViewMut1<f32>,
-            cycle_start_idx: usize,
-            cycle_stop_idx: usize,
-            mass_tolerance: f32,
-            mz: f32,
-        ) {
-            let tol = mz * mass_tolerance * 1e-6;
-            for &(pmz, cyc, inten) in &self.mz_peaks {
-                if cyc >= cycle_start_idx && cyc < cycle_stop_idx && (pmz - mz).abs() <= tol {
-                    dense_xic[cyc - cycle_start_idx] += inten;
-                }
-            }
-        }
-
-        fn fill_xic_and_mz_slice(
-            &self,
-            _mz_index: &MZIndex,
-            dense_xic: &mut ArrayViewMut1<f32>,
-            dense_mz: &mut ArrayViewMut1<f32>,
-            cycle_start_idx: usize,
-            cycle_stop_idx: usize,
-            mass_tolerance: f32,
-            mz: f32,
-        ) {
-            let tol = mz * mass_tolerance * 1e-6;
-            for &(pmz, cyc, inten) in &self.mz_peaks {
-                if cyc >= cycle_start_idx && cyc < cycle_stop_idx && (pmz - mz).abs() <= tol {
-                    let i = cyc - cycle_start_idx;
-                    let prev = dense_xic[i];
-                    dense_xic[i] = prev + inten;
-                    if inten > 0.0 {
-                        dense_mz[i] = if prev == 0.0 {
-                            pmz
-                        } else {
-                            (dense_mz[i] * prev + pmz * inten) / (prev + inten)
-                        };
-                    }
-                }
-            }
-        }
-
-        fn build_1da_crowding_table(&self, _mz_index: &MZIndex) -> Option<Vec<u8>> {
-            self.table.clone()
+    fn inputs_of(case: &FixtureCase) -> SymbolicInputs {
+        SymbolicInputs {
+            num_fragments: case.num_fragments,
+            xic: case.xic,
+            ppm_error: case.ppm_error,
+            library_intensity: case.library_intensity,
+            is_y: case.is_y,
+            charge: case.charge,
+            number: case.number,
+            delta_rt: case.delta_rt,
+            naa: case.naa,
+            cycle_start_offset: case.cycle_start_offset,
+            cycle_stop_offset: case.cycle_stop_offset,
         }
     }
 
-    struct MockDIA {
-        mz_index: MZIndex,
-        rt_index: RTIndex,
-        obs: Vec<MockObs>,
-    }
-
-    impl DIADataTrait for MockDIA {
-        type QuadrupoleObservation = MockObs;
-
-        fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
-            self.obs
-                .iter()
-                .enumerate()
-                .filter(|(_, o)| precursor_mz >= o.iso[0] && precursor_mz <= o.iso[1])
-                .map(|(i, _)| i)
-                .collect()
-        }
-
-        fn mz_index(&self) -> &MZIndex {
-            &self.mz_index
-        }
-
-        fn rt_index(&self) -> &RTIndex {
-            &self.rt_index
-        }
-
-        fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
-            &self.obs
-        }
-
-        fn memory_footprint_bytes(&self) -> usize {
-            0
-        }
-    }
-
-    fn make_rt_index(rt_vals: Vec<f32>) -> RTIndex {
-        let mut rt_index = RTIndex::new();
-        rt_index.rt = Array1::from_vec(rt_vals);
-        rt_index
-    }
-
-    fn make_mock_precursor() -> Precursor {
-        Precursor {
-            precursor_idx: 0,
-            mz: 500.0,
-            mz_library: 500.0,
-            rt: 100.0,
-            rt_library: 100.0,
-            naa: 10,
-            charge: 2,
-            fragment_mz: vec![300.0, 400.0, 500.0, 600.0, 700.0, 800.0],
-            fragment_mz_library: vec![300.0, 400.0, 500.0, 600.0, 700.0, 800.0],
-            fragment_intensity: vec![1.0, 0.9, 0.8, 0.7, 0.5, 0.4],
-            fragment_cardinality: vec![1; 6],
-            fragment_charge: vec![1; 6],
-            fragment_loss_type: vec![0; 6],
-            fragment_number: vec![4, 5, 6, 7, 8, 9],
-            fragment_position: vec![3, 4, 5, 6, 7, 8],
-            fragment_type: vec![1, 1, 1, 0, 0, 1],
+    fn assert_close(actual: &[f32], expected: &[f32], tolerance: f32) {
+        for (i, (a, e)) in actual.iter().zip(expected).enumerate() {
+            assert!(
+                (a - e).abs() <= tolerance * (1.0 + e.abs()),
+                "feature {} ({}): {} != {}",
+                i,
+                FEATURE_NAMES[i],
+                a,
+                e
+            );
         }
     }
 
     #[test]
-    fn symbolic_block_has_8_unique_names() {
-        let names = SymbolicFeatures::NAMES;
-        assert_eq!(names.len(), 8);
-        let uniq: HashSet<&str> = names.iter().copied().collect();
-        assert_eq!(uniq.len(), 8);
+    fn test_features_match_the_pytorch_model_on_real_candidates() {
+        for case in FIXTURE_CASES.iter() {
+            // given
+            let inputs = inputs_of(case);
+
+            // when
+            let features = calculate_symbolic_features(&inputs, &FIXTURE_SCALES);
+
+            // then
+            assert_close(&features.values, &case.expected, 2e-3);
+        }
     }
 
     #[test]
-    fn symbolic_features_are_finite_on_zero_input() {
-        let rt_vals: Vec<f32> = (0..25).map(|i| i as f32 * 2.0).collect();
-        let dia = MockDIA {
-            mz_index: MZIndex::new(),
-            rt_index: make_rt_index(rt_vals),
-            obs: vec![],
-        };
-        let prec = make_mock_precursor();
-        let cand = Candidate {
-            precursor_idx: 0,
-            rank: 0,
-            score: 0.0,
-            scan_center: 0,
-            scan_start: 0,
-            scan_stop: 0,
-            cycle_center: 12,
-            cycle_start: 8,
-            cycle_stop: 17,
-        };
-        let sf = calculate_symbolic_features(&dia, &prec, &cand, 7.0);
-        assert!(sf.values().iter().all(|v| v.is_finite()));
-        assert_eq!(sf.sym_tgp_crowding_ppm_top5, 0.0);
-        assert_eq!(sf.sym_ctx_specificity_hits, 0.0);
+    fn test_features_do_not_depend_on_the_intensity_scale() {
+        for case in FIXTURE_CASES.iter() {
+            // given
+            let gain = 7.3;
+            let inputs = inputs_of(case);
+            let mut scaled = inputs.clone();
+            for value in scaled.xic.iter_mut().flatten() {
+                *value *= gain;
+            }
+            let scaled_scales = RunScales {
+                median_peak: FIXTURE_MEDIAN_PEAK * gain,
+                ..FIXTURE_SCALES
+            };
+
+            // when
+            let features = calculate_symbolic_features(&inputs, &FIXTURE_SCALES);
+            let scaled_features = calculate_symbolic_features(&scaled, &scaled_scales);
+
+            // then
+            assert_close(&scaled_features.values, &features.values, 1e-4);
+        }
     }
 
     #[test]
-    fn clean_gaussian_peak_scores_stronger_than_noise_on_discriminative_features() {
-        let rt_vals: Vec<f32> = (0..30).map(|i| i as f32 * 2.0).collect();
-        let prec = make_mock_precursor();
-
-        let mut ms2_peaks = Vec::new();
-        for cyc in 8..23 {
-            let dt = (cyc as f32 - 15.0) / 1.8;
-            let shape = (-0.5 * dt * dt).exp();
-            for (f, &fmz) in prec.fragment_mz.iter().enumerate() {
-                let lib_i = prec.fragment_intensity[f];
-                ms2_peaks.push((fmz, cyc, 10_000.0 * lib_i * shape));
-            }
-        }
-        let clean_dia = MockDIA {
-            mz_index: MZIndex::new(),
-            rt_index: make_rt_index(rt_vals.clone()),
-            obs: vec![MockObs {
-                iso: [490.0, 510.0],
-                mz_peaks: ms2_peaks,
-                table: None,
-            }],
+    fn test_candidate_without_fragments_scores_zero() {
+        // given
+        let inputs = SymbolicInputs {
+            num_fragments: 0,
+            xic: [[0.0; WINDOW_LEN]; MAX_FRAGMENTS],
+            ppm_error: [[0.0; WINDOW_LEN]; MAX_FRAGMENTS],
+            library_intensity: [0.0; MAX_FRAGMENTS],
+            is_y: [0.0; MAX_FRAGMENTS],
+            charge: [0.0; MAX_FRAGMENTS],
+            number: [0.0; MAX_FRAGMENTS],
+            delta_rt: 1.0,
+            naa: 10.0,
+            cycle_start_offset: -3.0,
+            cycle_stop_offset: 4.0,
         };
 
-        let mut noise_peaks = Vec::new();
-        for cyc in 8..23 {
-            if cyc % 2 == 0 {
-                noise_peaks.push((prec.fragment_mz[0], cyc, 500.0));
-            } else {
-                noise_peaks.push((prec.fragment_mz[5], cyc, 500.0));
-            }
-        }
-        let noise_dia = MockDIA {
-            mz_index: MZIndex::new(),
-            rt_index: make_rt_index(rt_vals),
-            obs: vec![MockObs {
-                iso: [490.0, 510.0],
-                mz_peaks: noise_peaks,
-                table: None,
-            }],
-        };
+        // when
+        let features = calculate_symbolic_features(&inputs, &FIXTURE_SCALES);
 
-        let cand = Candidate {
-            precursor_idx: 0,
-            rank: 0,
-            score: 10.0,
-            scan_center: 0,
-            scan_start: 0,
-            scan_stop: 0,
-            cycle_center: 15,
-            cycle_start: 10,
-            cycle_stop: 21,
-        };
-        let sf_clean = calculate_symbolic_features(&clean_dia, &prec, &cand, 7.0);
-        let sf_noise = calculate_symbolic_features(&noise_dia, &prec, &cand, 7.0);
+        // then
+        assert_eq!(features, SymbolicFeatures::default());
+    }
 
-        assert!(sf_clean.sym_tgp_crowding_ppm_top5 > 0.8);
-        assert!(sf_clean.sym_tgp_crowding_ppm_top5 > sf_noise.sym_tgp_crowding_ppm_top5);
-        assert!(sf_clean.sym_tgp_crowding_sqrt_top3 > sf_noise.sym_tgp_crowding_sqrt_top3);
-        assert!(sf_clean.sym_interf_trimmed2_entropy > sf_noise.sym_interf_trimmed2_entropy);
-        assert!(sf_clean.sym_lib_clean_entropy_full > sf_noise.sym_lib_clean_entropy_full);
-        assert!(sf_clean.sym_ctx_specificity_hits > sf_noise.sym_ctx_specificity_hits);
-        assert!(sf_clean.sym_nov_n_clean_ppm > sf_noise.sym_nov_n_clean_ppm);
-        assert!(sf_clean.sym_mz_n_clean_within_tol > sf_noise.sym_mz_n_clean_within_tol);
-        assert_ne!(
-            sf_clean.sym_kan_coel_specificity,
-            sf_noise.sym_kan_coel_specificity
-        );
+    #[test]
+    fn test_robust_std_of_a_normal_like_sample_is_its_spread() {
+        // given
+        let mut values: Vec<f32> = vec![-2.0, -1.0, 0.0, 1.0, 2.0];
+
+        // when
+        let spread = robust_std(&mut values).unwrap();
+
+        // then
+        assert!((spread - MAD_TO_STD).abs() < 1e-6);
     }
 }

@@ -1,24 +1,6 @@
 use crate::mz_index::MZIndex;
 use numpy::ndarray::ArrayViewMut1;
 
-pub const CROWD_MZ_MIN: usize = 150;
-pub const CROWD_MZ_MAX: usize = 2000;
-pub const CROWD_BINS: usize = CROWD_MZ_MAX - CROWD_MZ_MIN;
-
-/// Lookup continuous 2 Da (+/- 1 Da) spectral peak crowding around `mz` at `cycle_idx` from a 1 Da count table.
-#[inline]
-pub fn lookup_1da_crowding(table: &[u8], cycle_idx: usize, mz: f32) -> f32 {
-    let n_cycles = table.len() / CROWD_BINS;
-    if cycle_idx >= n_cycles || mz <= 0.0 {
-        return 0.0;
-    }
-    let b =
-        (mz.floor() as isize - CROWD_MZ_MIN as isize).clamp(1, (CROWD_BINS - 2) as isize) as usize;
-    let frac = (mz - mz.floor()).clamp(0.0, 1.0);
-    let row = &table[cycle_idx * CROWD_BINS..(cycle_idx + 1) * CROWD_BINS];
-    (1.0 - frac) * (row[b - 1] as f32) + (row[b] as f32) + frac * (row[b + 1] as f32)
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -124,31 +106,6 @@ impl QuadrupoleObservation {
         }
     }
 
-    /// Build a compact per-cycle 1 Da peak count table `[num_cycles * CROWD_BINS]` for O(1) crowding lookup.
-    pub fn build_1da_crowding_table(&self, mz_index: &MZIndex) -> Option<Vec<u8>> {
-        if self.num_cycles == 0 || self.num_cycles > 25_000 {
-            return None;
-        }
-        let mut table = vec![0u8; self.num_cycles * CROWD_BINS];
-        let n_bins = mz_index
-            .len()
-            .min(self.slice_starts.len().saturating_sub(1));
-        for mz_idx in 0..n_bins {
-            let bin =
-                (mz_index.mz[mz_idx] as usize).clamp(CROWD_MZ_MIN, CROWD_MZ_MAX - 1) - CROWD_MZ_MIN;
-            let start = self.slice_starts[mz_idx] as usize;
-            let stop = self.slice_starts[mz_idx + 1] as usize;
-            for i in start..stop {
-                let c = self.cycle_indices[i] as usize;
-                if c < self.num_cycles && self.intensities[i] > 0.0 {
-                    let slot = &mut table[c * CROWD_BINS + bin];
-                    *slot = slot.saturating_add(1);
-                }
-            }
-        }
-        Some(table)
-    }
-
     /// Calculate memory footprint of this optimized observation
     pub fn memory_footprint_bytes(&self) -> usize {
         let mut total_size = 0;
@@ -251,9 +208,5 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
                 }
             }
         }
-    }
-
-    fn build_1da_crowding_table(&self, mz_index: &crate::mz_index::MZIndex) -> Option<Vec<u8>> {
-        self.build_1da_crowding_table(mz_index)
     }
 }

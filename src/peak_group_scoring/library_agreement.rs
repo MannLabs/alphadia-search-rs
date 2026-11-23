@@ -175,8 +175,8 @@ fn entropy(p: &[f64]) -> f64 {
 
 /// Spectral entropy similarity of the library and observed intensities; 0 without observed signal.
 /// A fragment without signal counts as a missing peak.
-pub(crate) fn entropy_similarity(library: &[f64], observed: &[f64]) -> f64 {
-    if library.iter().sum::<f64>() <= 0.0 || observed.iter().sum::<f64>() <= 0.0 {
+fn entropy_similarity(library: &[f64], observed: &[f64]) -> f64 {
+    if observed.iter().sum::<f64>() <= 0.0 {
         return 0.0;
     }
     let p = shares(library);

@@ -494,7 +494,6 @@ fn test_speclib_flat_creation_sorting() {
             fragment_number.readonly(),
             fragment_position.readonly(),
             fragment_type.readonly(),
-            None,
         );
 
         // Verify precursor_idx is now sorted
@@ -589,7 +588,6 @@ fn test_speclib_flat_fragment_mz_sorting() {
             fragment_number_arr.readonly(),
             fragment_position_arr.readonly(),
             fragment_type_arr.readonly(),
-            None,
         );
 
         let precursor = speclib.get_precursor_filtered(0, false, false, false, usize::MAX);

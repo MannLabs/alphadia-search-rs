@@ -1,8 +1,10 @@
 use super::*;
+use crate::peak_group_scoring::symbolic_weights::NUM_FEATURES;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 45;
+const NUM_BASE_FEATURES: usize = 37;
+const NUM_FULL_FEATURES: usize = NUM_BASE_FEATURES + NUM_FEATURES;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -70,14 +72,7 @@ fn numbered_full_feature() -> CandidateFeature {
             ent_sim_corrweighted: 37.0,
         }),
         symbolic: Some(SymbolicFeatures {
-            sym_tgp_crowding_ppm_top5: 38.0,
-            sym_tgp_crowding_sqrt_top3: 39.0,
-            sym_interf_trimmed2_entropy: 40.0,
-            sym_lib_clean_entropy_full: 41.0,
-            sym_kan_coel_specificity: 42.0,
-            sym_ctx_specificity_hits: 43.0,
-            sym_nov_n_clean_ppm: 44.0,
-            sym_mz_n_clean_within_tol: 45.0,
+            values: std::array::from_fn(|i| (NUM_BASE_FEATURES + 1 + i) as f32),
         }),
     }
 }

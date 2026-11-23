@@ -1,8 +1,17 @@
+use crate::calibration::CalibrationEstimator;
+use crate::dia_data::DIAData;
 use crate::precursor::Precursor;
-use numpy::PyReadonlyArray1;
+use numpy::{IntoPyArray, PyReadonlyArray1};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use std::path::PathBuf;
 
-#[pyclass]
+mod hdf;
+pub use hdf::read_flat_hdf;
+
+#[pyclass(skip_from_py_object)]
+#[derive(Clone)]
 pub struct SpecLibFlat {
     /// Precursor indices, MUST be sorted in ascending order for binary search to work correctly
     precursor_idx: Vec<usize>,
@@ -130,6 +139,136 @@ impl SpecLibFlat {
             fragment_position.as_array().to_vec(),
             fragment_type.as_array().to_vec(),
         )
+    }
+
+    /// Reads the flat spectral library that alphabase `SpecLibFlat.save_hdf` wrote to `path`.
+    ///
+    /// The library values are also used as the search values, as `from_arrays` does when it gets
+    /// the library columns twice.
+    #[staticmethod]
+    fn from_hdf(path: PathBuf) -> PyResult<Self> {
+        read_flat_hdf(&path).map_err(PyValueError::new_err)
+    }
+
+    /// Returns an independent copy, for changes in place that must not change this library.
+    fn copy(&self) -> Self {
+        self.clone()
+    }
+
+    /// Prepares the library for the search of `dia_data`, in place.
+    ///
+    /// 1. Scales the normalized library RT to the RT range of `dia_data`, see `normalize_rt`.
+    /// 2. Removes the precursors whose library m/z is outside the isolation windows of the DIA cycle,
+    ///    see `filter_precursor_mz`.
+    ///
+    /// The search values are reset to the library values.
+    fn init_for_run(&mut self, dia_data: PyRef<'_, DIAData>) -> PyResult<()> {
+        let rt_values = &dia_data.rt_values;
+        if rt_values.is_empty() {
+            return Err(PyValueError::new_err("The DIA data has no RT values"));
+        }
+        let (mz_lower, mz_upper) = dia_data
+            .cycle
+            .iter()
+            .filter(|&&mz| mz > 0.0)
+            .fold(None, |limits: Option<(f32, f32)>, &mz| match limits {
+                None => Some((mz, mz)),
+                Some((lower, upper)) => Some((lower.min(mz), upper.max(mz))),
+            })
+            .ok_or_else(|| PyValueError::new_err("The DIA cycle has no isolation window"))?;
+
+        self.normalize_rt(rt_values[0], rt_values[rt_values.len() - 1]);
+        self.filter_precursor_mz(mz_lower, mz_upper);
+        Ok(())
+    }
+
+    /// Returns a new library with only the precursors in `precursor_idx` and their fragments.
+    ///
+    /// Raises `ValueError` if a precursor is not in the library.
+    fn subset(&self, precursor_idx: PyReadonlyArray1<'_, usize>) -> PyResult<Self> {
+        let precursor_idx = precursor_idx.as_array();
+        let precursor_idx = precursor_idx
+            .as_slice()
+            .map(|s| s.to_vec())
+            .unwrap_or_else(|| precursor_idx.iter().copied().collect());
+        self.subset_by_idx(&precursor_idx)
+            .map_err(PyValueError::new_err)
+    }
+
+    /// Sets the search values from the library values, in place.
+    ///
+    /// For each fitted estimator, the search value is the calibrated library value.
+    /// For each estimator that is `None`, the search value is the library value.
+    #[pyo3(signature = (rt=None, precursor_mz=None, fragment_mz=None))]
+    fn calibrate(
+        &mut self,
+        rt: Option<PyRef<'_, CalibrationEstimator>>,
+        precursor_mz: Option<PyRef<'_, CalibrationEstimator>>,
+        fragment_mz: Option<PyRef<'_, CalibrationEstimator>>,
+    ) -> PyResult<()> {
+        let calibrated = |estimator: Option<&CalibrationEstimator>, input: &[f32]| match estimator {
+            Some(estimator) => estimator
+                .predict_values(input)
+                .map_err(PyValueError::new_err),
+            None => Ok(input.to_vec()),
+        };
+        self.precursor_rt = calibrated(rt.as_deref(), &self.precursor_rt_library)?;
+        self.precursor_mz = calibrated(precursor_mz.as_deref(), &self.precursor_mz_library)?;
+        self.fragment_mz = calibrated(fragment_mz.as_deref(), &self.fragment_mz_library)?;
+        Ok(())
+    }
+
+    /// Returns the precursor and the fragment columns as two dicts of numpy arrays.
+    fn to_dict_arrays<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<(Bound<'py, PyDict>, Bound<'py, PyDict>)> {
+        let precursors = PyDict::new(py);
+        precursors.set_item("precursor_idx", self.precursor_idx.clone().into_pyarray(py))?;
+        precursors.set_item(
+            "mz_library",
+            self.precursor_mz_library.clone().into_pyarray(py),
+        )?;
+        precursors.set_item("mz", self.precursor_mz.clone().into_pyarray(py))?;
+        precursors.set_item(
+            "rt_library",
+            self.precursor_rt_library.clone().into_pyarray(py),
+        )?;
+        precursors.set_item("rt", self.precursor_rt.clone().into_pyarray(py))?;
+        precursors.set_item("nAA", self.precursor_naa.clone().into_pyarray(py))?;
+        precursors.set_item(
+            "flat_frag_start_idx",
+            self.flat_frag_start_idx.clone().into_pyarray(py),
+        )?;
+        precursors.set_item(
+            "flat_frag_stop_idx",
+            self.flat_frag_stop_idx.clone().into_pyarray(py),
+        )?;
+
+        let fragments = PyDict::new(py);
+        fragments.set_item(
+            "mz_library",
+            self.fragment_mz_library.clone().into_pyarray(py),
+        )?;
+        fragments.set_item("mz", self.fragment_mz.clone().into_pyarray(py))?;
+        fragments.set_item(
+            "intensity",
+            self.fragment_intensity.clone().into_pyarray(py),
+        )?;
+        fragments.set_item(
+            "cardinality",
+            self.fragment_cardinality.clone().into_pyarray(py),
+        )?;
+        fragments.set_item("charge", self.fragment_charge.clone().into_pyarray(py))?;
+        fragments.set_item(
+            "loss_type",
+            self.fragment_loss_type.clone().into_pyarray(py),
+        )?;
+        fragments.set_item("number", self.fragment_number.clone().into_pyarray(py))?;
+        fragments.set_item("position", self.fragment_position.clone().into_pyarray(py))?;
+        fragments.set_item("type", self.fragment_type.clone().into_pyarray(py))?;
+
+        Ok((precursors, fragments))
     }
 
     #[getter]
@@ -372,6 +511,137 @@ impl SpecLibFlat {
         }
     }
 
+    /// Scales the normalized library RT to the range from `rt_start` to `rt_stop`, in place.
+    ///
+    /// The minimum and the maximum library RT of all precursors become `rt_start` and `rt_stop`.
+    /// The calculation is the same as the two `np.interp` calls of alphaDIA `_norm_to_rt`.
+    /// The search RT is reset to the new library RT.
+    pub fn normalize_rt(&mut self, rt_start: f32, rt_stop: f32) {
+        let (rt_min, rt_max) = self
+            .precursor_rt_library
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(min, max), &rt| {
+                (min.min(rt as f64), max.max(rt as f64))
+            });
+        let (rt_start, rt_stop) = (rt_start as f64, rt_stop as f64);
+
+        for rt in self.precursor_rt_library.iter_mut() {
+            let rt_norm = interp(*rt as f64, rt_min, rt_max, 0.0, 1.0);
+            *rt = interp(rt_norm, 0.0, 1.0, rt_start, rt_stop) as f32;
+        }
+        self.precursor_rt = self.precursor_rt_library.clone();
+    }
+
+    /// Removes the precursors whose library m/z is not in the range from `mz_lower` to `mz_upper`, in place.
+    ///
+    /// The limits are included. The fragments of the removed precursors are also removed.
+    /// The search m/z values are reset to the library values.
+    pub fn filter_precursor_mz(&mut self, mz_lower: f32, mz_upper: f32) {
+        let keep: Vec<usize> = (0..self.precursor_idx.len())
+            .filter(|&i| {
+                let mz = self.precursor_mz_library[i];
+                mz >= mz_lower && mz <= mz_upper
+            })
+            .collect();
+        *self = self.select(&keep);
+        self.precursor_mz = self.precursor_mz_library.clone();
+        self.fragment_mz = self.fragment_mz_library.clone();
+    }
+
+    /// Returns a new library with only the precursors in `precursor_idx` and their fragments.
+    ///
+    /// Returns `Err` if a precursor is not in the library.
+    pub fn subset_by_idx(&self, precursor_idx: &[usize]) -> Result<Self, String> {
+        let mut indices = Vec::with_capacity(precursor_idx.len());
+        let mut num_missing = 0usize;
+        for idx in precursor_idx {
+            match self.precursor_idx.binary_search(idx) {
+                Ok(index) => indices.push(index),
+                Err(_) => num_missing += 1,
+            }
+        }
+        if num_missing > 0 {
+            return Err(format!(
+                "{num_missing} of {} precursors are not in the spectral library",
+                precursor_idx.len()
+            ));
+        }
+        indices.sort_unstable();
+        indices.dedup();
+        Ok(self.select(&indices))
+    }
+
+    /// Returns a new library with the precursors at the ascending array `indices` and their fragments.
+    ///
+    /// The fragments are stored again without gaps, in the order of the precursors.
+    fn select(&self, indices: &[usize]) -> Self {
+        let num_fragments: usize = indices
+            .iter()
+            .map(|&i| self.flat_frag_stop_idx[i] - self.flat_frag_start_idx[i])
+            .sum();
+
+        let mut library = Self {
+            precursor_idx: indices.iter().map(|&i| self.precursor_idx[i]).collect(),
+            precursor_mz_library: indices
+                .iter()
+                .map(|&i| self.precursor_mz_library[i])
+                .collect(),
+            precursor_mz: indices.iter().map(|&i| self.precursor_mz[i]).collect(),
+            precursor_rt_library: indices
+                .iter()
+                .map(|&i| self.precursor_rt_library[i])
+                .collect(),
+            precursor_rt: indices.iter().map(|&i| self.precursor_rt[i]).collect(),
+            precursor_naa: indices.iter().map(|&i| self.precursor_naa[i]).collect(),
+            flat_frag_start_idx: Vec::with_capacity(indices.len()),
+            flat_frag_stop_idx: Vec::with_capacity(indices.len()),
+            fragment_mz_library: Vec::with_capacity(num_fragments),
+            fragment_mz: Vec::with_capacity(num_fragments),
+            fragment_intensity: Vec::with_capacity(num_fragments),
+            fragment_cardinality: Vec::with_capacity(num_fragments),
+            fragment_charge: Vec::with_capacity(num_fragments),
+            fragment_loss_type: Vec::with_capacity(num_fragments),
+            fragment_number: Vec::with_capacity(num_fragments),
+            fragment_position: Vec::with_capacity(num_fragments),
+            fragment_type: Vec::with_capacity(num_fragments),
+        };
+
+        for &i in indices {
+            let range = self.flat_frag_start_idx[i]..self.flat_frag_stop_idx[i];
+            library.flat_frag_start_idx.push(library.fragment_mz.len());
+            library
+                .fragment_mz_library
+                .extend_from_slice(&self.fragment_mz_library[range.clone()]);
+            library
+                .fragment_mz
+                .extend_from_slice(&self.fragment_mz[range.clone()]);
+            library
+                .fragment_intensity
+                .extend_from_slice(&self.fragment_intensity[range.clone()]);
+            library
+                .fragment_cardinality
+                .extend_from_slice(&self.fragment_cardinality[range.clone()]);
+            library
+                .fragment_charge
+                .extend_from_slice(&self.fragment_charge[range.clone()]);
+            library
+                .fragment_loss_type
+                .extend_from_slice(&self.fragment_loss_type[range.clone()]);
+            library
+                .fragment_number
+                .extend_from_slice(&self.fragment_number[range.clone()]);
+            library
+                .fragment_position
+                .extend_from_slice(&self.fragment_position[range.clone()]);
+            library
+                .fragment_type
+                .extend_from_slice(&self.fragment_type[range]);
+            library.flat_frag_stop_idx.push(library.fragment_mz.len());
+        }
+
+        library
+    }
+
     pub fn get_precursor(&self, index: usize) -> Precursor {
         let precursor_idx = self.precursor_idx[index];
         let precursor_mz = self.precursor_mz[index];
@@ -502,6 +772,19 @@ impl SpecLibFlat {
             )),
             Err(_) => None,
         }
+    }
+}
+
+/// Linear interpolation from `[x_start, x_stop]` to `[y_start, y_stop]`, the same as `np.interp` with two points.
+///
+/// Values outside the range are clipped. A value at or above `x_stop` gives `y_stop`, also if the range is empty.
+fn interp(x: f64, x_start: f64, x_stop: f64, y_start: f64, y_stop: f64) -> f64 {
+    if x >= x_stop {
+        y_stop
+    } else if x <= x_start {
+        y_start
+    } else {
+        (y_stop - y_start) / (x_stop - x_start) * (x - x_start) + y_start
     }
 }
 

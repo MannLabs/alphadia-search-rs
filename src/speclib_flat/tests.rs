@@ -1,5 +1,6 @@
 use super::*;
 use crate::constants::{FragmentType, Loss};
+use approx::assert_relative_eq;
 use numpy::PyArrayMethods;
 
 #[test]
@@ -767,4 +768,264 @@ fn test_filter_sort_fragments_keeps_short_ions_without_the_filter() {
 
     // Then: all fragments are kept
     assert_eq!(mz, vec![100.0, 200.0, 300.0]);
+}
+
+/// Library with 3 precursors. They are given in the order 30, 10, 20 to test the sorting.
+/// Precursor 10 has 2 fragments, precursor 20 has 1 fragment and precursor 30 has 3 fragments.
+fn three_precursor_library() -> SpecLibFlat {
+    SpecLibFlat::from_vecs(
+        vec![30, 10, 20],
+        vec![700.0, 300.0, 500.0],
+        vec![700.0, 300.0, 500.0],
+        vec![1.0, 0.0, 0.5],
+        vec![1.0, 0.0, 0.5],
+        vec![7, 8, 9],
+        vec![3, 0, 2],
+        vec![6, 2, 3],
+        vec![100.0, 110.0, 200.0, 300.0, 310.0, 320.0],
+        vec![100.0, 110.0, 200.0, 300.0, 310.0, 320.0],
+        vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        vec![1; 6],
+        vec![1, 1, 2, 1, 1, 2],
+        vec![0; 6],
+        vec![1, 2, 3, 4, 5, 6],
+        vec![0, 1, 2, 3, 4, 5],
+        vec![
+            FragmentType::B,
+            FragmentType::Y,
+            FragmentType::B,
+            FragmentType::Y,
+            FragmentType::B,
+            FragmentType::Y,
+        ],
+    )
+}
+
+#[test]
+fn test_normalize_rt_maps_library_range_to_run_range() {
+    // Given a library with normalized RTs 0.0, 0.5 and 1.0
+    let mut library = three_precursor_library();
+
+    // When the RTs are scaled to a run from 100 s to 300 s
+    library.normalize_rt(100.0, 300.0);
+
+    // Then the minimum and the maximum become the run limits and the search RT is the library RT
+    assert_eq!(library.precursor_rt_library, vec![100.0, 200.0, 300.0]);
+    assert_eq!(library.precursor_rt, library.precursor_rt_library);
+}
+
+#[test]
+fn test_normalize_rt_with_one_rt_value_gives_run_stop() {
+    // Given a library in which all precursors have the same RT
+    let mut library = three_precursor_library();
+    library.precursor_rt_library = vec![0.3; 3];
+
+    // When the RTs are scaled
+    library.normalize_rt(100.0, 300.0);
+
+    // Then all RTs are the run stop, as np.interp gives for an empty range
+    assert_eq!(library.precursor_rt_library, vec![300.0; 3]);
+}
+
+#[test]
+fn test_filter_precursor_mz_removes_precursors_and_their_fragments() {
+    // Given a library with precursor m/z 300, 500 and 700
+    let mut library = three_precursor_library();
+
+    // When the m/z range is from 300 to 500, limits included
+    library.filter_precursor_mz(300.0, 500.0);
+
+    // Then precursor 30 and its 3 fragments are removed and the fragments have no gaps
+    assert_eq!(library.precursor_idx, vec![10, 20]);
+    assert_eq!(library.flat_frag_start_idx, vec![0, 2]);
+    assert_eq!(library.flat_frag_stop_idx, vec![2, 3]);
+    assert_eq!(library.fragment_mz_library, vec![100.0, 110.0, 200.0]);
+    assert_eq!(library.fragment_number, vec![1, 2, 3]);
+    assert_eq!(library.fragment_mz, library.fragment_mz_library);
+}
+
+#[test]
+fn test_subset_by_idx_keeps_the_given_precursors() {
+    // Given a library with the precursors 10, 20 and 30
+    let library = three_precursor_library();
+
+    // When the subset of precursors 30 and 10 is made
+    let subset = library.subset_by_idx(&[30, 10]).unwrap();
+
+    // Then the subset has the precursors in ascending order with their fragments
+    assert_eq!(subset.precursor_idx, vec![10, 30]);
+    assert_eq!(subset.flat_frag_start_idx, vec![0, 2]);
+    assert_eq!(subset.flat_frag_stop_idx, vec![2, 5]);
+    assert_eq!(
+        subset.fragment_mz_library,
+        vec![100.0, 110.0, 300.0, 310.0, 320.0]
+    );
+    let precursor = subset.get_precursor(1);
+    assert_eq!(precursor.precursor_idx, 30);
+    assert_eq!(precursor.fragment_intensity, vec![4.0, 5.0, 6.0]);
+}
+
+#[test]
+fn test_subset_by_idx_with_unknown_precursor_is_an_error() {
+    // Given a library with the precursors 10, 20 and 30
+    let library = three_precursor_library();
+
+    // When a subset with precursor 40 is made
+    let result = library.subset_by_idx(&[10, 40]);
+
+    // Then the result is an error
+    assert_eq!(
+        result.err().unwrap(),
+        "1 of 2 precursors are not in the spectral library"
+    );
+}
+
+/// Path in the temporary directory that is unique for this test process and `name`.
+fn temp_hdf_path(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("speclib_flat_{}_{name}.hdf", std::process::id()))
+}
+
+/// Writes `values` like alphabase does: chunked, with shuffle and LZF compression.
+fn write_column<T: hdf5::H5Type>(group: &hdf5::Group, name: &str, values: &[T]) {
+    group
+        .new_dataset_builder()
+        .chunk(values.len().max(1))
+        .shuffle()
+        .lzf()
+        .with_data(values)
+        .create(name)
+        .unwrap();
+}
+
+/// Writes the library of `three_precursor_library` with the column types that alphabase uses.
+fn write_three_precursor_hdf(path: &std::path::Path) {
+    let file = hdf5::File::create(path).unwrap();
+    let library = file.create_group("library").unwrap();
+    let precursors = library.create_group("precursor_df").unwrap();
+    write_column(&precursors, "precursor_idx", &[30i64, 10, 20]);
+    write_column(&precursors, "mz_library", &[700.0f64, 300.0, 500.0]);
+    write_column(&precursors, "rt_library", &[1.0f64, 0.0, 0.5]);
+    write_column(&precursors, "nAA", &[7i64, 8, 9]);
+    write_column(&precursors, "flat_frag_start_idx", &[3i64, 0, 2]);
+    write_column(&precursors, "flat_frag_stop_idx", &[6i64, 2, 3]);
+    // A column that the reader does not use
+    write_column(&precursors, "decoy", &[0i8, 0, 1]);
+
+    let fragments = library.create_group("fragment_df").unwrap();
+    write_column(
+        &fragments,
+        "mz_library",
+        &[100.0f64, 110.0, 200.0, 300.0, 310.0, 320.0],
+    );
+    write_column(&fragments, "intensity", &[1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    write_column(&fragments, "cardinality", &[1u8; 6]);
+    write_column(&fragments, "charge", &[1u8, 1, 2, 1, 1, 2]);
+    write_column(&fragments, "loss_type", &[0i16; 6]);
+    write_column(&fragments, "number", &[1u32, 2, 3, 4, 5, 6]);
+    write_column(&fragments, "position", &[0u32, 1, 2, 3, 4, 5]);
+    write_column(
+        &fragments,
+        "type",
+        &[
+            FragmentType::B as i8,
+            FragmentType::Y as i8,
+            FragmentType::B as i8,
+            FragmentType::Y as i8,
+            FragmentType::B as i8,
+            FragmentType::Y as i8,
+        ],
+    );
+}
+
+#[test]
+fn test_read_flat_hdf_gives_the_same_library_as_from_vecs() {
+    // Given an alphabase-like flat HDF file of the three-precursor library
+    let path = temp_hdf_path("same_library");
+    write_three_precursor_hdf(&path);
+
+    // When the file is read
+    let library = read_flat_hdf(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+
+    // Then the library is the same as the library from vectors
+    let expected = three_precursor_library();
+    assert_eq!(library.precursor_idx, expected.precursor_idx);
+    assert_eq!(library.precursor_mz_library, expected.precursor_mz_library);
+    assert_eq!(library.precursor_mz, expected.precursor_mz);
+    assert_eq!(library.precursor_rt_library, expected.precursor_rt_library);
+    assert_eq!(library.precursor_rt, expected.precursor_rt);
+    assert_eq!(library.precursor_naa, expected.precursor_naa);
+    assert_eq!(library.flat_frag_start_idx, expected.flat_frag_start_idx);
+    assert_eq!(library.flat_frag_stop_idx, expected.flat_frag_stop_idx);
+    assert_eq!(library.fragment_mz_library, expected.fragment_mz_library);
+    assert_eq!(library.fragment_mz, expected.fragment_mz);
+    assert_eq!(library.fragment_intensity, expected.fragment_intensity);
+    assert_eq!(library.fragment_cardinality, expected.fragment_cardinality);
+    assert_eq!(library.fragment_charge, expected.fragment_charge);
+    assert_eq!(library.fragment_loss_type, expected.fragment_loss_type);
+    assert_eq!(library.fragment_number, expected.fragment_number);
+    assert_eq!(library.fragment_position, expected.fragment_position);
+    assert_eq!(library.fragment_type, expected.fragment_type);
+}
+
+#[test]
+fn test_read_flat_hdf_with_missing_column_is_an_error() {
+    // Given a flat HDF file without fragment intensities
+    let path = temp_hdf_path("missing_column");
+    write_three_precursor_hdf(&path);
+    {
+        let file = hdf5::File::append(&path).unwrap();
+        file.unlink("library/fragment_df/intensity").unwrap();
+    }
+
+    // When the file is read
+    let result = read_flat_hdf(&path);
+    std::fs::remove_file(&path).unwrap();
+
+    // Then the error names the missing column
+    let error = result.err().unwrap();
+    assert!(error.contains("Column 'intensity' not found"), "{error}");
+}
+
+#[test]
+fn test_read_flat_hdf_reads_a_library_written_by_alphabase() {
+    // Given a flat library of 50 precursors with 12 fragments each, written by alphabase `SpecLibFlat.save_hdf`
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/data/speclib_flat_alphabase.hdf");
+
+    // When the file is read
+    let library = read_flat_hdf(&path).unwrap();
+
+    // Then all precursors and fragments are read with the values that alphabase loads
+    assert_eq!(library.num_precursors(), 50);
+    assert_eq!(library.num_fragments(), 600);
+    assert_eq!(library.precursor_idx, (0..50).collect::<Vec<usize>>());
+
+    let precursor = library.get_precursor(0);
+    assert_relative_eq!(precursor.mz_library, 365.870_83, epsilon = 1e-3);
+    assert_relative_eq!(precursor.rt_library, 0.147_39, epsilon = 1e-5);
+    assert_eq!(precursor.naa, 9);
+    assert_eq!(precursor.fragment_mz_library.len(), 12);
+
+    assert_relative_eq!(
+        library
+            .precursor_mz_library
+            .iter()
+            .map(|&mz| mz as f64)
+            .sum::<f64>(),
+        44_003.758,
+        epsilon = 1e-2
+    );
+    assert_relative_eq!(
+        library
+            .fragment_intensity
+            .iter()
+            .map(|&i| i as f64)
+            .sum::<f64>(),
+        536.216_8,
+        epsilon = 1e-3
+    );
+    assert_eq!(library.fragment_mz_library[0], 58.028_74);
+    assert_eq!(library.fragment_charge[..2], [1, 2]);
+    assert_eq!(library.fragment_type[..3], [98, 98, 121]);
 }

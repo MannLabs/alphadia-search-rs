@@ -30,6 +30,15 @@ pub struct CalibrationEstimator {
     inner: CalibrationEstimatorInner,
 }
 
+impl CalibrationEstimator {
+    /// Predicts calibrated values from `input`, for use from Rust.
+    ///
+    /// Returns `Err` if the estimator is not fitted.
+    pub fn predict_values(&self, input: &[f32]) -> Result<Vec<f32>, String> {
+        self.inner.predict(input)
+    }
+}
+
 #[pymethods]
 impl CalibrationEstimator {
     /// Create an estimator.

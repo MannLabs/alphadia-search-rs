@@ -1,8 +1,10 @@
 use super::*;
+use crate::peak_group_scoring::symbolic_weights::NUM_FEATURES;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 37;
+const NUM_BASE_FEATURES: usize = 37;
+const NUM_FULL_FEATURES: usize = NUM_BASE_FEATURES + NUM_FEATURES;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -38,6 +40,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         core: numbered_core(),
         ion_coverage: None,
         library_agreement: None,
+        symbolic: None,
     }
 }
 
@@ -67,6 +70,9 @@ fn numbered_full_feature() -> CandidateFeature {
             lib_cosine_over_50: 35.0,
             ent_sim: 36.0,
             ent_sim_corrweighted: 37.0,
+        }),
+        symbolic: Some(SymbolicFeatures {
+            values: std::array::from_fn(|i| (NUM_BASE_FEATURES + 1 + i) as f32),
         }),
     }
 }
@@ -130,7 +136,8 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
         [
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
-            LibraryAgreementFeatures::NAMES
+            LibraryAgreementFeatures::NAMES,
+            SymbolicFeatures::NAMES,
         ]
         .concat()
     );
@@ -144,7 +151,13 @@ fn test_calibration_leaves_out_the_ion_coverage_and_library_agreement_features()
     let names = FeatureSet::Calibration.feature_names();
 
     // then
-    for name in [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat() {
+    for name in [
+        IonCoverageFeatures::NAMES,
+        LibraryAgreementFeatures::NAMES,
+        SymbolicFeatures::NAMES,
+    ]
+    .concat()
+    {
         assert!(!names.contains(&name), "{name}");
     }
 }

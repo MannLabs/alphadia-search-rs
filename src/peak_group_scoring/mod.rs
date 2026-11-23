@@ -3,6 +3,7 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
+use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
@@ -12,9 +13,16 @@ use crate::peak_group_scoring::ion_coverage::{
 };
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
+use crate::peak_group_scoring::symbolic::{
+    calculate_symbolic_features, RunScales, SymbolicInputs, MAX_FRAGMENTS, SYMBOLIC_HALF_WINDOW,
+    WINDOW_LEN,
+};
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
+use numpy::ndarray::{s, Array1, Array2, Array3};
+use numpy::IntoPyArray;
+use pyo3::types::PyDict;
 
 pub mod core;
 pub mod feature_block;
@@ -24,6 +32,10 @@ pub mod ion_coverage;
 pub mod library_agreement;
 pub mod observation;
 pub mod parameters;
+pub mod symbolic;
+#[cfg(test)]
+mod symbolic_fixture;
+pub mod symbolic_weights;
 pub mod tests;
 pub mod utils;
 pub use feature_set::FeatureSet;
@@ -50,6 +62,78 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         self.score_generic(dia_data, lib, candidates)
     }
+
+    /// The raw inputs of the symbolic features for every candidate and the run scales estimated from all of them,
+    /// as a dict of arrays. Rows of candidates whose precursor is not in the library are zero.
+    pub fn export_symbolic_inputs(
+        &self,
+        py: Python,
+        dia_data: &DIAData,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> PyResult<Py<PyAny>> {
+        let scales = self.estimate_run_scales(dia_data, lib, candidates);
+        let inputs: Vec<Option<SymbolicInputs>> = candidates
+            .par_iter()
+            .map(|candidate| {
+                self.scoring_precursor(lib, candidate).map(|precursor| {
+                    SymbolicInputs::extract(
+                        dia_data,
+                        &precursor,
+                        candidate,
+                        self.params.mass_tolerance,
+                    )
+                })
+            })
+            .collect();
+
+        let n = inputs.len();
+        let mut xic = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
+        let mut ppm_error = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
+        let mut fragment_meta = Array3::<f32>::zeros((n, MAX_FRAGMENTS, 4));
+        let mut candidate_meta = Array2::<f32>::zeros((n, 4));
+        let mut num_fragments = Array1::<u64>::zeros(n);
+        for (i, inputs) in inputs.iter().enumerate() {
+            let Some(inputs) = inputs else { continue };
+            num_fragments[i] = inputs.num_fragments as u64;
+            for f in 0..inputs.num_fragments {
+                for t in 0..WINDOW_LEN {
+                    xic[[i, f, t]] = inputs.xic[f][t];
+                    ppm_error[[i, f, t]] = inputs.ppm_error[f][t];
+                }
+                fragment_meta[[i, f, 0]] = inputs.library_intensity[f];
+                fragment_meta[[i, f, 1]] = inputs.is_y[f];
+                fragment_meta[[i, f, 2]] = inputs.charge[f];
+                fragment_meta[[i, f, 3]] = inputs.number[f];
+            }
+            candidate_meta[[i, 0]] = inputs.delta_rt;
+            candidate_meta[[i, 1]] = inputs.naa;
+            candidate_meta[[i, 2]] = inputs.cycle_start_offset;
+            candidate_meta[[i, 3]] = inputs.cycle_stop_offset;
+        }
+
+        let dict = PyDict::new(py);
+        dict.set_item("xic", xic.into_pyarray(py))?;
+        dict.set_item("ppm_error", ppm_error.into_pyarray(py))?;
+        dict.set_item("fragment_meta", fragment_meta.into_pyarray(py))?;
+        dict.set_item("candidate_meta", candidate_meta.into_pyarray(py))?;
+        dict.set_item("num_fragments", num_fragments.into_pyarray(py))?;
+        dict.set_item("median_peak", scales.median_peak)?;
+        dict.set_item("sigma_mz", scales.sigma_mz)?;
+        dict.set_item("sigma_rt", scales.sigma_rt)?;
+        Ok(dict.into())
+    }
+
+    /// `(median_peak, sigma_mz, sigma_rt)` of the symbolic features, estimated from all candidates of a run.
+    pub fn symbolic_run_scales(
+        &self,
+        dia_data: &DIAData,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> (f32, f32, f32) {
+        let scales = self.estimate_run_scales(dia_data, lib, candidates);
+        (scales.median_peak, scales.sigma_mz, scales.sigma_rt)
+    }
 }
 
 impl PeakGroupScoring {
@@ -59,31 +143,34 @@ impl PeakGroupScoring {
         dia_data: &T,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
-    ) -> CandidateFeatureCollection {
+    ) -> CandidateFeatureCollection
+    where
+        T::QuadrupoleObservation: Sync,
+    {
         let start_time = Instant::now();
+
+        let run_scales = self
+            .params
+            .feature_set
+            .has_block(FeatureBlockId::Symbolic)
+            .then(|| self.estimate_run_scales(dia_data, lib, candidates));
 
         // Parallel iteration over candidates to score each one
         let (mut scored_candidates, ion_evidence): (Vec<_>, Vec<Vec<IonEvidence>>) = candidates
             .par_iter()
-            .filter_map(|candidate| {
-                // Find precursor by idx (not array position)
-                match lib.get_precursor_by_idx_filtered(
-                    candidate.precursor_idx,
-                    true,  // Always filter non-zero intensities for scoring
-                    true,  // Filter Y1 ions by default
-                    false, // Scoring uses the short ions
-                    self.params.top_k_fragments,
-                ) {
-                    Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
-                    }
-                    None => {
-                        eprintln!(
-                            "Warning: Candidate precursor_idx {} not found in library. Skipping.",
-                            candidate.precursor_idx
-                        );
-                        None
-                    }
+            .filter_map(|candidate| match self.scoring_precursor(lib, candidate) {
+                Some(precursor) => self.score_candidate_generic(
+                    dia_data,
+                    &precursor,
+                    candidate,
+                    run_scales.as_ref(),
+                ),
+                None => {
+                    eprintln!(
+                        "Warning: Candidate precursor_idx {} not found in library. Skipping.",
+                        candidate.precursor_idx
+                    );
+                    None
                 }
             })
             .unzip();
@@ -114,6 +201,35 @@ impl PeakGroupScoring {
         feature_collection
     }
 
+    /// The precursor of a candidate with the fragments that scoring uses, found by idx (not array position).
+    fn scoring_precursor(&self, lib: &SpecLibFlat, candidate: &Candidate) -> Option<Precursor> {
+        lib.get_precursor_by_idx_filtered(
+            candidate.precursor_idx,
+            true,  // Always filter non-zero intensities for scoring
+            true,  // Filter Y1 ions by default
+            false, // Scoring uses the short ions
+            self.params.top_k_fragments,
+        )
+    }
+
+    fn estimate_run_scales<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> RunScales
+    where
+        T::QuadrupoleObservation: Sync,
+    {
+        RunScales::estimate(
+            dia_data,
+            lib,
+            candidates,
+            self.params.mass_tolerance,
+            self.params.top_k_fragments,
+        )
+    }
+
     /// The ion-class noise model needs all candidates: it is fitted on those that are not the best of their
     /// precursor, targets and decoys alike, and then scores every candidate's fragments.
     fn set_ion_fisher_lib(
@@ -140,20 +256,72 @@ impl PeakGroupScoring {
     }
 
     /// Scores one candidate with the blocks of the feature set. The ion evidence feeds the noise model of
-    /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block.
+    /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block. `run_scales` is given if the
+    /// feature set has the symbolic block, which reads a wider window than the candidate: both are extracted at once.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
+        run_scales: Option<&RunScales>,
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
-        let observation =
-            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        let feature_set = self.params.feature_set;
+
+        let (observation, symbolic) = if let Some(run_scales) = run_scales {
+            let n_cycles = dia_data.rt_index().rt.len();
+            let sym_lo = candidate
+                .cycle_center
+                .saturating_sub(SYMBOLIC_HALF_WINDOW)
+                .min(n_cycles);
+            let sym_hi = (candidate.cycle_center + SYMBOLIC_HALF_WINDOW + 1).min(n_cycles);
+            let cand_lo = candidate.cycle_start;
+            let cand_hi = candidate.cycle_stop.max(cand_lo);
+            let union_lo = cand_lo.min(sym_lo);
+            let union_hi = cand_hi.max(sym_hi);
+
+            let union_dense = DenseXICMZObservation::new(
+                dia_data,
+                precursor.mz,
+                union_lo,
+                union_hi,
+                self.params.mass_tolerance,
+                &precursor.fragment_mz,
+            );
+            let rel_lo = cand_lo - union_lo;
+            let rel_hi = cand_hi - union_lo;
+            let obs = PeakGroupObservation::from_dense(
+                union_dense
+                    .dense_xic
+                    .slice(s![.., rel_lo..rel_hi])
+                    .to_owned(),
+                union_dense
+                    .dense_mz
+                    .slice(s![.., rel_lo..rel_hi])
+                    .to_owned(),
+            );
+            let inputs = SymbolicInputs::from_dense(
+                &union_dense.dense_xic,
+                &union_dense.dense_mz,
+                union_lo,
+                precursor,
+                candidate,
+                &dia_data.rt_index().rt,
+            );
+            (obs, Some(calculate_symbolic_features(&inputs, run_scales)))
+        } else {
+            (
+                PeakGroupObservation::new(
+                    dia_data,
+                    precursor,
+                    candidate,
+                    self.params.mass_tolerance,
+                ),
+                None,
+            )
+        };
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
-
-        let feature_set = self.params.feature_set;
 
         let (ion_coverage, ion_evidence) = if feature_set.has_block(FeatureBlockId::IonCoverage) {
             let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
@@ -190,6 +358,7 @@ impl PeakGroupScoring {
             core,
             ion_coverage,
             library_agreement,
+            symbolic,
         };
         Some((feature, ion_evidence))
     }

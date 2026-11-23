@@ -14,13 +14,13 @@ use crate::peak_group_scoring::ion_coverage::{
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::peak_group_scoring::symbolic::{
-    calculate_symbolic_features, RunScales, SymbolicInputs, MAX_FRAGMENTS, SYMBOLIC_HALF_WINDOW,
-    WINDOW_LEN,
+    calculate_symbolic_features, ContextTraces, RunScales, SymbolicInputs, MAX_FRAGMENTS,
+    NUM_CONTEXT_TRACES, SYMBOLIC_HALF_WINDOW, WINDOW_LEN,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
-use numpy::ndarray::{s, Array1, Array2, Array3};
+use numpy::ndarray::{s, Array1, Array2, Array3, Array4};
 use numpy::IntoPyArray;
 use pyo3::types::PyDict;
 
@@ -90,6 +90,7 @@ impl PeakGroupScoring {
         let n = inputs.len();
         let mut xic = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
         let mut ppm_error = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
+        let mut context = Array4::<f32>::zeros((n, MAX_FRAGMENTS, NUM_CONTEXT_TRACES, WINDOW_LEN));
         let mut fragment_meta = Array3::<f32>::zeros((n, MAX_FRAGMENTS, 4));
         let mut candidate_meta = Array2::<f32>::zeros((n, 4));
         let mut num_fragments = Array1::<u64>::zeros(n);
@@ -100,6 +101,9 @@ impl PeakGroupScoring {
                 for t in 0..WINDOW_LEN {
                     xic[[i, f, t]] = inputs.xic[f][t];
                     ppm_error[[i, f, t]] = inputs.ppm_error[f][t];
+                    for c in 0..NUM_CONTEXT_TRACES {
+                        context[[i, f, c, t]] = inputs.context[f][c][t];
+                    }
                 }
                 fragment_meta[[i, f, 0]] = inputs.library_intensity[f];
                 fragment_meta[[i, f, 1]] = inputs.is_y[f];
@@ -115,6 +119,7 @@ impl PeakGroupScoring {
         let dict = PyDict::new(py);
         dict.set_item("xic", xic.into_pyarray(py))?;
         dict.set_item("ppm_error", ppm_error.into_pyarray(py))?;
+        dict.set_item("context", context.into_pyarray(py))?;
         dict.set_item("fragment_meta", fragment_meta.into_pyarray(py))?;
         dict.set_item("candidate_meta", candidate_meta.into_pyarray(py))?;
         dict.set_item("num_fragments", num_fragments.into_pyarray(py))?;
@@ -299,10 +304,18 @@ impl PeakGroupScoring {
                     .slice(s![.., rel_lo..rel_hi])
                     .to_owned(),
             );
+            let context = ContextTraces::extract(
+                dia_data,
+                precursor,
+                sym_lo,
+                sym_hi,
+                self.params.mass_tolerance,
+            );
             let inputs = SymbolicInputs::from_dense(
                 &union_dense.dense_xic,
                 &union_dense.dense_mz,
                 union_lo,
+                Some(&context),
                 precursor,
                 candidate,
                 &dia_data.rt_index().rt,

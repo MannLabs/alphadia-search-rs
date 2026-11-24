@@ -10,6 +10,8 @@
 //!
 //! Intensities are used relative to the candidate, the fragment and the run; mass error and retention time
 //! deviation are expressed in units of their spread among the best-scoring candidates of the run (`RunScales`).
+//! The traces themselves are extracted within `CORE_SIGMAS` spreads of the mass error, not within the mass
+//! tolerance of the search.
 //! The network never reads a fragment or precursor m/z: exact masses would let it recognise mutated decoys.
 
 use numpy::ndarray::{Array1, Array2};
@@ -19,7 +21,10 @@ use crate::candidate::{Candidate, CandidateCollection};
 use crate::constants::FragmentType;
 use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::peak_group_scoring::feature_block::FeatureBlock;
-use crate::peak_group_scoring::symbolic_weights::{FEATURE_NAMES, MODEL, NUM_FEATURES};
+use crate::peak_group_scoring::symbolic_weights::{
+    FEATURE_NAMES, HIDDEN, MODEL, NUM_FEATURES, NUM_FRAGMENT_UNITS, NUM_JOINT_UNITS,
+    NUM_VOXEL_UNITS,
+};
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
@@ -36,6 +41,10 @@ pub const NUM_CONTEXT_TRACES: usize = 6;
 const ISOTOPE_STEPS: [f32; 4] = [1.0, -1.0, 2.0, 0.5];
 /// Mass difference between 13C and 12C in Da.
 const ISOTOPE_SPACING: f32 = 1.003_355;
+/// Half-width of the window in which the network reads a fragment, in spreads of the run's mass error
+/// (`RunScales::sigma_mz`). The mass tolerance of a search is a different multiple of that spread on every
+/// instrument, so a window in spreads means the same everywhere.
+pub const CORE_SIGMAS: f32 = 5.0;
 const NEAR_BAND_TOLERANCES: f32 = 4.0;
 const FAR_BAND_TOLERANCES: f32 = 20.0;
 
@@ -58,10 +67,6 @@ pub const NUM_VOXEL_CHANNELS: usize = 9 + NUM_CONTEXT_TRACES;
 pub const NUM_TIME_REDUCTIONS: usize = 9;
 pub const NUM_FRAGMENT_SCALARS: usize = 8;
 pub const NUM_CANDIDATE_SCALARS: usize = 3;
-pub const HIDDEN: usize = 64;
-pub const NUM_VOXEL_UNITS: usize = 12;
-pub const NUM_FRAGMENT_UNITS: usize = 16;
-pub const NUM_JOINT_UNITS: usize = 12;
 pub const NUM_FRAGMENT_INPUTS: usize = NUM_VOXEL_UNITS * NUM_TIME_REDUCTIONS + NUM_FRAGMENT_SCALARS;
 
 /// The learned features of one candidate, in the order of `symbolic_weights::FEATURE_NAMES`.
@@ -967,8 +972,8 @@ mod tests {
         let mad = robust_std(&mut values.clone()).unwrap();
 
         // then
-        assert!((0.4..0.9).contains(&core), "core_std {}", core);
-        assert!(mad > 5.0, "robust_std {}", mad);
+        assert!((0.4..0.9).contains(&core), "core_std {core}");
+        assert!(mad > 5.0, "robust_std {mad}");
     }
 
     #[test]
@@ -985,7 +990,7 @@ mod tests {
         let core = core_std(&values, 7.0).unwrap();
 
         // then
-        assert!((0.85..1.05).contains(&core), "core_std {}", core);
+        assert!((0.85..1.05).contains(&core), "core_std {core}");
     }
 
     #[test]

@@ -43,6 +43,7 @@ const NUM_ANCHOR_FRAGMENTS: usize = 6;
 const NUM_SCALE_CANDIDATES: usize = 1000;
 const NUM_PEAK_SAMPLE_CANDIDATES: usize = 8192;
 const MAD_TO_STD: f32 = 1.4826;
+const CORE_STD_ITERATIONS: usize = 50;
 const MIN_SIGMA_MZ_FRACTION: f32 = 0.05;
 const FALLBACK_TOLERANCE_TO_SIGMA: f32 = 3.0;
 const MIN_SIGMA_RT_CYCLES: f32 = 0.5;
@@ -356,9 +357,40 @@ fn robust_std(values: &mut [f32]) -> Option<f32> {
     median(&mut deviations).map(|mad| MAD_TO_STD * mad)
 }
 
+/// Standard deviation of the narrow component of a sample that also holds a broad background: the normal part of
+/// a mixture of a normal distribution and a uniform one on `-half_range..half_range`, fitted by expectation
+/// maximisation. Unlike the median absolute deviation it stays with the narrow component when most of the sample
+/// is background, as the mass errors of a run are in which few of the best-scoring candidates are real.
+fn core_std(values: &[f32], half_range: f32) -> Option<f32> {
+    let mut sorted = values.to_vec();
+    let mut mean = median(&mut sorted)? as f64;
+    let mut std = (robust_std(&mut sorted)? as f64 / 2.0).max(1e-3);
+    let mut share = 0.5f64;
+    let background = 1.0 / (2.0 * half_range as f64);
+    for _ in 0..CORE_STD_ITERATIONS {
+        let (mut weight, mut weighted, mut squares) = (0.0f64, 0.0f64, 0.0f64);
+        for &value in values {
+            let z = (value as f64 - mean) / std;
+            let normal = share * (-0.5 * z * z).exp() / (std * (2.0 * std::f64::consts::PI).sqrt());
+            let responsibility = normal / (normal + (1.0 - share) * background);
+            weight += responsibility;
+            weighted += responsibility * value as f64;
+            squares += responsibility * (value as f64 - mean) * (value as f64 - mean);
+        }
+        if weight <= 0.0 {
+            return None;
+        }
+        mean = weighted / weight;
+        std = (squares / weight).sqrt().max(1e-3);
+        share = (weight / values.len() as f64).clamp(1e-3, 1.0 - 1e-3);
+    }
+    Some(std as f32)
+}
+
 impl RunScales {
     /// Estimates the scales from all candidates of a run. The spreads come from the `NUM_SCALE_CANDIDATES` candidates
-    /// with the highest score, the peak intensity from an even subsample of all candidates.
+    /// with the highest score, the mass-error spread from the narrow component of their errors (`core_std`); the
+    /// peak intensity comes from an even subsample of all candidates.
     pub fn estimate<T: DIADataTrait + Sync>(
         dia_data: &T,
         lib: &SpecLibFlat,
@@ -397,7 +429,7 @@ impl RunScales {
             .collect();
 
         let mut delta_rt: Vec<f32> = top_inputs.iter().map(|inputs| inputs.delta_rt).collect();
-        let mut ppm_error: Vec<f32> = top_inputs
+        let ppm_error: Vec<f32> = top_inputs
             .iter()
             .flat_map(|inputs| {
                 (0..inputs.num_fragments)
@@ -414,7 +446,7 @@ impl RunScales {
             .collect();
         let min_sigma_rt = MIN_SIGMA_RT_CYCLES * median(&mut cycle_durations).unwrap_or(1.0);
         let sigma_rt = robust_std(&mut delta_rt).unwrap_or(0.0).max(min_sigma_rt);
-        let sigma_mz = robust_std(&mut ppm_error)
+        let sigma_mz = core_std(&ppm_error, mass_tolerance)
             .unwrap_or(mass_tolerance / FALLBACK_TOLERANCE_TO_SIGMA)
             .max(MIN_SIGMA_MZ_FRACTION * mass_tolerance);
 
@@ -921,6 +953,39 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_core_std_ignores_a_broad_background() {
+        // given: a quarter of the values within +-1 on a regular grid (standard deviation 0.58), the rest over +-15
+        let narrow = (0..250).map(|i| -1.0 + 2.0 * i as f32 / 249.0);
+        let broad = (0..750).map(|i| -15.0 + 30.0 * i as f32 / 749.0);
+        let values: Vec<f32> = narrow.chain(broad).collect();
+
+        // when
+        let core = core_std(&values, 15.0).unwrap();
+        let mad = robust_std(&mut values.clone()).unwrap();
+
+        // then
+        assert!((0.4..0.9).contains(&core), "core_std {}", core);
+        assert!(mad > 5.0, "robust_std {}", mad);
+    }
+
+    #[test]
+    fn test_core_std_of_a_sample_without_background_is_its_spread() {
+        // given: the quantiles of a standard normal distribution at 1 %, 3 %, ... 99 %, from its symmetric tails
+        let half: [f32; 25] = [
+            0.0251, 0.0753, 0.1257, 0.1764, 0.2275, 0.2793, 0.3319, 0.3853, 0.4399, 0.4959, 0.5534,
+            0.6128, 0.6745, 0.7388, 0.8064, 0.8779, 0.9542, 1.0364, 1.1264, 1.2265, 1.3408, 1.4758,
+            1.6449, 1.8808, 2.3263,
+        ];
+        let values: Vec<f32> = half.iter().flat_map(|&v| [-v, v]).collect();
+
+        // when
+        let core = core_std(&values, 7.0).unwrap();
+
+        // then
+        assert!((0.85..1.05).contains(&core), "core_std {}", core);
     }
 
     #[test]

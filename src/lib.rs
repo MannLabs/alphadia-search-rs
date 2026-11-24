@@ -108,6 +108,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_num_threads, m)?)?;
     m.add_function(wrap_pyfunction!(get_num_threads, m)?)?;
+    m.add_function(wrap_pyfunction!(speclib_flat::read_hdf_columns, m)?)?;
     m.add_function(wrap_pyfunction!(fdr_classifier::fdr_quantile_fit, m)?)?;
     m.add_function(wrap_pyfunction!(fdr_classifier::fdr_quantile_transform, m)?)?;
     m.add_function(wrap_pyfunction!(fdr_classifier::fdr_mlp_fit, m)?)?;

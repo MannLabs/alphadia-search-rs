@@ -7,7 +7,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::path::PathBuf;
 
+mod columns;
 mod hdf;
+pub use columns::read_hdf_columns;
 pub use hdf::read_flat_hdf;
 
 #[pyclass(skip_from_py_object)]

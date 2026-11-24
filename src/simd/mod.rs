@@ -5,6 +5,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub enum Rank {
     Scalar = 0,
     #[allow(dead_code)]
+    Avx2 = 1,
+    #[allow(dead_code)]
+    Avx512 = 3,
+    #[allow(dead_code)]
     Neon = 2,
 }
 
@@ -32,28 +36,174 @@ pub trait SimdBackend: Send + Sync {
         xic: &numpy::ndarray::Array2<f32>,
     ) -> numpy::ndarray::Array2<f32>;
 
+    // Dense-layer kernels of the mlp module
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: crate::mlp::Activation,
+        out: &mut [f32],
+    );
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        w: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    );
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    );
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    );
+    fn mlp_output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    );
+
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;
     fn priority(&self) -> Rank;
 }
 
+/// Every SIMD backend of the registry provides the layer kernels of [`crate::mlp::Network`].
+impl<T: SimdBackend + ?Sized> crate::mlp::LayerKernels for T {
+    fn dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: crate::mlp::Activation,
+        out: &mut [f32],
+    ) {
+        self.mlp_dense_forward(x, rows, k, wt, n, bias, activation, out)
+    }
+
+    fn dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        w: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    ) {
+        self.mlp_dense_backward_input(dz, rows, n, w, k, a_prev, d_prev)
+    }
+
+    fn dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    ) {
+        self.mlp_dense_weight_grad(a_prev, rows, k, dz, n, grad_wt, grad_b)
+    }
+
+    fn output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    ) {
+        self.mlp_output_layer_train(a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b)
+    }
+
+    fn output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    ) {
+        self.mlp_output_layer_logits(a, rows, k, w, b, logits)
+    }
+}
+
 // Import backend implementations
+#[cfg(target_arch = "x86_64")]
+mod avx2;
+#[cfg(target_arch = "x86_64")]
+mod avx512;
 mod neon;
 mod scalar;
 
+#[cfg(target_arch = "x86_64")]
+use avx2::Avx2Backend;
+#[cfg(target_arch = "x86_64")]
+use avx512::Avx512Backend;
 #[cfg(target_arch = "aarch64")]
 use neon::NeonBackend;
 use scalar::ScalarBackend;
 
 // Static backend instances
 static SCALAR: ScalarBackend = ScalarBackend;
+#[cfg(target_arch = "x86_64")]
+static AVX2: Avx2Backend = Avx2Backend;
+#[cfg(target_arch = "x86_64")]
+static AVX512: Avx512Backend = Avx512Backend;
 #[cfg(target_arch = "aarch64")]
 static NEON: NeonBackend = NeonBackend;
 
 // Backend registry
 static BACKENDS: &[&dyn SimdBackend] = &[
     &SCALAR,
+    #[cfg(target_arch = "x86_64")]
+    &AVX2,
+    #[cfg(target_arch = "x86_64")]
+    &AVX512,
     #[cfg(target_arch = "aarch64")]
     &NEON,
 ];

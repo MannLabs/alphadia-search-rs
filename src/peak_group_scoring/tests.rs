@@ -1478,3 +1478,51 @@ mod feature_sets {
         assert!(library_agreement.ent_sim > 0.99);
     }
 }
+
+#[test]
+fn test_apply_cross_candidate_features_fits_noise_model_on_non_best_candidates() {
+    use super::cross_candidate::{apply_cross_candidate_features, CandidateContext};
+    use super::feature_set::FeatureSet;
+    use super::features::CandidateFeature;
+    use super::ion_coverage::{num_ion_classes, IonCoverageFeatures, IonEvidence, IonNoiseModel};
+    use rayon::prelude::*;
+    let fragment = |bin: u8, hit: bool, positive: bool| IonEvidence {
+        class: 0,
+        bin,
+        hit,
+        positive,
+        library_share: 0.5,
+    };
+    let candidate = |rank: usize| CandidateFeature {
+        precursor_idx: 0,
+        rank,
+        core: Default::default(),
+        ion_coverage: Some(IonCoverageFeatures::default()),
+        library_agreement: None,
+    };
+    let evidence = vec![
+        vec![fragment(90, true, true), fragment(0, false, false)],
+        vec![fragment(10, true, true), fragment(0, false, false)],
+        vec![fragment(90, true, true), fragment(0, false, false)],
+    ];
+    let mut features = vec![candidate(0), candidate(1), candidate(1)];
+    let contexts = evidence
+        .iter()
+        .map(|ion_evidence| CandidateContext {
+            ion_evidence: ion_evidence.clone(),
+        })
+        .collect();
+
+    apply_cross_candidate_features(FeatureSet::Full, 12, &mut features, contexts);
+
+    // the best candidate (rank 0) is scored by the model but not part of its fit
+    let model = IonNoiseModel::fit(
+        evidence[1..].par_iter().map(|e| e.as_slice()),
+        num_ion_classes(12),
+    );
+    for (feature, ion_evidence) in features.iter().zip(&evidence) {
+        let ion_fisher_lib = feature.ion_coverage.unwrap().ion_fisher_lib;
+        assert_eq!(ion_fisher_lib, model.fisher(ion_evidence));
+    }
+    assert!(features[0].ion_coverage.unwrap().ion_fisher_lib > 0.0);
+}

@@ -13,6 +13,7 @@ use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureColl
 use crate::peak_group_scoring::ion_coverage::calculate_ion_coverage_features;
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
+use crate::peak_group_scoring::window_share::{cycle_intensity_sums, window_share_entry};
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
@@ -28,6 +29,7 @@ pub mod observation;
 pub mod parameters;
 pub mod tests;
 pub mod utils;
+pub mod window_share;
 pub use feature_set::FeatureSet;
 pub use parameters::ScoringParameters;
 
@@ -50,7 +52,21 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        self.score_generic(dia_data, lib, candidates)
+        // whole-run input of the window-share block: MS2 intensity per quadrupole observation and cycle
+        let cycle_intensities: Vec<Vec<f32>> = if self
+            .params
+            .feature_set
+            .has_block(FeatureBlockId::WindowShare)
+        {
+            dia_data
+                .quadrupole_observations()
+                .iter()
+                .map(cycle_intensity_sums)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        self.score_generic(dia_data, lib, candidates, &cycle_intensities)
     }
 }
 
@@ -61,6 +77,7 @@ impl PeakGroupScoring {
         dia_data: &T,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
+        cycle_intensities: &[Vec<f32>],
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
 
@@ -76,9 +93,12 @@ impl PeakGroupScoring {
                     false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
-                    }
+                    Some(precursor) => self.score_candidate_generic(
+                        dia_data,
+                        &precursor,
+                        candidate,
+                        cycle_intensities,
+                    ),
                     None => {
                         eprintln!(
                             "Warning: Candidate precursor_idx {} not found in library. Skipping.",
@@ -115,12 +135,14 @@ impl PeakGroupScoring {
     }
 
     /// Scores one candidate with the blocks of the feature set. The cross-candidate fields stay 0; the returned
-    /// context holds what `apply_cross_candidate_features` needs to fill them.
+    /// context holds what `apply_cross_candidate_features` needs to fill them. `cycle_intensities` is the summed MS2
+    /// intensity per quadrupole observation and cycle, empty without the window-share block.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
+        cycle_intensities: &[Vec<f32>],
     ) -> Option<(CandidateFeature, CandidateContext)> {
         let observation =
             PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
@@ -162,12 +184,25 @@ impl PeakGroupScoring {
                 )
             });
 
+        if feature_set.has_block(FeatureBlockId::WindowShare) {
+            context.window_share = Some(window_share_entry(
+                &observation.dense_xic,
+                &observation.median_profile_filtered,
+                candidate.cycle_start,
+                candidate.cycle_center,
+                &observation.quadrupole_observation_indices,
+                cycle_intensities,
+            ));
+        }
+
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
             core,
             ion_coverage,
             library_agreement,
+            // set with the whole block by apply_cross_candidate_features
+            window_share: None,
         };
         Some((feature, context))
     }

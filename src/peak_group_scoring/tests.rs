@@ -1776,6 +1776,7 @@ mod feature_sets {
         assert_eq!(apex.ion_coverage, None);
         assert_eq!(apex.library_agreement, None);
         assert_eq!(apex.window_share, None);
+        assert_eq!(apex.symbolic, None);
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
@@ -1788,10 +1789,16 @@ mod feature_sets {
         let apex = full.iter().find(|f| f.rank == 0).unwrap();
         let ion_coverage = apex.ion_coverage.unwrap();
         let library_agreement = apex.library_agreement.unwrap();
+        let symbolic = apex.symbolic.unwrap();
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
         assert!(ion_coverage.lib_share_over_50 > 0.99);
         assert!(ion_coverage.ion_fisher_lib > 0.0);
         assert!(library_agreement.ent_sim > 0.99);
+        assert!(
+            crate::peak_group_scoring::feature_block::FeatureBlock::values(&symbolic)
+                .iter()
+                .all(|v| v.is_finite())
+        );
     }
 
     #[test]
@@ -2110,7 +2117,8 @@ mod feature_sets {
         let num_other = FeatureSet::Full.feature_names().len()
             - 3
             - <crate::peak_group_scoring::mobility::MobilityFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len()
-            - <crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len();
+            - <crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len()
+            - <crate::peak_group_scoring::symbolic::SymbolicFeatures as crate::peak_group_scoring::feature_block::FeatureBlock>::NAMES.len();
         for (a, b) in without.iter().zip(with.iter()) {
             assert_eq!(
                 a.values(FeatureSet::Full).unwrap()[..num_other],

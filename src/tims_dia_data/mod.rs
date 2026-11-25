@@ -157,7 +157,7 @@ impl TimsDIAData {
                     format!("precursor_idx {} is not in the library", precursor_idx[i])
                 })?;
                 let precursor =
-                    speclib.get_precursor_filtered(position, true, true, top_k_fragments);
+                    speclib.get_precursor_filtered(position, true, true, false, top_k_fragments);
                 let filter = MobilityFilter::Window {
                     mobility: mobility[i],
                     tolerance: half_width,

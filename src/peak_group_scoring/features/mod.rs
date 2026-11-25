@@ -15,6 +15,7 @@ use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use crate::peak_group_scoring::mobility::MobilityFeatures;
 use crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
+use crate::peak_group_scoring::symbolic::SymbolicFeatures;
 use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
 #[cfg(test)]
@@ -33,6 +34,7 @@ pub struct CandidateFeature {
     pub detection: Option<DetectionFeatures>,
     pub mobility: Option<MobilityFeatures>,
     pub mobility_profile: Option<MobilityProfileFeatures>,
+    pub symbolic: Option<SymbolicFeatures>,
 }
 
 impl CandidateFeature {
@@ -60,6 +62,7 @@ impl CandidateFeature {
             FeatureBlockId::MobilityProfile => {
                 self.mobility_profile.map(|features| features.values())
             }
+            FeatureBlockId::Symbolic => self.symbolic.map(|features| features.values()),
         }
     }
 }

@@ -1,8 +1,10 @@
 use super::*;
+use crate::peak_group_scoring::symbolic_weights::NUM_FEATURES;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 25;
-const NUM_FULL_FEATURES: usize = 68;
+const NUM_BASE_FEATURES: usize = 68;
+const NUM_FULL_FEATURES: usize = NUM_BASE_FEATURES + NUM_FEATURES;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -49,6 +51,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
             mobility_outer_frac: 25.0,
         }),
         mobility_profile: None,
+        symbolic: None,
     }
 }
 
@@ -119,6 +122,9 @@ fn numbered_full_feature() -> CandidateFeature {
             mob2d_peak_share: 66.0,
             mob2d_fwhm: 67.0,
             mob2d_hit_excess: 68.0,
+        }),
+        symbolic: Some(SymbolicFeatures {
+            values: std::array::from_fn(|i| (NUM_BASE_FEATURES + 1 + i) as f32),
         }),
     }
 }
@@ -191,7 +197,8 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_
             Ms1Features::NAMES,
             DetectionFeatures::NAMES,
             MobilityFeatures::NAMES,
-            MobilityProfileFeatures::NAMES
+            MobilityProfileFeatures::NAMES,
+            SymbolicFeatures::NAMES,
         ]
         .concat()
     );
@@ -211,6 +218,7 @@ fn test_calibration_leaves_out_all_blocks_but_core_and_mobility() {
         WindowShareFeatures::NAMES,
         Ms1Features::NAMES,
         DetectionFeatures::NAMES,
+        SymbolicFeatures::NAMES,
     ]
     .concat()
     {
@@ -268,10 +276,11 @@ fn test_full_appends_the_ms1_and_detection_blocks_after_the_window_share_block()
     let num_before = NUM_FULL_FEATURES
         - 13
         - MobilityFeatures::NAMES.len()
-        - MobilityProfileFeatures::NAMES.len();
+        - MobilityProfileFeatures::NAMES.len()
+        - SymbolicFeatures::NAMES.len();
     assert_eq!(names[num_before - 1], "apex_window_signal_frac_zscore");
     assert_eq!(
-        names[num_before..],
+        names[num_before..NUM_FULL_FEATURES - SymbolicFeatures::NAMES.len()],
         [
             "ms1_signal_at_apex",
             "ms1_isotope_correlation",

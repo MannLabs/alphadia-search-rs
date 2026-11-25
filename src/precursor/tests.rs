@@ -39,6 +39,7 @@ fn test_no_filtering() {
         &precursor.fragment_type,
         false,
         false, // Don't filter Y1 ions in basic tests
+        false,
         usize::MAX,
     );
 
@@ -61,6 +62,7 @@ fn test_non_zero_filtering() {
         &precursor.fragment_type,
         true,
         false, // Don't filter Y1 ions in basic tests
+        false,
         usize::MAX,
     );
 
@@ -84,6 +86,7 @@ fn test_top_k_selection() {
         &precursor.fragment_type,
         false,
         false, // Don't filter Y1 ions in basic tests
+        false,
         2,
     );
 
@@ -107,6 +110,7 @@ fn test_combined_filtering() {
         &precursor.fragment_position,
         &precursor.fragment_type,
         true,
+        false,
         false,
         2,
     );
@@ -150,6 +154,7 @@ fn test_ordering_preservation() {
         &precursor.fragment_number,
         &precursor.fragment_position,
         &precursor.fragment_type,
+        false,
         false,
         false,
         3,
@@ -199,6 +204,7 @@ fn test_top_k_larger_than_available() {
         &small_precursor.fragment_type,
         false,
         false,
+        false,
         5,
     );
     assert_eq!(mz, vec![300.0, 400.0]);
@@ -238,6 +244,7 @@ fn test_all_zero_intensities_filtered() {
         &zero_precursor.fragment_position,
         &zero_precursor.fragment_type,
         true,
+        false,
         false,
         usize::MAX,
     );

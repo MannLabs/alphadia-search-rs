@@ -25,6 +25,7 @@ fn test_filter_sort_fragments_no_filtering() {
         &fragment_type,
         false,
         true, // Filter Y1 ions to broaden test scope
+        false,
         usize::MAX,
     );
 
@@ -56,6 +57,7 @@ fn test_filter_sort_fragments_non_zero_only() {
         &fragment_type,
         true,
         true, // Filter Y1 ions to broaden test scope
+        false,
         usize::MAX,
     );
 
@@ -85,6 +87,7 @@ fn test_filter_sort_fragments_top_k_selection() {
         &fragment_number,
         &fragment_position,
         &fragment_type,
+        false,
         false,
         false,
         3,
@@ -119,6 +122,7 @@ fn test_filter_sort_fragments_combined_non_zero_and_top_k() {
         &fragment_type,
         true,
         false,
+        false,
         2,
     );
 
@@ -150,6 +154,7 @@ fn test_filter_sort_fragments_mz_ascending_order() {
         &fragment_number,
         &fragment_position,
         &fragment_type,
+        false,
         false,
         false,
         3,
@@ -187,6 +192,7 @@ fn test_filter_sort_fragments_identical_intensities() {
         &fragment_type,
         false,
         false,
+        false,
         3,
     );
 
@@ -205,8 +211,21 @@ fn test_filter_sort_fragments_identical_intensities() {
 
 #[test]
 fn test_filter_sort_fragments_empty_input() {
-    let (mz, _mz_library, intensity, _, _, _, _, _, _) =
-        filter_sort_fragments(&[], &[], &[], &[], &[], &[], &[], &[], &[], false, false, 5);
+    let (mz, _mz_library, intensity, _, _, _, _, _, _) = filter_sort_fragments(
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        false,
+        false,
+        false,
+        5,
+    );
 
     assert!(mz.is_empty());
     assert!(intensity.is_empty());
@@ -227,6 +246,7 @@ fn test_filter_sort_fragments_single_fragment() {
         &[FragmentType::B],
         true,
         false,
+        false,
         1,
     );
     assert_eq!(mz, vec![500.0]);
@@ -244,6 +264,7 @@ fn test_filter_sort_fragments_single_fragment() {
         &[1],
         &[FragmentType::B],
         true,
+        false,
         false,
         1,
     );
@@ -275,6 +296,7 @@ fn test_filter_sort_fragments_all_zero_intensities() {
         &fragment_type,
         true,
         true, // Filter Y1 ions to broaden test scope
+        false,
         usize::MAX,
     );
 
@@ -306,6 +328,7 @@ fn test_filter_sort_fragments_top_k_zero() {
         &fragment_type,
         false,
         false,
+        false,
         0,
     );
 
@@ -335,6 +358,7 @@ fn test_filter_sort_fragments_top_k_larger_than_available() {
         &fragment_number,
         &fragment_position,
         &fragment_type,
+        false,
         false,
         false,
         10,
@@ -372,6 +396,7 @@ fn test_filter_sort_fragments_invariants() {
                     &fragment_position,
                     &fragment_type,
                     non_zero,
+                    false,
                     false,
                     k,
                 );
@@ -565,7 +590,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
             fragment_type_arr.readonly(),
         );
 
-        let precursor = speclib.get_precursor_filtered(0, false, false, usize::MAX);
+        let precursor = speclib.get_precursor_filtered(0, false, false, false, usize::MAX);
 
         // Verify that fragments are sorted by fragment_mz in ascending order
         assert_eq!(
@@ -583,7 +608,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
         assert!(precursor.fragment_mz.windows(2).all(|w| w[0] <= w[1]));
 
         // Test filtering with non_zero = true
-        let precursor_filtered = speclib.get_precursor_filtered(0, true, false, usize::MAX);
+        let precursor_filtered = speclib.get_precursor_filtered(0, true, false, false, usize::MAX);
         assert!(precursor_filtered
             .fragment_intensity
             .iter()
@@ -591,14 +616,14 @@ fn test_speclib_flat_fragment_mz_sorting() {
         assert_eq!(precursor_filtered.fragment_mz.len(), 5); // All intensities are > 0
 
         // Test filtering with top_k = 3
-        let precursor_top3 = speclib.get_precursor_filtered(0, false, false, 3);
+        let precursor_top3 = speclib.get_precursor_filtered(0, false, false, false, 3);
         assert_eq!(precursor_top3.fragment_mz.len(), 3);
         // Should contain top 3 intensities: 30.0, 25.0, 20.0 sorted by mz: 100.0, 200.0, 400.0
         assert_eq!(precursor_top3.fragment_mz, vec![100.0, 200.0, 400.0]);
         assert_eq!(precursor_top3.fragment_intensity, vec![30.0, 25.0, 20.0]);
 
         // Test combined filtering: non_zero = true and top_k = 2
-        let precursor_combined = speclib.get_precursor_filtered(0, true, false, 2);
+        let precursor_combined = speclib.get_precursor_filtered(0, true, false, false, 2);
         assert_eq!(precursor_combined.fragment_mz.len(), 2);
         assert!(precursor_combined
             .fragment_intensity
@@ -643,8 +668,9 @@ fn test_filter_sort_fragments_y1_ion_filtering() {
         &fragment_number,
         &fragment_position,
         &fragment_type,
-        false,      // Don't filter zero intensities
-        true,       // Filter Y1 ions - this is what we're testing!
+        false, // Don't filter zero intensities
+        true,  // Filter Y1 ions - this is what we're testing!
+        false,
         usize::MAX, // No top-k limit
     );
 
@@ -826,7 +852,7 @@ mod precursor_mobility {
         lib.set_precursor_mobility_from_slices(&[3, 7], &[0.9, 1.1])
             .unwrap();
         let precursor = lib
-            .get_precursor_by_idx_filtered(7, false, false, usize::MAX)
+            .get_precursor_by_idx_filtered(7, false, false, false, usize::MAX)
             .unwrap();
         assert_eq!(precursor.mobility, 1.1);
     }
@@ -869,4 +895,73 @@ mod precursor_mobility {
             .set_precursor_mobility_from_slices(&[5], &[1.0])
             .is_err());
     }
+}
+
+#[test]
+fn test_filter_sort_fragments_short_ion_filtering_before_top_k() {
+    // Given: b1, b2, y1 and y2 as the most intense fragments, then b3, y3 and a2
+    let fragment_mz = vec![100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0];
+    let fragment_mz_library = fragment_mz.clone();
+    let fragment_intensity = vec![70.0, 60.0, 50.0, 40.0, 30.0, 20.0, 10.0];
+    let fragment_cardinality = vec![1u8; 7];
+    let fragment_charge = vec![1u8; 7];
+    let fragment_loss_type = vec![Loss::NONE; 7];
+    let fragment_number = vec![1, 2, 1, 2, 3, 3, 2];
+    let fragment_position = vec![1u8; 7];
+    let fragment_type = vec![
+        FragmentType::B,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::Y,
+        FragmentType::B,
+        FragmentType::Y,
+        FragmentType::A,
+    ];
+
+    // When: the short ions are filtered out and the top 3 fragments are kept
+    let (mz, _, _, _, _, _, _, _, _) = filter_sort_fragments(
+        &fragment_mz,
+        &fragment_mz_library,
+        &fragment_intensity,
+        &fragment_cardinality,
+        &fragment_charge,
+        &fragment_loss_type,
+        &fragment_number,
+        &fragment_position,
+        &fragment_type,
+        false,
+        false,
+        true,
+        3,
+    );
+
+    // Then: the top 3 come from b3, y3 and a2, as the short b and y ions are dropped before the top-k choice
+    assert_eq!(mz, vec![500.0, 600.0, 700.0]);
+}
+
+#[test]
+fn test_filter_sort_fragments_keeps_short_ions_without_the_filter() {
+    // Given: b1, y2 and b3
+    let fragment_mz = vec![100.0, 200.0, 300.0];
+    let fragment_type = vec![FragmentType::B, FragmentType::Y, FragmentType::B];
+
+    // When: the fragments are filtered without the short ion filter
+    let (mz, _, _, _, _, _, _, _, _) = filter_sort_fragments(
+        &fragment_mz,
+        &fragment_mz,
+        &[30.0, 20.0, 10.0],
+        &[1u8; 3],
+        &[1u8; 3],
+        &[Loss::NONE; 3],
+        &[1, 2, 3],
+        &[1u8; 3],
+        &fragment_type,
+        false,
+        false,
+        false,
+        usize::MAX,
+    );
+
+    // Then: all fragments are kept
+    assert_eq!(mz, vec![100.0, 200.0, 300.0]);
 }

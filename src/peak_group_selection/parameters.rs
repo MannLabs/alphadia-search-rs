@@ -26,6 +26,8 @@ pub struct SelectionParameters {
     pub rt_prior_sigma: f32,
     #[pyo3(get)]
     pub mobility_selection_bins: usize,
+    #[pyo3(get)]
+    pub rt_prior: Option<(f32, f32)>,
 }
 
 #[pymethods]
@@ -54,6 +56,10 @@ impl SelectionParameters {
             // number of mobility sub-windows the selection scores separately (data with mobility); 1 scores the whole
             // mobility window at once.
             mobility_selection_bins: 1,
+            // Student-t prior on the deviation of a peak from the predicted retention time, as (scale, df): scale is the
+            // width in seconds, df the degrees of freedom. Its log density, zero at the predicted RT, is added to the
+            // selection score.
+            rt_prior: None,
         }
     }
 
@@ -88,6 +94,9 @@ impl SelectionParameters {
         }
         if let Some(value) = config.get_item("rt_prior_sigma")? {
             self.rt_prior_sigma = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("rt_prior")? {
+            self.rt_prior = value.extract::<Option<(f32, f32)>>()?;
         }
         Ok(())
     }

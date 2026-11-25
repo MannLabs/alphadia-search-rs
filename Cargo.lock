@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "alphadia-search-rs"
-version = "1.11.1-dev0"
+version = "1.13.1-dev0"
 dependencies = [
  "approx",
  "cpufeatures 0.2.17",

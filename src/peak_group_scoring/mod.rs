@@ -25,6 +25,10 @@ use crate::peak_group_scoring::ms1::{
     calculate_ms1_apex_calibration, calculate_ms1_features, Ms1ApexFeatures,
 };
 use crate::peak_group_scoring::observation::PeakGroupObservation;
+use crate::peak_group_scoring::symbolic::{
+    calculate_symbolic_features, RunScales, SymbolicInputs, CORE_SIGMAS, MAX_FRAGMENTS,
+    NUM_CONTEXT_TRACES, WINDOW_LEN,
+};
 use crate::peak_group_scoring::window_share::{
     calculate_window_share_features, window_share_context, WindowShareEntry,
     WINDOW_SHARE_CYCLE_RADIUS,
@@ -32,6 +36,9 @@ use crate::peak_group_scoring::window_share::{
 use crate::precursor::Precursor;
 use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
 use crate::SpecLibFlat;
+use numpy::ndarray::{Array1, Array2, Array3, Array4};
+use numpy::IntoPyArray;
+use pyo3::types::PyDict;
 
 pub mod core;
 pub mod detection;
@@ -45,6 +52,10 @@ pub mod mobility_profile;
 pub mod ms1;
 pub mod observation;
 pub mod parameters;
+pub mod symbolic;
+#[cfg(test)]
+mod symbolic_fixture;
+pub mod symbolic_weights;
 pub mod tests;
 pub mod utils;
 pub mod window_share;
@@ -97,6 +108,102 @@ impl PeakGroupScoring {
             .score_ms1_calibration_generic(data, lib, candidates));
         Self::ms1_calibration_columns(py, &scored)
     }
+
+    /// The raw inputs of the symbolic features for every candidate and the run scales estimated from all of them,
+    /// as a dict of arrays. Rows of candidates whose precursor is not in the library are zero.
+    pub fn export_symbolic_inputs(
+        &self,
+        py: Python,
+        dia_data: AnyDIAData<'_>,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> PyResult<Py<PyAny>> {
+        crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .export_symbolic_inputs_generic(py, data, lib, candidates))
+    }
+
+    /// `(median_peak, sigma_mz, sigma_rt)` of the symbolic features, estimated from all candidates of a run.
+    pub fn symbolic_run_scales(
+        &self,
+        dia_data: AnyDIAData<'_>,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> (f32, f32, f32) {
+        let scales = crate::any_dia_data::with_dia_data!(dia_data, |data| self
+            .estimate_run_scales(data, lib, candidates));
+        (scales.median_peak, scales.sigma_mz, scales.sigma_rt)
+    }
+}
+
+impl PeakGroupScoring {
+    fn export_symbolic_inputs_generic<T: DIADataTrait + Sync>(
+        &self,
+        py: Python,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> PyResult<Py<PyAny>>
+    where
+        T::QuadrupoleObservation: Sync,
+    {
+        let scales = self.estimate_run_scales(dia_data, lib, candidates);
+        let tolerance = CORE_SIGMAS * scales.sigma_mz;
+        let inputs: Vec<Option<SymbolicInputs>> = candidates
+            .par_iter()
+            .map(|candidate| {
+                self.scoring_precursor(lib, candidate).map(|precursor| {
+                    SymbolicInputs::extract(
+                        dia_data,
+                        &precursor,
+                        candidate,
+                        tolerance,
+                        precursor.mobility_filter(self.params.mobility_tolerance),
+                    )
+                })
+            })
+            .collect();
+
+        let n = inputs.len();
+        let mut xic = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
+        let mut ppm_error = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
+        let mut context = Array4::<f32>::zeros((n, MAX_FRAGMENTS, NUM_CONTEXT_TRACES, WINDOW_LEN));
+        let mut fragment_meta = Array3::<f32>::zeros((n, MAX_FRAGMENTS, 4));
+        let mut candidate_meta = Array2::<f32>::zeros((n, 4));
+        let mut num_fragments = Array1::<u64>::zeros(n);
+        for (i, inputs) in inputs.iter().enumerate() {
+            let Some(inputs) = inputs else { continue };
+            num_fragments[i] = inputs.num_fragments as u64;
+            for f in 0..inputs.num_fragments {
+                for t in 0..WINDOW_LEN {
+                    xic[[i, f, t]] = inputs.xic[f][t];
+                    ppm_error[[i, f, t]] = inputs.ppm_error[f][t];
+                    for c in 0..NUM_CONTEXT_TRACES {
+                        context[[i, f, c, t]] = inputs.context[f][c][t];
+                    }
+                }
+                fragment_meta[[i, f, 0]] = inputs.library_intensity[f];
+                fragment_meta[[i, f, 1]] = inputs.is_y[f];
+                fragment_meta[[i, f, 2]] = inputs.charge[f];
+                fragment_meta[[i, f, 3]] = inputs.number[f];
+            }
+            candidate_meta[[i, 0]] = inputs.delta_rt;
+            candidate_meta[[i, 1]] = inputs.naa;
+            candidate_meta[[i, 2]] = inputs.cycle_start_offset;
+            candidate_meta[[i, 3]] = inputs.cycle_stop_offset;
+        }
+
+        let dict = PyDict::new(py);
+        dict.set_item("xic", xic.into_pyarray(py))?;
+        dict.set_item("ppm_error", ppm_error.into_pyarray(py))?;
+        dict.set_item("context", context.into_pyarray(py))?;
+        dict.set_item("fragment_meta", fragment_meta.into_pyarray(py))?;
+        dict.set_item("candidate_meta", candidate_meta.into_pyarray(py))?;
+        dict.set_item("num_fragments", num_fragments.into_pyarray(py))?;
+        dict.set_item("median_peak", scales.median_peak)?;
+        dict.set_item("sigma_mz", scales.sigma_mz)?;
+        dict.set_item("sigma_rt", scales.sigma_rt)?;
+        Ok(dict.into())
+    }
 }
 
 impl PeakGroupScoring {
@@ -127,12 +234,7 @@ impl PeakGroupScoring {
         candidates
             .par_iter()
             .filter_map(|candidate| {
-                let precursor = lib.get_precursor_by_idx_filtered(
-                    candidate.precursor_idx,
-                    true,
-                    true,
-                    self.params.top_k_fragments,
-                )?;
+                let precursor = self.scoring_precursor(lib, candidate)?;
                 let observation = PeakGroupObservation::new(
                     dia_data,
                     &precursor,
@@ -159,7 +261,10 @@ impl PeakGroupScoring {
         dia_data: &T,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
-    ) -> CandidateFeatureCollection {
+    ) -> CandidateFeatureCollection
+    where
+        T::QuadrupoleObservation: Sync,
+    {
         let start_time = Instant::now();
 
         // MS2 intensity of every isolation window per cycle, for the window share
@@ -190,17 +295,18 @@ impl PeakGroupScoring {
         let detection_model = scores_detection(&self.params)
             .then(|| DetectionModel::fit(dia_data, lib, candidates, &self.params));
 
+        let run_scales = self
+            .params
+            .feature_set
+            .has_block(FeatureBlockId::Symbolic)
+            .then(|| self.estimate_run_scales(dia_data, lib, candidates));
+
         // Parallel iteration over candidates to score each one
         let scored: Vec<ScoredCandidate> = candidates
             .par_iter()
             .filter_map(|candidate| {
                 // Find precursor by idx (not array position)
-                match lib.get_precursor_by_idx_filtered(
-                    candidate.precursor_idx,
-                    true, // Always filter non-zero intensities for scoring
-                    true, // Filter Y1 ions by default
-                    self.params.top_k_fragments,
-                ) {
+                match self.scoring_precursor(lib, candidate) {
                     Some(precursor) => self.score_candidate_generic(
                         dia_data,
                         lib,
@@ -209,6 +315,7 @@ impl PeakGroupScoring {
                         &window_intensities,
                         &ms1_observations,
                         detection_model.as_ref(),
+                        run_scales.as_ref(),
                     ),
                     None => {
                         eprintln!(
@@ -266,6 +373,36 @@ impl PeakGroupScoring {
         feature_collection
     }
 
+    /// The precursor of a candidate with the fragments that scoring uses, found by idx (not array position).
+    fn scoring_precursor(&self, lib: &SpecLibFlat, candidate: &Candidate) -> Option<Precursor> {
+        lib.get_precursor_by_idx_filtered(
+            candidate.precursor_idx,
+            true,  // Always filter non-zero intensities for scoring
+            true,  // Filter Y1 ions by default
+            false, // Scoring uses the short ions
+            self.params.top_k_fragments,
+        )
+    }
+
+    fn estimate_run_scales<T: DIADataTrait + Sync>(
+        &self,
+        dia_data: &T,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> RunScales
+    where
+        T::QuadrupoleObservation: Sync,
+    {
+        RunScales::estimate(
+            dia_data,
+            lib,
+            candidates,
+            self.params.mass_tolerance,
+            self.params.mobility_tolerance,
+            self.params.top_k_fragments,
+        )
+    }
+
     /// The ion-class noise model needs all candidates: it is fitted on those that are not the best of their
     /// precursor, targets and decoys alike, and then scores every candidate's fragments.
     fn set_ion_fisher_lib(
@@ -318,7 +455,8 @@ impl PeakGroupScoring {
     /// summed MS2 intensity per isolation window and cycle. `ms1_observations` are the MS1 survey scans the MS1 block
     /// reads; without them, or without library isotopes for the precursor, the MS1 block takes its missing values.
     /// `detection_model` holds the run-wide inputs of the detection block; without it (`detection_features` off) the
-    /// detection block takes its missing values.
+    /// detection block takes its missing values. `run_scales` is given if the feature set has the symbolic block,
+    /// which extracts its own window around the candidate, in units of the run's mass accuracy.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
@@ -328,28 +466,41 @@ impl PeakGroupScoring {
         window_intensities: &[Vec<f32>],
         ms1_observations: &[usize],
         detection_model: Option<&DetectionModel>,
+        run_scales: Option<&RunScales>,
     ) -> Option<ScoredCandidate> {
         let wide = precursor.mobility_filter(self.params.mobility_tolerance);
+        let peak_filter = recentered_mobility_filter(
+            dia_data,
+            precursor,
+            candidate.cycle_center,
+            wide,
+            self.params.mass_tolerance,
+            self.params.mobility_peak_tolerance,
+            self.params.mobility_observation_widening,
+        );
         let observation = PeakGroupObservation::new(
             dia_data,
             precursor,
             candidate,
             self.params.mass_tolerance,
-            recentered_mobility_filter(
+            peak_filter,
+        );
+        let feature_set = self.params.feature_set;
+        // The network reads its own window, in units of the run's mass accuracy, over the same scans as the other
+        // blocks.
+        let symbolic = run_scales.map(|scales| {
+            let inputs = SymbolicInputs::extract(
                 dia_data,
                 precursor,
-                candidate.cycle_center,
-                wide,
-                self.params.mass_tolerance,
-                self.params.mobility_peak_tolerance,
-                self.params.mobility_observation_widening,
-            ),
-        );
+                candidate,
+                CORE_SIGMAS * scales.sigma_mz,
+                peak_filter,
+            );
+            calculate_symbolic_features(&inputs, scales)
+        });
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
-
-        let feature_set = self.params.feature_set;
 
         let (ion_coverage, ion_evidence) = if feature_set.has_block(FeatureBlockId::IonCoverage) {
             let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
@@ -457,6 +608,7 @@ impl PeakGroupScoring {
             detection,
             mobility,
             mobility_profile,
+            symbolic,
         };
         Some(ScoredCandidate {
             feature,

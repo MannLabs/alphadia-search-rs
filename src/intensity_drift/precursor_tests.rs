@@ -1,6 +1,7 @@
 use super::precursor::{
-    correct_precursor_drift, correct_precursor_drift_in_rounds, PrecursorDriftParameters,
-    PrecursorDriftSummary, ROW_LEVEL_ROUNDS,
+    correct_precursor_drift, correct_precursor_drift_in_rounds, fill_missing, half_sample_mode,
+    reference_runs, PrecursorDriftParameters, PrecursorDriftSummary, QuantileBins,
+    REFERENCE_LEVEL_ROUNDS,
 };
 
 const N_PRECURSORS: usize = 30_000;
@@ -28,7 +29,7 @@ const MISSING_SHARE: f64 = 0.4;
 /// The tests of rows missing at random require more reference precursors than the ~16,300 of
 /// `N_PRECURSORS` quantified in four of six runs at `MISSING_SHARE` and fewer than the ~24,600 in
 /// three, so that the reference holds the precursors quantified in half of the runs, most of them
-/// partial rows, and the row-level rounds are exercised.
+/// partial rows, and the reference-level rounds are exercised.
 const PARTIAL_ROW_MIN_REFERENCE_PRECURSORS: usize = 20_000;
 const PARTIAL_ROW_REFERENCE_RUNS: usize = 3;
 /// Missing cells of the test with a share of complete rows that is too small: of `N_PRECURSORS`
@@ -51,7 +52,7 @@ const N_MISSING_SEEDS: u64 = 16;
 /// under-corrects a little on the deviations of incomplete rows, a cell mean does not (0.007).
 const MAX_MISSING_SHORTFALL: f64 = 0.05;
 /// Minimum gain of the alternating estimate over a single round with missing cells. A single
-/// round measures the deviations of incomplete rows from biased row levels: 0.83 against 0.92
+/// round measures the deviations of incomplete rows from biased reference levels: 0.83 against 0.92
 /// over 48 draws.
 const MIN_ROUNDS_GAIN: f64 = 0.04;
 /// The rounds of the alternating estimate never stop early.
@@ -296,12 +297,15 @@ fn test_corrects_two_runs() {
 }
 
 #[test]
-fn test_uses_all_strata_for_a_large_reference() {
+fn test_uses_all_mass_bins_for_a_large_reference() {
     let tables = Tables::new(3, N_PRECURSORS, 0);
 
     let (_, summary) = tables.correct();
 
-    assert_eq!(summary.n_strata, PrecursorDriftParameters::DEFAULT.n_strata);
+    assert_eq!(
+        summary.n_mass_bins,
+        PrecursorDriftParameters::DEFAULT.n_mass_bins
+    );
 }
 
 #[test]
@@ -330,13 +334,13 @@ fn test_leaves_runs_with_too_few_reference_precursors_unchanged() {
 }
 
 #[test]
-fn test_uses_fewer_strata_when_the_reference_is_small() {
-    // 5000 references fill 10 RT bins of 125 precursors in 4 strata only
+fn test_uses_fewer_mass_bins_when_the_reference_is_small() {
+    // 5000 references fill 10 RT bins of 125 precursors in 4 mass bins only
     let tables = Tables::new(3, 5000, 0);
 
     let (_, summary) = tables.correct();
 
-    assert_eq!(summary.n_strata, 4);
+    assert_eq!(summary.n_mass_bins, 4);
 }
 
 #[test]
@@ -381,7 +385,7 @@ fn test_complete_data_gives_the_between_run_ratios_of_a_single_round() {
     let tables = Tables::new(N_PARTIAL_RUNS, N_PRECURSORS, 0);
 
     let single_round = tables.correct_in_rounds(1, NEVER_STOP);
-    let all_rounds = tables.correct_in_rounds(ROW_LEVEL_ROUNDS, NEVER_STOP);
+    let all_rounds = tables.correct_in_rounds(REFERENCE_LEVEL_ROUNDS, NEVER_STOP);
 
     // a function of the precursor common to all runs leaves every between-run ratio unchanged
     let difference: Vec<f64> = tables
@@ -549,4 +553,66 @@ fn test_corrects_a_large_cohort_without_enough_complete_rows() {
         mean_removed_share_with_too_few_complete_rows(N_COHORT_RUNS, COHORT_MISSING_SHARE, N_SEEDS);
 
     assert!(share >= MIN_REMOVED_SHARE, "removed {share:.3}");
+}
+
+#[test]
+fn test_half_sample_mode_finds_the_densest_half() {
+    let mut values = vec![0.0, 0.01, 0.02, 0.03, 0.04, 5.0, 6.0, 7.0];
+    assert!(half_sample_mode(&mut values) < 0.05);
+}
+
+#[test]
+fn test_quantile_bins_collapse_tied_edges_and_keep_every_bin_occupied() {
+    let values = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 3.0];
+
+    let bins = QuantileBins::new(&values, 4);
+
+    assert_eq!(bins.centres, vec![1.0, 2.5]);
+    assert_eq!(bins.assign(1.0), 0);
+    assert_eq!(bins.assign(3.0), 1);
+    assert_eq!(bins.assign(-10.0), 0);
+}
+
+/// Number of runs every precursor is quantified in, `count` precursors per entry.
+fn quantified_runs(counts: &[(usize, usize)]) -> Vec<usize> {
+    counts
+        .iter()
+        .flat_map(|&(runs, count)| std::iter::repeat_n(runs, count))
+        .collect()
+}
+
+#[test]
+fn test_reference_runs_are_all_runs_when_enough_precursors_are_complete() {
+    let quantified = quantified_runs(&[(6, 3000), (5, 5000), (0, 100)]);
+
+    assert_eq!(reference_runs(&quantified, 6, 3000), 6);
+}
+
+#[test]
+fn test_reference_runs_are_the_most_runs_that_enough_precursors_reach() {
+    let quantified = quantified_runs(&[(6, 1000), (5, 1000), (4, 1000), (3, 5000)]);
+
+    assert_eq!(reference_runs(&quantified, 6, 2500), 4);
+    assert_eq!(reference_runs(&quantified, 6, 2000), 5);
+}
+
+#[test]
+fn test_reference_runs_are_at_least_two() {
+    let quantified = quantified_runs(&[(6, 10), (2, 10), (1, 5000), (0, 5000)]);
+
+    assert_eq!(reference_runs(&quantified, 6, 2500), 2);
+    assert_eq!(
+        reference_runs(&quantified_runs(&[(2, 10), (1, 5000)]), 2, 2500),
+        2
+    );
+}
+
+#[test]
+fn test_fill_missing_interpolates_along_rows_then_columns() {
+    let nan = f64::NAN;
+    let grid = [0.0, nan, nan, nan, 2.0, nan];
+
+    let filled = fill_missing(&grid, (3, 2));
+
+    assert_eq!(filled, vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0]);
 }

@@ -63,7 +63,8 @@ impl PeakGroupQuantification {
                 match lib.get_precursor_by_idx_filtered(
                     candidate.precursor_idx,
                     true,
-                    true, // Filter Y1 ions by default
+                    true,  // Filter Y1 ions by default
+                    false, // Quantification uses the short ions
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => self.quantify_precursor(dia_data, &precursor, candidate),

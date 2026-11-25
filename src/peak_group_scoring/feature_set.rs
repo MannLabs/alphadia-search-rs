@@ -12,6 +12,7 @@ use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use crate::peak_group_scoring::mobility::MobilityFeatures;
 use crate::peak_group_scoring::mobility_profile::MobilityProfileFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
+use crate::peak_group_scoring::symbolic::SymbolicFeatures;
 use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
 #[pyclass(eq, eq_int, hash, frozen, from_py_object)]
@@ -32,6 +33,7 @@ pub enum FeatureBlockId {
     Detection,
     Mobility,
     MobilityProfile,
+    Symbolic,
 }
 
 impl FeatureSet {
@@ -48,6 +50,7 @@ impl FeatureSet {
                 FeatureBlockId::Detection,
                 FeatureBlockId::Mobility,
                 FeatureBlockId::MobilityProfile,
+                FeatureBlockId::Symbolic,
             ],
         }
     }
@@ -75,6 +78,7 @@ impl FeatureBlockId {
             FeatureBlockId::Detection => DetectionFeatures::NAMES,
             FeatureBlockId::Mobility => MobilityFeatures::NAMES,
             FeatureBlockId::MobilityProfile => MobilityProfileFeatures::NAMES,
+            FeatureBlockId::Symbolic => SymbolicFeatures::NAMES,
         }
     }
 }

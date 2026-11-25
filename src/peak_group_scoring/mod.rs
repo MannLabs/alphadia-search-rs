@@ -5,11 +5,12 @@ use std::time::Instant;
 use crate::candidate::{Candidate, CandidateCollection};
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
+use crate::peak_group_scoring::cross_candidate::{
+    apply_cross_candidate_features, CandidateContext,
+};
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
 use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
-use crate::peak_group_scoring::ion_coverage::{
-    calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
-};
+use crate::peak_group_scoring::ion_coverage::calculate_ion_coverage_features;
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::precursor::Precursor;
@@ -17,6 +18,7 @@ use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
 
 pub mod core;
+pub mod cross_candidate;
 pub mod feature_block;
 pub mod feature_set;
 pub mod features;
@@ -63,7 +65,7 @@ impl PeakGroupScoring {
         let start_time = Instant::now();
 
         // Parallel iteration over candidates to score each one
-        let (mut scored_candidates, ion_evidence): (Vec<_>, Vec<Vec<IonEvidence>>) = candidates
+        let (mut scored_candidates, contexts): (Vec<_>, Vec<_>) = candidates
             .par_iter()
             .filter_map(|candidate| {
                 // Find precursor by idx (not array position)
@@ -88,14 +90,12 @@ impl PeakGroupScoring {
             })
             .unzip();
 
-        if self
-            .params
-            .feature_set
-            .has_block(FeatureBlockId::IonCoverage)
-        {
-            self.set_ion_fisher_lib(&mut scored_candidates, &ion_evidence);
-        }
-        drop(ion_evidence);
+        apply_cross_candidate_features(
+            self.params.feature_set,
+            self.params.top_k_fragments,
+            &mut scored_candidates,
+            contexts,
+        );
 
         let feature_collection =
             CandidateFeatureCollection::from_vec(self.params.feature_set, scored_candidates);
@@ -114,39 +114,14 @@ impl PeakGroupScoring {
         feature_collection
     }
 
-    /// The ion-class noise model needs all candidates: it is fitted on those that are not the best of their
-    /// precursor, targets and decoys alike, and then scores every candidate's fragments.
-    fn set_ion_fisher_lib(
-        &self,
-        scored_candidates: &mut [CandidateFeature],
-        ion_evidence: &[Vec<IonEvidence>],
-    ) {
-        let noise_model = IonNoiseModel::fit(
-            scored_candidates
-                .par_iter()
-                .zip(ion_evidence.par_iter())
-                .filter(|(feature, _)| feature.rank >= 1)
-                .map(|(_, evidence)| evidence.as_slice()),
-            num_ion_classes(self.params.top_k_fragments),
-        );
-        scored_candidates
-            .par_iter_mut()
-            .zip(ion_evidence.par_iter())
-            .for_each(|(feature, evidence)| {
-                if let Some(ion_coverage) = &mut feature.ion_coverage {
-                    ion_coverage.ion_fisher_lib = noise_model.fisher(evidence);
-                }
-            });
-    }
-
-    /// Scores one candidate with the blocks of the feature set. The ion evidence feeds the noise model of
-    /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block.
+    /// Scores one candidate with the blocks of the feature set. The cross-candidate fields stay 0; the returned
+    /// context holds what `apply_cross_candidate_features` needs to fill them.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
-    ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
+    ) -> Option<(CandidateFeature, CandidateContext)> {
         let observation =
             PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
 
@@ -155,7 +130,9 @@ impl PeakGroupScoring {
 
         let feature_set = self.params.feature_set;
 
-        let (ion_coverage, ion_evidence) = if feature_set.has_block(FeatureBlockId::IonCoverage) {
+        let mut context = CandidateContext::default();
+
+        let ion_coverage = if feature_set.has_block(FeatureBlockId::IonCoverage) {
             let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(
                 &precursor.fragment_intensity,
                 &observation.observation_intensities,
@@ -166,9 +143,10 @@ impl PeakGroupScoring {
                 precursor.naa,
                 self.params.top_k_fragments,
             );
-            (Some(ion_coverage), ion_evidence)
+            context.ion_evidence = ion_evidence;
+            Some(ion_coverage)
         } else {
-            (None, Vec::new())
+            None
         };
 
         let library_agreement = feature_set
@@ -191,6 +169,6 @@ impl PeakGroupScoring {
             ion_coverage,
             library_agreement,
         };
-        Some((feature, ion_evidence))
+        Some((feature, context))
     }
 }

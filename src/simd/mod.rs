@@ -8,29 +8,48 @@ pub enum Rank {
     Neon = 2,
 }
 
+/// The operations that can have SIMD kernels. The default of every operation is the scalar
+/// kernel. A backend overrides only the operations that it has its own kernels for. Callers get
+/// the backend from [`get_backend`].
 pub trait SimdBackend: Send + Sync {
     // Dummy function to track which backend implementation is called
     #[allow(dead_code)]
     fn test_backend(&self) -> String;
 
-    // Score module functions (actually used)
+    // Score module functions
     fn axis_log_dot_product(
         &self,
         array: &numpy::ndarray::Array2<f32>,
         weights: &[f32],
-    ) -> numpy::ndarray::Array1<f32>;
+    ) -> numpy::ndarray::Array1<f32> {
+        crate::score::scalar::axis_log_dot_product_scalar(array, weights)
+    }
     fn axis_sqrt_dot_product(
         &self,
         array: &numpy::ndarray::Array2<f32>,
         weights: &[f32],
-    ) -> numpy::ndarray::Array1<f32>;
+    ) -> numpy::ndarray::Array1<f32> {
+        crate::score::scalar::axis_sqrt_dot_product_scalar(array, weights)
+    }
 
     // Convolution module functions
     fn convolution(
         &self,
         kernel: &crate::kernel::GaussianKernel,
         xic: &numpy::ndarray::Array2<f32>,
-    ) -> numpy::ndarray::Array2<f32>;
+    ) -> numpy::ndarray::Array2<f32> {
+        crate::convolution::scalar::convolution_scalar(kernel, xic)
+    }
+
+    // Quantile transform of the FDR classifier: the normal scores of one feature column
+    fn quantile_transform_column(
+        &self,
+        map: &crate::fdr_classifier::quantile::FeatureMap,
+        x: &[f32],
+        out: &mut [f32],
+    ) {
+        map.apply_column(x, out)
+    }
 
     // Backend metadata
     fn name(&self) -> &'static str;

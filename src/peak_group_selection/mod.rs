@@ -11,7 +11,6 @@ use crate::dia_data::DIAData;
 use crate::kernel::GaussianKernel;
 use crate::precursor::Precursor;
 use crate::score::axis_log_dot_product;
-use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
 
 pub mod parameters;
@@ -106,24 +105,20 @@ impl PeakGroupSelection {
     }
 
     pub fn search(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
-        self.search_generic(dia_data, lib)
+        self.search_precursors(dia_data, lib)
     }
 }
 
 impl PeakGroupSelection {
-    /// Generic search function that works with any type implementing DIADataTrait
-    fn search_generic<T: DIADataTrait + Sync>(
-        &self,
-        dia_data: &T,
-        lib: &SpecLibFlat,
-    ) -> CandidateCollection {
+    /// Find the candidates of all library precursors in the DIA data.
+    fn search_precursors(&self, dia_data: &DIAData, lib: &SpecLibFlat) -> CandidateCollection {
         let start_time = Instant::now();
         // fwhm_rt is in seconds, the convolution runs on the cycle grid.
         let kernel = GaussianKernel::new(
             self.params.fwhm_rt,
             1.0, // sigma_scale_rt
             self.params.kernel_size,
-            dia_data.rt_index().delta_t(),
+            dia_data.rt_index.delta_t(),
         );
         // Parallel iteration over precursor indices with filter_map to collect candidates
         let candidates: Vec<Candidate> = (0..lib.num_precursors())
@@ -136,7 +131,7 @@ impl PeakGroupSelection {
                     true, // b1, b2, y1 and y2 add signal at many wrong retention times
                     self.params.top_k_fragments,
                 );
-                self.search_precursor_generic(
+                self.search_precursor(
                     dia_data,
                     &kernel,
                     &precursor,
@@ -157,17 +152,17 @@ impl PeakGroupSelection {
         CandidateCollection::from_vec(candidates)
     }
 
-    /// Generic precursor search function that works with any type implementing DIADataTrait
-    fn search_precursor_generic<T: DIADataTrait>(
+    /// Find the candidates of one precursor in the DIA data.
+    fn search_precursor(
         &self,
-        dia_data: &T,
+        dia_data: &DIAData,
         kernel: &GaussianKernel,
         precursor: &Precursor,
         mass_tolerance: f32,
         rt_tolerance: f32,
         candidate_count: usize,
     ) -> Option<Vec<Candidate>> {
-        let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index().get_cycle_idx_limits(
+        let (cycle_start_idx, cycle_stop_idx) = dia_data.rt_index.get_cycle_idx_limits(
             precursor.rt,
             rt_tolerance,
             self.params.kernel_size,
@@ -195,7 +190,7 @@ impl PeakGroupSelection {
         if let Some((scale, df)) = self.params.rt_prior {
             add_rt_log_prior(
                 &mut score,
-                &dia_data.rt_index().rt,
+                &dia_data.rt_index.rt,
                 cycle_start_idx,
                 precursor.rt,
                 scale,
@@ -218,7 +213,7 @@ impl PeakGroupSelection {
             let (cycle_start_idx, cycle_stop_idx) = candidate_cycle_limits(
                 cycle_center_idx,
                 self.params.peak_length,
-                dia_data.rt_index().len(),
+                dia_data.rt_index.len(),
             );
 
             let candidate = Candidate::new(

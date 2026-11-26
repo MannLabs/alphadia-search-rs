@@ -1,5 +1,6 @@
 use super::*;
 use crate::dia_data::AlphaRawView;
+use crate::mz_index::MZIndex;
 use numpy::ndarray::{ArrayView1, ArrayView4};
 use numpy::{PyArrayMethods, PyUntypedArrayMethods};
 use pyo3::Python;

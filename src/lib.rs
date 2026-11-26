@@ -27,7 +27,6 @@ mod simd;
 pub mod speclib_flat;
 pub mod speclib_flat_quantified;
 mod threadpool;
-pub mod traits;
 pub mod utils;
 pub mod varmodel_quantification;
 

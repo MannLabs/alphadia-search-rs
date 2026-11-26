@@ -4,11 +4,11 @@ use numpy::ndarray::{Array2, Axis};
 
 use crate::candidate::Candidate;
 use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::dia_data::DIAData;
 use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
 
 pub struct PeakGroupObservation {
     /// fragment XICs: fragments x cycles
@@ -30,8 +30,8 @@ pub struct PeakGroupObservation {
 }
 
 impl PeakGroupObservation {
-    pub fn new<T: DIADataTrait>(
-        dia_data: &T,
+    pub fn new(
+        dia_data: &DIAData,
         precursor: &Precursor,
         candidate: &Candidate,
         mass_tolerance: f32,

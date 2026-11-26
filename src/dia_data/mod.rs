@@ -3,7 +3,6 @@ use numpy::{PyArray1, PyArray4, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::{prelude::*, Bound};
 mod alpha_raw_view;
 use crate::dia_data_builder::DIADataBuilder;
-use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
 pub use alpha_raw_view::AlphaRawView;
@@ -133,31 +132,6 @@ impl DIAData {
     #[getter]
     pub fn cycle<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray4<f32>> {
         PyArray4::from_array(py, &self.cycle)
-    }
-}
-
-// Implement the DIADataTrait for DIAData
-impl crate::traits::DIADataTrait for DIAData {
-    type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
-
-    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
-        self.get_valid_observations(precursor_mz)
-    }
-
-    fn mz_index(&self) -> &crate::mz_index::MZIndex {
-        MZIndex::global()
-    }
-
-    fn rt_index(&self) -> &crate::rt_index::RTIndex {
-        &self.rt_index
-    }
-
-    fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation] {
-        &self.quadrupole_observations
-    }
-
-    fn memory_footprint_bytes(&self) -> usize {
-        self.memory_footprint_bytes()
     }
 }
 

@@ -13,7 +13,6 @@ use crate::peak_group_scoring::ion_coverage::{
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::precursor::Precursor;
-use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
 
 pub mod core;
@@ -49,15 +48,15 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        self.score_generic(dia_data, lib, candidates)
+        self.score_candidates(dia_data, lib, candidates)
     }
 }
 
 impl PeakGroupScoring {
-    /// Generic scoring function that works with any type implementing DIADataTrait
-    fn score_generic<T: DIADataTrait + Sync>(
+    /// Score all candidates with the blocks of the feature set.
+    fn score_candidates(
         &self,
-        dia_data: &T,
+        dia_data: &DIAData,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
@@ -75,9 +74,7 @@ impl PeakGroupScoring {
                     false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
-                    }
+                    Some(precursor) => self.score_candidate(dia_data, &precursor, candidate),
                     None => {
                         eprintln!(
                             "Warning: Candidate precursor_idx {} not found in library. Skipping.",
@@ -142,9 +139,9 @@ impl PeakGroupScoring {
 
     /// Scores one candidate with the blocks of the feature set. The ion evidence feeds the noise model of
     /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block.
-    fn score_candidate_generic<T: DIADataTrait + Sync>(
+    fn score_candidate(
         &self,
-        dia_data: &T,
+        dia_data: &DIAData,
         precursor: &Precursor,
         candidate: &Candidate,
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
@@ -152,7 +149,7 @@ impl PeakGroupScoring {
             PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
 
         let core =
-            calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
+            calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index.rt);
 
         let feature_set = self.params.feature_set;
 

@@ -15,7 +15,6 @@ use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor_quantified::PrecursorQuantified;
-use crate::traits::DIADataTrait;
 use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
 use numpy::ndarray::Axis;
@@ -43,14 +42,14 @@ impl PeakGroupQuantification {
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> SpecLibFlatQuantified {
-        self.quantify_generic(dia_data, lib, candidates)
+        self.quantify_candidates(dia_data, lib, candidates)
     }
 }
 
 impl PeakGroupQuantification {
-    fn quantify_generic<T: DIADataTrait + Sync>(
+    fn quantify_candidates(
         &self,
-        dia_data: &T,
+        dia_data: &DIAData,
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> SpecLibFlatQuantified {
@@ -82,9 +81,9 @@ impl PeakGroupQuantification {
         SpecLibFlatQuantified::from_precursor_quantified_vec(quantified_precursors)
     }
 
-    fn quantify_precursor<T: DIADataTrait>(
+    fn quantify_precursor(
         &self,
-        dia_data: &T,
+        dia_data: &DIAData,
         precursor: &crate::precursor::Precursor,
         candidate: &Candidate,
     ) -> Option<PrecursorQuantified> {
@@ -137,7 +136,7 @@ impl PeakGroupQuantification {
         // Calculate observed intensities from the dense XIC observation (sum across cycles)
         let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
 
-        let rt_observed = dia_data.rt_index().rt[cycle_center];
+        let rt_observed = dia_data.rt_index.rt[cycle_center];
 
         let precursor_quantified = PrecursorQuantified {
             precursor_idx: precursor.precursor_idx,

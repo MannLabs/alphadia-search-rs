@@ -1,4 +1,5 @@
-use crate::traits::{DIADataTrait, QuadrupoleObservationTrait};
+use crate::dia_data::DIAData;
+use crate::mz_index::MZIndex;
 use numpy::ndarray::Array2;
 
 /// Encapsulates a dense XIC matrix with metadata about its construction
@@ -23,12 +24,9 @@ pub struct DenseXICObservation {
 
 impl DenseXICObservation {
     /// Create a new DenseXICObservation from DIA data and parameters
-    ///
-    /// This constructor pattern allows for zero-cost abstractions and full
-    /// compiler optimization through monomorphization.
     #[inline]
-    pub fn new<T: DIADataTrait>(
-        dia_data: &T,
+    pub fn new(
+        dia_data: &DIAData,
         precursor_mz: f32,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
@@ -40,11 +38,11 @@ impl DenseXICObservation {
         let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
 
         for &obs_idx in &valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
+            let obs = &dia_data.quadrupole_observations[obs_idx];
 
             for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
                 obs.fill_xic_slice(
-                    dia_data.mz_index(),
+                    MZIndex::global(),
                     &mut dense_xic.row_mut(f_idx),
                     cycle_start_idx,
                     cycle_stop_idx,
@@ -90,13 +88,10 @@ pub struct DenseXICMZObservation {
 
 impl DenseXICMZObservation {
     /// Create a new DenseXICMZObservation from DIA data and parameters
-    ///
-    /// This constructor pattern allows for zero-cost abstractions and full
-    /// compiler optimization through monomorphization.
     #[inline]
     #[allow(dead_code)]
-    pub fn new<T: DIADataTrait>(
-        dia_data: &T,
+    pub fn new(
+        dia_data: &DIAData,
         precursor_mz: f32,
         cycle_start_idx: usize,
         cycle_stop_idx: usize,
@@ -111,11 +106,11 @@ impl DenseXICMZObservation {
         let valid_obs_idxs = dia_data.get_valid_observations(precursor_mz);
 
         for &obs_idx in &valid_obs_idxs {
-            let obs = &dia_data.quadrupole_observations()[obs_idx];
+            let obs = &dia_data.quadrupole_observations[obs_idx];
 
             for (f_idx, &f_mz) in fragment_mz.iter().enumerate() {
                 obs.fill_xic_and_mz_slice(
-                    dia_data.mz_index(),
+                    MZIndex::global(),
                     &mut dense_xic.row_mut(f_idx),
                     &mut dense_mz.row_mut(f_idx),
                     cycle_start_idx,

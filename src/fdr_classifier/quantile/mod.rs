@@ -10,6 +10,8 @@
 //! score (sklearn's averaged forward/backward interpolation followed by the normal ppf). Values
 //! outside the fitted quantiles also use the exact score.
 
+#[cfg(target_arch = "x86_64")]
+pub(crate) mod avx512;
 mod normal;
 mod sort;
 

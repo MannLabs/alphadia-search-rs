@@ -39,7 +39,7 @@ This repository strictly follows [**Semantic Versioning 2.0.0**](https://semver.
 
 ### Prerequisites
 
-- **Rust 1.88.0**
+- **Rust 1.89.0**
 - **Python 3.11+**
 
 ### Quick Start
@@ -159,7 +159,7 @@ This project enforces strict code quality standards via automated tooling:
 
 - **Formatting**: All code must be formatted with `rustfmt`
 - **Linting**: All code must pass `clippy` with no warnings
-- **Consistency**: Same toolchain used locally and in CI (Rust 1.88.0)
+- **Consistency**: Same toolchain used locally and in CI (Rust 1.89.0)
 
 ### Pre-Commit Hooks
 

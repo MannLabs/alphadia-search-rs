@@ -1,6 +1,10 @@
 use numpy::ndarray::{Array1, Array2};
 
 // Module declarations
+#[cfg(target_arch = "x86_64")]
+pub mod avx2;
+#[cfg(target_arch = "x86_64")]
+pub mod avx512;
 pub mod neon;
 pub mod scalar;
 
@@ -21,3 +25,9 @@ mod tests;
 
 #[cfg(test)]
 mod tests_neon;
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod tests_avx2;
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod tests_avx512;

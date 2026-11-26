@@ -2,6 +2,10 @@ use crate::kernel::GaussianKernel;
 use numpy::ndarray::Array2;
 
 // Module declarations
+#[cfg(target_arch = "x86_64")]
+pub mod avx2;
+#[cfg(target_arch = "x86_64")]
+pub mod avx512;
 pub mod neon;
 pub mod scalar;
 
@@ -14,3 +18,9 @@ pub fn convolution(kernel: &GaussianKernel, xic: &Array2<f32>) -> Array2<f32> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod tests_avx2;
+
+#[cfg(all(test, target_arch = "x86_64"))]
+mod tests_avx512;

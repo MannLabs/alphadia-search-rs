@@ -1,5 +1,6 @@
 //! Portable layer kernels: plain safe Rust that LLVM autovectorises for the SIMD instructions of
-//! the target (SSE2, NEON, wasm-simd128, AVX with `target-cpu=native`, ...).
+//! the target (SSE2, NEON, wasm-simd128, AVX with `target-cpu=native`, ...). The NEON kernels
+//! also use them for shapes outside their fast paths.
 //!
 //! The three dense kernels are one GEMM, `C = epilogue(A @ B)`, in the scheme of the hand-written
 //! SIMD kernels. A register-blocked tile of `M` rows x `N` columns of `C` (fixed-size arrays)
@@ -19,7 +20,7 @@ use super::Activation;
 /// Rows of a full tile.
 const MR: usize = 4;
 /// Columns of a full tile. With 16 vector registers, the tile has 8 lanes (two 128-bit vectors).
-/// On aarch64 with its 32 registers, and where AVX doubles the vector width,
+/// On aarch64 with its 32 registers (as the NEON kernel), and where AVX doubles the vector width,
 /// the tile has 16 lanes.
 const NR: usize = if cfg!(any(target_arch = "aarch64", target_feature = "avx")) {
     16

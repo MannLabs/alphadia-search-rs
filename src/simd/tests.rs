@@ -27,13 +27,36 @@ fn test_natural_backend_selection() {
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(target_arch = "x86_64")]
+    {
+        if AVX512.is_available() {
+            assert_eq!(
+                selected_backend, "avx512",
+                "Should select AVX-512 on x86_64 with AVX-512 support"
+            );
+            println!("✓ AVX-512 backend correctly selected on x86_64");
+        } else if AVX2.is_available() {
+            assert_eq!(
+                selected_backend, "avx2",
+                "Should select AVX2 on x86_64 with AVX2 support but no AVX-512"
+            );
+            println!("✓ AVX2 backend correctly selected on x86_64");
+        } else {
+            assert_eq!(
+                selected_backend, "scalar",
+                "Should fall back to scalar when no x86 SIMD available"
+            );
+            println!("⚠️  No AVX support, fell back to scalar backend");
+        }
+    }
+
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     {
         assert_eq!(
             selected_backend, "scalar",
-            "Should select scalar backend on non-aarch64"
+            "Should select scalar backend on unsupported arch"
         );
-        println!("⚠️  Non-aarch64 architecture - SIMD testing limited to scalar backend");
+        println!("⚠️  Unsupported architecture - SIMD testing limited to scalar backend");
     }
 }
 
@@ -118,15 +141,41 @@ fn test_optimal_vs_current_backend() {
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(target_arch = "x86_64")]
     {
-        // Both should return scalar on non-aarch64
+        let optimal = if AVX512.is_available() {
+            "avx512"
+        } else if AVX2.is_available() {
+            "avx2"
+        } else {
+            "scalar"
+        };
+
+        set_backend("scalar").expect("Should be able to set scalar backend");
+
+        assert_eq!(
+            get_current_backend(),
+            "scalar",
+            "Current should respect override"
+        );
+        assert_eq!(
+            get_optimal_simd_backend(),
+            optimal,
+            "Optimal should ignore override"
+        );
+
+        println!("✓ get_optimal_simd_backend() correctly ignores user override");
+        println!("✓ get_current_backend() correctly respects user override");
+    }
+
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
         set_backend("scalar").expect("Should be able to set scalar backend");
 
         assert_eq!(get_current_backend(), "scalar");
         assert_eq!(get_optimal_simd_backend(), "scalar");
 
-        println!("⚠️  Non-aarch64: both functions return scalar (expected)");
+        println!("⚠️  Unsupported arch: both functions return scalar (expected)");
     }
 
     clear_backend();
@@ -159,7 +208,22 @@ fn test_invalid_backend_error_handling() {
         }
     }
 
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(target_arch = "x86_64")]
+    {
+        let expected = if AVX512.is_available() {
+            "avx512"
+        } else if AVX2.is_available() {
+            "avx2"
+        } else {
+            "scalar"
+        };
+        assert_eq!(
+            backend, expected,
+            "Should maintain natural selection after invalid backend"
+        );
+    }
+
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
     {
         assert_eq!(
             backend, "scalar",

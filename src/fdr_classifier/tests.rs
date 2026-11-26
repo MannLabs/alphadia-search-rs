@@ -235,6 +235,32 @@ fn for_each_backend(mut check: impl FnMut(&str)) {
 
 #[test]
 #[serial_test::serial]
+fn test_training_gives_the_same_parameters_with_any_thread_count() {
+    // Given a batch of several row units
+    let mut rng = StdRng::seed_from_u64(5);
+    let (n_rows, n_features) = (2048, 12);
+    let (x, y) = separable(&mut rng, n_rows, n_features);
+    let config = TrainConfig {
+        batch_size: 1000,
+        ..config()
+    };
+
+    // When training on one thread and on five threads
+    let train_on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| network::train(&x, n_rows, n_features, &y, &config, None))
+            .unwrap()
+    };
+
+    // Then the parameters are bit-identical
+    assert_eq!(train_on(1), train_on(5));
+}
+
+#[test]
+#[serial_test::serial]
 fn test_network_learns_a_separable_problem_on_every_backend() {
     // Given two classes shifted apart in four features
     let mut rng = StdRng::seed_from_u64(3);

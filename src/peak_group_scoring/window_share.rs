@@ -4,8 +4,9 @@
 //! In DIA every MS2 spectrum is chimeric, so the share alone mostly measures how crowded the window is. A real
 //! precursor still carries a large part of what its window records at its apex, while a wrong candidate that sits on
 //! another precursor's peak claims only a small part of it. The rank and z-score compare the share with the
-//! candidates of the same window whose apex lies within WINDOW_SHARE_CYCLE_RADIUS cycles, which corrects for the
-//! crowding. They need all candidates, so they are set after the per-candidate scoring.
+//! candidates of the same window group (`crate::window_groups`) whose apex lies within WINDOW_SHARE_CYCLE_RADIUS
+//! cycles, which corrects for the crowding. Their shares have the same denominator: the signal of the same isolation
+//! windows. They need all candidates, so they are set after the per-candidate scoring.
 //!
 //! All values are finite, never NaN, because NaN rows are dropped before the classifier.
 
@@ -33,11 +34,11 @@ feature_block! {
     }
 }
 
-/// What the cross-candidate step needs of one candidate: the quadrupole observation (isolation window) and apex
-/// cycle it is compared in, and its share. u32 keeps it at 12 bytes, since it is held for every candidate.
+/// What the cross-candidate step needs of one candidate: the window group and apex cycle it is compared in, and its
+/// share. u32 keeps it at 12 bytes, since it is held for every candidate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WindowShareEntry {
-    pub quadrupole_observation_idx: u32,
+    pub window_group: u32,
     pub apex_cycle: u32,
     pub frac: f32,
 }
@@ -47,9 +48,9 @@ pub struct WindowShareEntry {
 /// * `dense_xic` - fragment XICs, fragments x cycles, starting at cycle `cycle_start`
 /// * `median_profile` - the candidate's median elution profile over the XICs with signal
 /// * `cycle_center` - the candidate's cycle center, the apex if the median profile has no signal
-/// * `quadrupole_observation_indices` - the quadrupole observations the XICs were extracted from; the first is the
-///   one the candidate is compared in
+/// * `quadrupole_observation_indices` - the quadrupole observations the XICs were extracted from
 /// * `cycle_intensities` - summed MS2 intensity per quadrupole observation and cycle (`cycle_intensity_sums`)
+/// * `window_group` - the window group of the precursor, which the candidate is compared in
 pub fn window_share_entry(
     dense_xic: &Array2<f32>,
     median_profile: &[f32],
@@ -57,6 +58,7 @@ pub fn window_share_entry(
     cycle_center: usize,
     quadrupole_observation_indices: &[usize],
     cycle_intensities: &[Vec<f32>],
+    window_group: u32,
 ) -> WindowShareEntry {
     let apex = apex_column(median_profile, cycle_center.saturating_sub(cycle_start));
     let apex_cycle = cycle_start + apex;
@@ -65,9 +67,7 @@ pub fn window_share_entry(
         .filter_map(|&idx| cycle_intensities.get(idx)?.get(apex_cycle))
         .sum();
     WindowShareEntry {
-        quadrupole_observation_idx: quadrupole_observation_indices
-            .first()
-            .map_or(u32::MAX, |&idx| idx as u32),
+        window_group,
         apex_cycle: apex_cycle as u32,
         frac: finite_or_zero(apex_window_signal_frac(dense_xic, apex, window_intensity)),
     }
@@ -116,7 +116,7 @@ pub fn apex_window_signal_frac(xic: &Array2<f32>, apex: usize, window_intensity:
     xic.column(apex).sum() / window_intensity
 }
 
-/// The window shares of the candidates of one quadrupole observation and apex cycle, with their sum and sum of
+/// The window shares of the candidates of one window group and apex cycle, with their sum and sum of
 /// squares.
 struct WindowShareBucket {
     sorted: Vec<f32>,
@@ -126,7 +126,7 @@ struct WindowShareBucket {
 
 /// The window-share features of every candidate, in the order of `entries`.
 ///
-/// Each candidate is compared to all candidates (itself included) with the same quadrupole observation and
+/// Each candidate is compared to all candidates (itself included) with the same window group and
 /// `|apex_cycle - own apex_cycle| <= radius`:
 /// - rank: share of the other candidates with a lower fraction (ties count half), 0.5 if alone
 /// - z-score of its fraction among them, 0 if they all have the same fraction
@@ -137,7 +137,7 @@ pub fn window_share_features(
     let mut buckets: HashMap<(u32, u32), WindowShareBucket> = HashMap::new();
     for entry in entries {
         let bucket = buckets
-            .entry((entry.quadrupole_observation_idx, entry.apex_cycle))
+            .entry((entry.window_group, entry.apex_cycle))
             .or_insert(WindowShareBucket {
                 sorted: Vec::new(),
                 sum: 0.0,
@@ -160,7 +160,7 @@ pub fn window_share_features(
             for c in
                 entry.apex_cycle.saturating_sub(radius)..=entry.apex_cycle.saturating_add(radius)
             {
-                if let Some(bucket) = buckets.get(&(entry.quadrupole_observation_idx, c)) {
+                if let Some(bucket) = buckets.get(&(entry.window_group, c)) {
                     let below = bucket.sorted.partition_point(|&v| v < frac);
                     let not_above = bucket.sorted.partition_point(|&v| v <= frac);
                     n += bucket.sorted.len();

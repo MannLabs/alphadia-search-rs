@@ -30,6 +30,7 @@ mod threadpool;
 pub mod traits;
 pub mod utils;
 pub mod varmodel_quantification;
+pub mod window_groups;
 
 use crate::calibration::CalibrationEstimator;
 use crate::candidate::CandidateCollection;

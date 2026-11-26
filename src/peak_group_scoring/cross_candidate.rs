@@ -78,7 +78,7 @@ fn set_ion_fisher_lib(
         });
 }
 
-/// The window-share block compares each candidate's share with the candidates of the same quadrupole observation
+/// The window-share block compares each candidate's share with the candidates of the same window group
 /// whose apex lies within WINDOW_SHARE_CYCLE_RADIUS cycles. Every candidate has an entry when the block is scored.
 fn set_window_share(features: &mut [CandidateFeature], contexts: &[CandidateContext]) {
     let entries: Vec<WindowShareEntry> = contexts

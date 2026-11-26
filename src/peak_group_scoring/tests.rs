@@ -1432,12 +1432,12 @@ fn test_fitted_spread_is_zero_if_the_xic_rows_do_not_match_the_fragments() {
 
 #[cfg(test)]
 fn window_share_entry(
-    quadrupole_observation_idx: u32,
+    window_group: u32,
     apex_cycle: u32,
     frac: f32,
 ) -> super::window_share::WindowShareEntry {
     super::window_share::WindowShareEntry {
-        quadrupole_observation_idx,
+        window_group,
         apex_cycle,
         frac,
     }
@@ -1511,9 +1511,9 @@ fn test_window_share_entry_reads_the_quadrupole_observations_at_the_apex_cycle()
     cycle_intensities[1][11] = 10.0;
     cycle_intensities[2][11] = 1000.0;
 
-    let entry = window_share_entry(&xic, &profile, 10, 12, &[0, 1], &cycle_intensities);
+    let entry = window_share_entry(&xic, &profile, 10, 12, &[0, 1], &cycle_intensities, 7);
 
-    assert_eq!(entry.quadrupole_observation_idx, 0);
+    assert_eq!(entry.window_group, 7);
     assert_eq!(entry.apex_cycle, 11);
     assert_close(entry.frac, 0.25);
 }
@@ -1523,15 +1523,14 @@ fn test_window_share_entry_without_signal_uses_the_cycle_center() {
     use super::window_share::window_share_entry;
     let xic = arr2(&[[0.0, 0.0, 0.0]]);
 
-    let entry = window_share_entry(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[]);
+    let entry = window_share_entry(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[], 0);
 
     assert_eq!(entry.apex_cycle, 12);
-    assert_eq!(entry.quadrupole_observation_idx, u32::MAX);
     assert_eq!(entry.frac, 0.0);
 }
 
 #[test]
-fn test_window_share_features_compare_within_quadrupole_observation_and_cycle_radius() {
+fn test_window_share_features_compare_within_window_group_and_cycle_radius() {
     use super::window_share::window_share_features;
     let entries = [
         window_share_entry(0, 10, 0.1),
@@ -1539,7 +1538,7 @@ fn test_window_share_features_compare_within_quadrupole_observation_and_cycle_ra
         window_share_entry(0, 12, 0.2),
         // too far in cycles from the first
         window_share_entry(0, 20, 0.9),
-        // other quadrupole observation
+        // other window group
         window_share_entry(1, 10, 0.5),
     ];
 
@@ -1556,7 +1555,7 @@ fn test_window_share_features_compare_within_quadrupole_observation_and_cycle_ra
         features[1].apex_window_signal_frac_zscore,
         (0.3 - 0.2) / (2.0f32 / 300.0).sqrt(),
     );
-    // alone in its quadrupole observation or cycle range
+    // alone in its window group or cycle range
     assert_close(features[3].apex_window_signal_frac_rank, 0.5);
     assert_close(features[3].apex_window_signal_frac_zscore, 0.0);
     assert_close(features[4].apex_window_signal_frac_rank, 0.5);

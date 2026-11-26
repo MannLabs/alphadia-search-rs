@@ -27,8 +27,8 @@ pub struct PeakGroupObservation {
     pub observation_intensities: Vec<f32>,
     /// observed intensity > 0 per fragment
     pub matched_mask: Vec<bool>,
-    /// the window group the XICs were read from (`crate::window_groups`)
-    pub window_group: u32,
+    /// the quadrupole observations (isolation windows) the XICs were extracted from
+    pub quadrupole_observation_indices: Vec<usize>,
 }
 
 impl PeakGroupObservation {
@@ -66,7 +66,7 @@ impl PeakGroupObservation {
             correlations,
             observation_intensities,
             matched_mask,
-            window_group: dia_data.window_groups().group_of(precursor.mz),
+            quadrupole_observation_indices: dense_xic_mz_obs.contributing_obs_indices,
         }
     }
 }

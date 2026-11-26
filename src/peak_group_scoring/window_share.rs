@@ -1,16 +1,12 @@
 //! How much of its isolation window's MS2 signal a candidate carries at its apex, and how that compares with the
 //! other candidates of the same window.
 //!
-//! "Window" is the candidate's window group (`crate::window_groups`): the quadrupole observations its XICs are read
-//! from. The share divides the XIC signal by the MS2 signal of exactly these quadrupole observations, and the
-//! candidates it is compared with have the same window group, so all shares of a comparison have the same
-//! denominator.
-//!
 //! In DIA every MS2 spectrum is chimeric, so the share alone mostly measures how crowded the window is. A real
 //! precursor still carries a large part of what its window records at its apex, while a wrong candidate that sits on
 //! another precursor's peak claims only a small part of it. The rank and z-score compare the share with the
-//! candidates of the same window group whose apex lies within WINDOW_SHARE_CYCLE_RADIUS cycles, which corrects for
-//! the crowding. They need all candidates, so they are set after the per-candidate scoring.
+//! candidates of the same window group (`crate::window_groups`) whose apex lies within WINDOW_SHARE_CYCLE_RADIUS
+//! cycles, which corrects for the crowding. Their shares have the same denominator: the signal of the same isolation
+//! windows. They need all candidates, so they are set after the per-candidate scoring.
 //!
 //! All values are finite, never NaN, because NaN rows are dropped before the classifier.
 
@@ -20,7 +16,6 @@ use std::collections::HashMap;
 
 use crate::peak_group_scoring::feature_block::feature_block;
 use crate::quadrupole_observation::QuadrupoleObservation;
-use crate::window_groups::WindowGroups;
 
 /// Candidates of the same isolation window whose apex lies within this many cycles are compared for the rank and
 /// z-score of the window share.
@@ -31,8 +26,8 @@ feature_block! {
     pub struct WindowShareFeatures {
         /// share of the isolation window's MS2 intensity at the apex cycle carried by the candidate's fragment XICs
         pub apex_window_signal_frac: f32,
-        /// rank of the share among the candidates of the window group within WINDOW_SHARE_CYCLE_RADIUS apex cycles
-        /// (ties count half, 0.5 if alone)
+        /// rank of the share among the candidates of the window within WINDOW_SHARE_CYCLE_RADIUS apex cycles (ties
+        /// count half, 0.5 if alone)
         pub apex_window_signal_frac_rank: f32,
         /// z-score of the share among the same candidates, 0 if they all have the same share
         pub apex_window_signal_frac_zscore: f32,
@@ -53,51 +48,29 @@ pub struct WindowShareEntry {
 /// * `dense_xic` - fragment XICs, fragments x cycles, starting at cycle `cycle_start`
 /// * `median_profile` - the candidate's median elution profile over the XICs with signal
 /// * `cycle_center` - the candidate's cycle center, the apex if the median profile has no signal
-/// * `window_group` - the window group the XICs were read from
-/// * `window_intensities` - summed MS2 intensity of that window group per cycle (`window_group_cycle_intensities`)
+/// * `quadrupole_observation_indices` - the quadrupole observations the XICs were extracted from
+/// * `cycle_intensities` - summed MS2 intensity per quadrupole observation and cycle (`cycle_intensity_sums`)
+/// * `window_group` - the window group of the precursor, which the candidate is compared in
 pub fn window_share_entry(
     dense_xic: &Array2<f32>,
     median_profile: &[f32],
     cycle_start: usize,
     cycle_center: usize,
+    quadrupole_observation_indices: &[usize],
+    cycle_intensities: &[Vec<f32>],
     window_group: u32,
-    window_intensities: &[f32],
 ) -> WindowShareEntry {
     let apex = apex_column(median_profile, cycle_center.saturating_sub(cycle_start));
     let apex_cycle = cycle_start + apex;
-    let window_intensity = window_intensities.get(apex_cycle).copied().unwrap_or(0.0);
+    let window_intensity: f32 = quadrupole_observation_indices
+        .iter()
+        .filter_map(|&idx| cycle_intensities.get(idx)?.get(apex_cycle))
+        .sum();
     WindowShareEntry {
         window_group,
         apex_cycle: apex_cycle as u32,
         frac: finite_or_zero(apex_window_signal_frac(dense_xic, apex, window_intensity)),
     }
-}
-
-/// Summed MS2 intensity per window group and cycle: the sum of `cycle_intensity_sums` over the quadrupole
-/// observations of each group. Empty for the group outside all isolation windows.
-pub fn window_group_cycle_intensities(
-    quadrupole_observations: &[QuadrupoleObservation],
-    window_groups: &WindowGroups,
-) -> Vec<Vec<f32>> {
-    let per_observation: Vec<Vec<f32>> = quadrupole_observations
-        .par_iter()
-        .map(cycle_intensity_sums)
-        .collect();
-    (0..window_groups.num_groups() as u32)
-        .map(|group| {
-            let mut sums: Vec<f32> = Vec::new();
-            for &idx in window_groups.quadrupole_observations(group) {
-                let observation_sums = &per_observation[idx];
-                if sums.len() < observation_sums.len() {
-                    sums.resize(observation_sums.len(), 0.0);
-                }
-                for (sum, &intensity) in sums.iter_mut().zip(observation_sums) {
-                    *sum += intensity;
-                }
-            }
-            sums
-        })
-        .collect()
 }
 
 /// Summed intensity of all peaks of one quadrupole observation per cycle (length = number of cycles).
@@ -143,7 +116,8 @@ pub fn apex_window_signal_frac(xic: &Array2<f32>, apex: usize, window_intensity:
     xic.column(apex).sum() / window_intensity
 }
 
-/// The window shares of the candidates of one window group and apex cycle, with their sum and sum of squares.
+/// The window shares of the candidates of one window group and apex cycle, with their sum and sum of
+/// squares.
 struct WindowShareBucket {
     sorted: Vec<f32>,
     sum: f64,

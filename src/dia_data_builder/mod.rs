@@ -3,7 +3,6 @@ use crate::dia_data::DIAData;
 use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
-use crate::window_groups::WindowGroups;
 
 /// DIAData builder with single-pass binning and full parallelization
 pub struct DIADataBuilder;
@@ -15,14 +14,8 @@ impl DIADataBuilder {
         // Single-phase parallel observation building
         let quadrupole_observations = Self::build_observations_rayon_parallel(alpha_raw_view);
 
-        let isolation_windows: Vec<[f32; 2]> = quadrupole_observations
-            .iter()
-            .map(|observation| observation.isolation_window)
-            .collect();
-
         DIAData {
             rt_index,
-            window_groups: WindowGroups::new(&isolation_windows),
             quadrupole_observations,
             rt_values: alpha_raw_view.spectrum_rt.to_owned(),
             cycle: alpha_raw_view.cycle.to_owned(),

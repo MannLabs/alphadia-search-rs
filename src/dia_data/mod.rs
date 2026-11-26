@@ -6,7 +6,6 @@ use crate::dia_data_builder::DIADataBuilder;
 use crate::mz_index::MZIndex;
 use crate::quadrupole_observation::QuadrupoleObservation;
 use crate::rt_index::RTIndex;
-use crate::window_groups::WindowGroups;
 pub use alpha_raw_view::AlphaRawView;
 
 /// DIAData structure using optimized memory layout for peptide-centric querying.
@@ -20,8 +19,6 @@ pub struct DIAData {
     pub quadrupole_observations: Vec<QuadrupoleObservation>,
     pub rt_values: Array1<f32>,
     pub cycle: Array4<f32>,
-    /// the window group of every precursor m/z, from the isolation windows of `quadrupole_observations`
-    pub window_groups: WindowGroups,
 }
 
 impl Default for DIAData {
@@ -39,7 +36,6 @@ impl DIAData {
             quadrupole_observations: Vec::new(),
             rt_values: Array1::zeros((0,)),
             cycle: Array4::zeros((0, 0, 0, 0)),
-            window_groups: WindowGroups::default(),
         }
     }
 
@@ -81,11 +77,14 @@ impl DIAData {
         self.quadrupole_observations.len()
     }
 
-    /// The quadrupole observations whose isolation windows `[lower, upper)` contain `precursor_mz`.
     pub fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
-        self.window_groups
-            .quadrupole_observations_of(precursor_mz)
-            .to_vec()
+        let mut valid_observations = Vec::new();
+        for (i, obs) in self.quadrupole_observations.iter().enumerate() {
+            if obs.isolation_window[0] <= precursor_mz && obs.isolation_window[1] > precursor_mz {
+                valid_observations.push(i);
+            }
+        }
+        valid_observations
     }
 
     /// Returns the memory footprint of the optimized DIAData structure in bytes.
@@ -141,8 +140,8 @@ impl DIAData {
 impl crate::traits::DIADataTrait for DIAData {
     type QuadrupoleObservation = crate::quadrupole_observation::QuadrupoleObservation;
 
-    fn window_groups(&self) -> &WindowGroups {
-        &self.window_groups
+    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
+        self.get_valid_observations(precursor_mz)
     }
 
     fn mz_index(&self) -> &crate::mz_index::MZIndex {

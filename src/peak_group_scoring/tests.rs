@@ -1501,18 +1501,19 @@ fn test_cycle_intensity_sums_adds_all_slices_per_cycle() {
 }
 
 #[test]
-fn test_window_share_entry_reads_the_window_group_at_the_apex_cycle() {
+fn test_window_share_entry_reads_the_quadrupole_observations_at_the_apex_cycle() {
     use super::window_share::window_share_entry;
-    // XIC columns are cycles 10..13, apex at cycle 11
+    // XIC columns are cycles 10..13, apex at cycle 11; quadrupole observations 0 and 1 contribute
     let profile = [0.2, 1.0, 0.3];
     let xic = arr2(&[[1.0, 4.0, 1.0], [0.0, 6.0, 0.0]]);
-    let mut window_intensities = vec![0.0; 20];
-    window_intensities[11] = 40.0;
-    window_intensities[12] = 1000.0;
+    let mut cycle_intensities = vec![vec![0.0; 20]; 3];
+    cycle_intensities[0][11] = 30.0;
+    cycle_intensities[1][11] = 10.0;
+    cycle_intensities[2][11] = 1000.0;
 
-    let entry = window_share_entry(&xic, &profile, 10, 12, 3, &window_intensities);
+    let entry = window_share_entry(&xic, &profile, 10, 12, &[0, 1], &cycle_intensities, 7);
 
-    assert_eq!(entry.window_group, 3);
+    assert_eq!(entry.window_group, 7);
     assert_eq!(entry.apex_cycle, 11);
     assert_close(entry.frac, 0.25);
 }
@@ -1520,41 +1521,12 @@ fn test_window_share_entry_reads_the_window_group_at_the_apex_cycle() {
 #[test]
 fn test_window_share_entry_without_signal_uses_the_cycle_center() {
     use super::window_share::window_share_entry;
-    use crate::window_groups::NO_WINDOW_GROUP;
     let xic = arr2(&[[0.0, 0.0, 0.0]]);
 
-    let entry = window_share_entry(&xic, &[0.0, 0.0, 0.0], 10, 12, NO_WINDOW_GROUP, &[]);
+    let entry = window_share_entry(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[], 0);
 
     assert_eq!(entry.apex_cycle, 12);
-    assert_eq!(entry.window_group, NO_WINDOW_GROUP);
     assert_eq!(entry.frac, 0.0);
-}
-
-#[test]
-fn test_window_group_cycle_intensities_sum_the_quadrupole_observations_of_each_group() {
-    use super::window_share::window_group_cycle_intensities;
-    use crate::quadrupole_observation::QuadrupoleObservation;
-    use crate::window_groups::{WindowGroups, NO_WINDOW_GROUP};
-    // one m/z bin per observation; observation 0 has 1.0 in cycle 0, observation 1 has 2.0 in cycle 1
-    let observation = |window: [f32; 2], cycle: u16, intensity: f32| {
-        let mut observation = QuadrupoleObservation::new_with_capacity(window, 2, 1, 1);
-        observation.add_peak_data(cycle, intensity);
-        observation.finalize_slice();
-        observation
-    };
-    let observations = [
-        observation([400.0, 425.0], 0, 1.0),
-        observation([424.0, 450.0], 1, 2.0),
-    ];
-    let groups = WindowGroups::new(&[[400.0, 425.0], [424.0, 450.0]]);
-
-    let intensities = window_group_cycle_intensities(&observations, &groups);
-
-    assert_eq!(intensities.len(), groups.num_groups());
-    assert_eq!(intensities[NO_WINDOW_GROUP as usize], Vec::<f32>::new());
-    assert_eq!(intensities[groups.group_of(410.0) as usize], vec![1.0, 0.0]);
-    assert_eq!(intensities[groups.group_of(424.5) as usize], vec![1.0, 2.0]);
-    assert_eq!(intensities[groups.group_of(430.0) as usize], vec![0.0, 2.0]);
 }
 
 #[test]

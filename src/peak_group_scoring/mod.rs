@@ -13,9 +13,10 @@ use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureColl
 use crate::peak_group_scoring::ion_coverage::calculate_ion_coverage_features;
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
-use crate::peak_group_scoring::window_share::{window_group_cycle_intensities, window_share_entry};
+use crate::peak_group_scoring::window_share::{cycle_intensity_sums, window_share_entry};
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
+use crate::window_groups::WindowGroups;
 use crate::SpecLibFlat;
 
 pub mod core;
@@ -52,20 +53,29 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        // whole-run input of the window-share block: MS2 intensity per window group and cycle
-        let cycle_intensities: Vec<Vec<f32>> = if self
+        // whole-run input of the window-share block: MS2 intensity per quadrupole observation and cycle, and the
+        // window group of every precursor m/z
+        let (cycle_intensities, window_groups) = if self
             .params
             .feature_set
             .has_block(FeatureBlockId::WindowShare)
         {
-            window_group_cycle_intensities(
-                dia_data.quadrupole_observations(),
-                &dia_data.window_groups,
+            let observations = dia_data.quadrupole_observations();
+            let windows: Vec<[f32; 2]> = observations.iter().map(|o| o.isolation_window).collect();
+            (
+                observations.iter().map(cycle_intensity_sums).collect(),
+                WindowGroups::new(&windows),
             )
         } else {
-            Vec::new()
+            (Vec::new(), WindowGroups::new(&[]))
         };
-        self.score_generic(dia_data, lib, candidates, &cycle_intensities)
+        self.score_generic(
+            dia_data,
+            lib,
+            candidates,
+            &cycle_intensities,
+            &window_groups,
+        )
     }
 }
 
@@ -77,6 +87,7 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
         cycle_intensities: &[Vec<f32>],
+        window_groups: &WindowGroups,
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
 
@@ -97,6 +108,7 @@ impl PeakGroupScoring {
                         &precursor,
                         candidate,
                         cycle_intensities,
+                        window_groups,
                     ),
                     None => {
                         eprintln!(
@@ -134,14 +146,15 @@ impl PeakGroupScoring {
     }
 
     /// Scores one candidate with the blocks of the feature set. The cross-candidate fields stay 0; the returned
-    /// context holds what `apply_cross_candidate_features` needs to fill them. `cycle_intensities` is the summed MS2
-    /// intensity per window group and cycle, empty without the window-share block.
+    /// context holds what `apply_cross_candidate_features` needs to fill them. `cycle_intensities` (summed MS2 intensity
+    /// per quadrupole observation and cycle) and `window_groups` are empty without the window-share block.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
         cycle_intensities: &[Vec<f32>],
+        window_groups: &WindowGroups,
     ) -> Option<(CandidateFeature, CandidateContext)> {
         let observation =
             PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
@@ -189,10 +202,9 @@ impl PeakGroupScoring {
                 &observation.median_profile_filtered,
                 candidate.cycle_start,
                 candidate.cycle_center,
-                observation.window_group,
-                cycle_intensities
-                    .get(observation.window_group as usize)
-                    .map_or(&[], Vec::as_slice),
+                &observation.quadrupole_observation_indices,
+                cycle_intensities,
+                window_groups.group_of(precursor.mz),
             ));
         }
 

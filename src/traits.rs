@@ -1,21 +1,12 @@
 use crate::mz_index::MZIndex;
 use crate::rt_index::RTIndex;
-use crate::window_groups::WindowGroups;
 use numpy::ndarray::ArrayViewMut1;
 
 /// Trait for DIA data structures that support peak group scoring
 pub trait DIADataTrait {
     type QuadrupoleObservation: QuadrupoleObservationTrait;
 
-    /// The window group of every precursor m/z.
-    fn window_groups(&self) -> &WindowGroups;
-
-    /// The quadrupole observations whose isolation windows contain `precursor_mz`.
-    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
-        self.window_groups()
-            .quadrupole_observations_of(precursor_mz)
-            .to_vec()
-    }
+    fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize>;
     fn mz_index(&self) -> &MZIndex;
     fn rt_index(&self) -> &RTIndex;
     fn quadrupole_observations(&self) -> &[Self::QuadrupoleObservation];

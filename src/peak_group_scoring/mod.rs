@@ -13,7 +13,7 @@ use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureColl
 use crate::peak_group_scoring::ion_coverage::calculate_ion_coverage_features;
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
-use crate::peak_group_scoring::window_share::{cycle_intensity_sums, window_share_entry};
+use crate::peak_group_scoring::window_share::{window_group_cycle_intensities, window_share_entry};
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
@@ -52,17 +52,16 @@ impl PeakGroupScoring {
         lib: &SpecLibFlat,
         candidates: &CandidateCollection,
     ) -> CandidateFeatureCollection {
-        // whole-run input of the window-share block: MS2 intensity per quadrupole observation and cycle
+        // whole-run input of the window-share block: MS2 intensity per window group and cycle
         let cycle_intensities: Vec<Vec<f32>> = if self
             .params
             .feature_set
             .has_block(FeatureBlockId::WindowShare)
         {
-            dia_data
-                .quadrupole_observations()
-                .iter()
-                .map(cycle_intensity_sums)
-                .collect()
+            window_group_cycle_intensities(
+                dia_data.quadrupole_observations(),
+                &dia_data.window_groups,
+            )
         } else {
             Vec::new()
         };
@@ -136,7 +135,7 @@ impl PeakGroupScoring {
 
     /// Scores one candidate with the blocks of the feature set. The cross-candidate fields stay 0; the returned
     /// context holds what `apply_cross_candidate_features` needs to fill them. `cycle_intensities` is the summed MS2
-    /// intensity per quadrupole observation and cycle, empty without the window-share block.
+    /// intensity per window group and cycle, empty without the window-share block.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
@@ -190,8 +189,10 @@ impl PeakGroupScoring {
                 &observation.median_profile_filtered,
                 candidate.cycle_start,
                 candidate.cycle_center,
-                &observation.quadrupole_observation_indices,
-                cycle_intensities,
+                observation.window_group,
+                cycle_intensities
+                    .get(observation.window_group as usize)
+                    .map_or(&[], Vec::as_slice),
             ));
         }
 

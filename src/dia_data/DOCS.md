@@ -26,6 +26,7 @@ one row = one scan                       one row = one chromatogram
 | `spectrum_delta_scan_idx` | Position of a scan *within* its cycle — the offset ("delta") from the cycle start, not a global counter. `0` is the MS1 survey scan, `1..n` the MS2 isolation windows in acquisition order. Since every cycle repeats the same sequence, one fixed value selects the same isolation window in every cycle. |
 | `spectrum_cycle_idx` | Which cycle a spectrum belongs to. |
 | `mz_index` | Bin in the global `MZIndex`, a 1 ppm grid spanning 150 to 2000 m/z (2_590_781 bins). |
+| window group | The set of quadrupole observations whose isolation windows `[lower, upper)` contain a precursor m/z (`crate::window_groups`). XIC extraction, the window-share features and fragment competition all use it. Without overlapping windows it is one isolation window. |
 
 # Data Transformation
 

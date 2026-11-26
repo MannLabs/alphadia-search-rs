@@ -135,7 +135,7 @@ fn test_get_valid_observations() {
     assert_eq!(valid_for_100, vec![0]); // Lower boundary inclusive
 
     let valid_for_125 = dia_data.get_valid_observations(125.0);
-    assert_eq!(valid_for_125, vec![0]); // Upper boundary inclusive
+    assert_eq!(valid_for_125, Vec::<usize>::new()); // Upper boundary exclusive
 
     // Test no matches
     let valid_for_50 = dia_data.get_valid_observations(50.0);

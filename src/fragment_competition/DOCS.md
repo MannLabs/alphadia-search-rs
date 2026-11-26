@@ -59,9 +59,10 @@ result. If you give the same candidates in a different order, the same candidate
 
 # Algorithm
 
-**1. Assign each candidate to an isolation window.** `cycle` gives the m/z range of each
-window. A candidate belongs to the window that contains its `precursor_mz`. Candidates in
-different windows never compete, because they cannot share fragment signal.
+**1. Assign each candidate to a window group.** `cycle` gives the m/z range of each
+isolation window. The window group of a candidate is the set of isolation windows that
+contain its `precursor_mz` (`crate::window_groups`). Scoring reads the XICs of a candidate
+from the same set. Candidates in different window groups never compete.
 
 ```text
   m/z →   [400, 425)      [425, 450)      [450, 475)
@@ -71,11 +72,23 @@ different windows never compete, because they cannot share fragment signal.
            B  418.9
 ```
 
-**2. Sort each window** by `proba` in increasing order. `precursor_idx` in increasing order
+Without overlapping windows, each window group is one isolation window. If two windows
+overlap, the overlap is a window group of its own:
+
+```text
+  isolation windows    0: [400, 425)    1: [424, 450)
+
+  m/z →     400          424  425                 450
+  group      │    {0}     │{0,1}│        {1}         │
+
+  D 424.5 is in group {0,1}. It competes only with other candidates in {0,1}.
+```
+
+**2. Sort each window group** by `proba` in increasing order. `precursor_idx` in increasing order
 breaks a tie.
 
-**3. Compare the candidates of each window** in this order. Each valid candidate competes
-against all other valid candidates in the same window. If the two retention times are closer
+**3. Compare the candidates of each window group** in this order. Each valid candidate
+competes against all other valid candidates in the same window group. If the two retention times are closer
 than `rt_tol_seconds`, and if the two candidates share three ions or more, the candidate that
 is later in the order loses its fragments.
 
@@ -93,8 +106,8 @@ mass_tol_ppm = 15
   ions within the tolerance: 2  <  3  →  the overlap is a coincidence
 ```
 
-The windows are independent, so this module processes them in parallel. Inside one window,
-the comparisons are sequential, because of the order rule above.
+The window groups are independent, so this module processes them in parallel. Inside one
+window group, the comparisons are sequential, because of the order rule above.
 
 # Contract
 
@@ -105,7 +118,8 @@ the comparisons are sequential, because of the order rule above.
 - The retention time tolerance and the ppm tolerance are exclusive (`<`). The threshold for
   shared ions is inclusive (`>= 3`).
 - Window limits are half-open, `[lower, upper)`.
-- If no window contains a precursor m/z, the precursor gets window 0. It then competes with
-  the candidates of window 0. This occurs only if the m/z is outside the acquisition range.
+- If no window contains a precursor m/z, the precursor gets the empty window group. It then
+  competes only with the other candidates outside all windows. This occurs only if the m/z is
+  outside the acquisition range.
 - Each fragment range must be inside `fragment_mz`. A range outside `fragment_mz` is an
   error.

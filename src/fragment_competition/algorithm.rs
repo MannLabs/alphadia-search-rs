@@ -1,4 +1,4 @@
-//! This module groups the candidates into isolation windows and sorts each window by score.
+//! This module groups the candidates by window group (`crate::window_groups`) and sorts each group by score.
 //! If two candidates claim the same fragment ions, the better candidate invalidates the worse
 //! candidate. `DOCS.md` gives the data layout and an example.
 //!
@@ -9,6 +9,8 @@
 
 use numpy::ndarray::ArrayView4;
 use rayon::prelude::*;
+
+use crate::window_groups::WindowGroups;
 
 /// Two candidates compete only if they share this number of ions or more. Fewer shared ions
 /// are a coincidence.
@@ -35,64 +37,42 @@ fn fragment_overlap(frag_mz_1: &[f32], frag_mz_2: &[f32], mass_tol_ppm: f32) -> 
         .sum()
 }
 
-/// The m/z range of each DIA isolation window.
+/// The window groups of the isolation windows in `cycle`.
 ///
 /// The cycle array has the shape `(1, n_windows, n_scans, 2)` and gives the limits of each
-/// scan. The range of a window covers all of its scans.
-pub struct WindowBounds {
-    lower: Vec<f32>,
-    upper: Vec<f32>,
-}
-
-impl WindowBounds {
-    pub fn from_cycle(cycle: ArrayView4<'_, f32>) -> Result<Self, String> {
-        let shape = cycle.shape();
-        if shape[3] < 2 {
-            return Err(format!(
-                "cycle must have 2 entries in its last axis, got shape {shape:?}"
-            ));
-        }
-        let (n_windows, n_scans) = (shape[1], shape[2]);
-        let mut lower = Vec::with_capacity(n_windows);
-        let mut upper = Vec::with_capacity(n_windows);
-        for window in 0..n_windows {
-            let mut window_lower = f32::INFINITY;
-            let mut window_upper = f32::NEG_INFINITY;
-            for scan in 0..n_scans {
-                let (scan_lower, scan_upper) =
-                    (cycle[[0, window, scan, 0]], cycle[[0, window, scan, 1]]);
-                // The min and max operations below ignore a NaN limit. The window then
-                // becomes too large.
-                if scan_lower.is_nan() || scan_upper.is_nan() {
-                    return Err(format!(
-                        "cycle must not contain NaN, found one at window {window}, scan {scan}"
-                    ));
-                }
-                window_lower = window_lower.min(scan_lower);
-                window_upper = window_upper.max(scan_upper);
+/// scan. The isolation window of a window covers all of its scans.
+pub fn window_groups_from_cycle(cycle: ArrayView4<'_, f32>) -> Result<WindowGroups, String> {
+    let shape = cycle.shape();
+    if shape[3] < 2 {
+        return Err(format!(
+            "cycle must have 2 entries in its last axis, got shape {shape:?}"
+        ));
+    }
+    let (n_windows, n_scans) = (shape[1], shape[2]);
+    let mut windows = Vec::with_capacity(n_windows);
+    for window in 0..n_windows {
+        let mut window_lower = f32::INFINITY;
+        let mut window_upper = f32::NEG_INFINITY;
+        for scan in 0..n_scans {
+            let (scan_lower, scan_upper) =
+                (cycle[[0, window, scan, 0]], cycle[[0, window, scan, 1]]);
+            // The min and max operations below ignore a NaN limit. The window then
+            // becomes too large.
+            if scan_lower.is_nan() || scan_upper.is_nan() {
+                return Err(format!(
+                    "cycle must not contain NaN, found one at window {window}, scan {scan}"
+                ));
             }
-            lower.push(window_lower);
-            upper.push(window_upper);
+            window_lower = window_lower.min(scan_lower);
+            window_upper = window_upper.max(scan_upper);
         }
-        Ok(Self { lower, upper })
+        windows.push([window_lower, window_upper]);
     }
-
-    /// The window whose range `[lower, upper)` contains `mz`.
-    ///
-    /// If no window contains the m/z, this function gives window 0. The precursor then
-    /// competes with the candidates of window 0. This occurs only if the m/z is outside the
-    /// acquisition range.
-    fn index_of(&self, mz: f32) -> usize {
-        self.lower
-            .iter()
-            .zip(&self.upper)
-            .position(|(&lo, &hi)| mz >= lo && mz < hi)
-            .unwrap_or(0)
-    }
+    Ok(WindowGroups::new(&windows))
 }
 
-/// Runs the competition inside one window. The rows in `rows` are in priority order. The
-/// result has the same order.
+/// Runs the competition inside one window group. The rows in `rows` are in priority order.
+/// The result has the same order.
 fn compete_within_window(
     rows: &[usize],
     rt_observed: &[f32],
@@ -130,10 +110,10 @@ fn compete_within_window(
     valid
 }
 
-/// Groups the rows by window, with the lowest (best) `proba` first. `precursor_idx` breaks a
+/// Groups the rows by window group, with the lowest (best) `proba` first. `precursor_idx` breaks a
 /// tie. The result therefore does not depend on the row order of the caller.
 fn windows_in_priority_order(
-    window_idx: &[usize],
+    window_idx: &[u32],
     proba: &[f64],
     precursor_idx: &[i64],
 ) -> Vec<Vec<usize>> {
@@ -171,7 +151,7 @@ pub fn compete_for_fragments(
     frag_start_idx: &[i64],
     frag_stop_idx: &[i64],
     fragment_mz: &[f32],
-    bounds: &WindowBounds,
+    window_groups: &WindowGroups,
     rt_tol_seconds: f32,
     mass_tol_ppm: f32,
 ) -> Result<Vec<bool>, String> {
@@ -189,7 +169,10 @@ pub fn compete_for_fragments(
     validate_no_nan("rt_observed", rt_observed.iter().map(|&rt| rt.into()))?;
     validate_no_nan("fragment_mz", fragment_mz.iter().map(|&mz| mz.into()))?;
 
-    let window_idx: Vec<usize> = precursor_mz.iter().map(|&mz| bounds.index_of(mz)).collect();
+    let window_idx: Vec<u32> = precursor_mz
+        .iter()
+        .map(|&mz| window_groups.group_of(mz))
+        .collect();
     let windows = windows_in_priority_order(&window_idx, proba, precursor_idx);
 
     let swept: Vec<Vec<bool>> = windows

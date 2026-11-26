@@ -8,7 +8,7 @@ mod algorithm;
 #[cfg(test)]
 mod tests;
 
-use algorithm::WindowBounds;
+use algorithm::window_groups_from_cycle;
 use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1, PyReadonlyArray4};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -40,7 +40,8 @@ impl FragmentCompetition {
 
     /// Gives a `valid` mask in the candidate order of the caller.
     ///
-    /// Candidates compete only inside their own DIA window, and the lower `proba` wins. The
+    /// Candidates compete only inside their own window group (`crate::window_groups`), and the
+    /// lower `proba` wins. The
     /// candidate order has no effect, so the caller does not sort the arrays.
     ///
     /// `fragment_mz` holds the ions of all candidates. `frag_start_idx` and `frag_stop_idx`
@@ -65,7 +66,8 @@ impl FragmentCompetition {
         fragment_mz: PyReadonlyArray1<'_, f32>,
         cycle: PyReadonlyArray4<'_, f32>,
     ) -> PyResult<Bound<'py, PyArray1<bool>>> {
-        let bounds = WindowBounds::from_cycle(cycle.as_array()).map_err(PyValueError::new_err)?;
+        let window_groups =
+            window_groups_from_cycle(cycle.as_array()).map_err(PyValueError::new_err)?;
         let valid = algorithm::compete_for_fragments(
             precursor_mz.as_slice()?,
             precursor_idx.as_slice()?,
@@ -74,7 +76,7 @@ impl FragmentCompetition {
             frag_start_idx.as_slice()?,
             frag_stop_idx.as_slice()?,
             fragment_mz.as_slice()?,
-            &bounds,
+            &window_groups,
             self.rt_tol_seconds,
             self.mass_tol_ppm,
         )

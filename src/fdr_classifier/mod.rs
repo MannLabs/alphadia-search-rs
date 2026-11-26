@@ -1,20 +1,28 @@
-//! FDR classifier: quantile feature transform.
+//! FDR classifier: quantile feature transform and a small fully connected network.
 //!
-//! The Python side keeps all state as numpy arrays (the fitted quantiles), so the functions here
-//! are stateless. Thus the classifiers pickle and deep-copy like any Python object. Computation
-//! runs on the rayon thread pool (`set_num_threads`) with the GIL released.
+//! The Python side keeps all state as numpy arrays (quantiles, flat network parameters), so the
+//! functions here are stateless. Thus the classifiers pickle and deep-copy like any Python
+//! object, and a warm start gives the previous parameters back to the training. Computation runs
+//! on the rayon thread pool (`set_num_threads`) with the GIL released.
 
+mod network;
 pub(crate) mod quantile;
 #[cfg(test)]
 mod tests;
 
 use crate::utils::require_c_contiguous;
 use numpy::ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{
+    IntoPyArray, PyArray1, PyArray2, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
 const DEFAULT_N_QUANTILES: usize = 1001;
+const DEFAULT_EPOCHS: usize = 10;
+const DEFAULT_BATCH_SIZE: usize = 4096;
+const DEFAULT_LEARNING_RATE: f32 = 0.001;
+const DEFAULT_WEIGHT_DECAY: f32 = 1e-5;
 
 fn matrix<'a>(x: &'a PyReadonlyArray2<'_, f32>, name: &str) -> PyResult<(&'a [f32], usize, usize)> {
     require_c_contiguous(&**x, name)?;
@@ -68,4 +76,70 @@ pub fn fdr_quantile_transform<'py>(
     let out = Array2::from_shape_vec((n_rows, n_features), out)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
     Ok(out.into_pyarray(py))
+}
+
+/// Trains the FDR network on `x` (float32 `[rows, features]`) and binary labels `y` (float32).
+///
+/// Returns the flat float32 parameter vector. With `params`, training continues from earlier
+/// parameters (warm start). The kernels are those of the selected SIMD backend
+/// (`set_simd_backend`).
+#[pyfunction]
+#[pyo3(signature = (
+    x,
+    y,
+    hidden_layers,
+    epochs = DEFAULT_EPOCHS,
+    batch_size = DEFAULT_BATCH_SIZE,
+    learning_rate = DEFAULT_LEARNING_RATE,
+    weight_decay = DEFAULT_WEIGHT_DECAY,
+    seed = 0,
+    params = None,
+))]
+#[allow(clippy::too_many_arguments)]
+pub fn fdr_mlp_fit<'py>(
+    py: Python<'py>,
+    x: PyReadonlyArray2<'py, f32>,
+    y: PyReadonlyArray1<'py, f32>,
+    hidden_layers: Vec<usize>,
+    epochs: usize,
+    batch_size: usize,
+    learning_rate: f32,
+    weight_decay: f32,
+    seed: u64,
+    params: Option<PyReadonlyArray1<'py, f32>>,
+) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    let (values, n_rows, n_features) = matrix(&x, "x")?;
+    let labels = y.as_slice()?;
+    let init = params
+        .map(|p| p.as_slice().map(<[f32]>::to_vec))
+        .transpose()?;
+    let config = network::TrainConfig {
+        hidden_layers,
+        epochs,
+        batch_size,
+        learning_rate,
+        weight_decay,
+        seed,
+    };
+    let trained = py
+        .detach(|| network::train(values, n_rows, n_features, labels, &config, init))
+        .map_err(PyValueError::new_err)?;
+    Ok(trained.into_pyarray(py))
+}
+
+/// The output logits (float32) of the network with `params` for every row of `x`.
+#[pyfunction]
+#[pyo3(signature = (x, hidden_layers, params))]
+pub fn fdr_mlp_predict<'py>(
+    py: Python<'py>,
+    x: PyReadonlyArray2<'py, f32>,
+    hidden_layers: Vec<usize>,
+    params: PyReadonlyArray1<'py, f32>,
+) -> PyResult<Bound<'py, PyArray1<f32>>> {
+    let (values, n_rows, n_features) = matrix(&x, "x")?;
+    let params = params.as_slice()?;
+    let logits = py
+        .detach(|| network::predict(values, n_rows, n_features, &hidden_layers, params))
+        .map_err(PyValueError::new_err)?;
+    Ok(logits.into_pyarray(py))
 }

@@ -51,6 +51,84 @@ pub trait SimdBackend: Send + Sync {
         map.apply_column(x, out)
     }
 
+    // Layer kernels of the FDR network
+    /// `out[rows x n] = activation(bias + x[rows x k] @ wt[k x n])`
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_dense_forward(
+        &self,
+        x: &[f32],
+        rows: usize,
+        k: usize,
+        wt: &[f32],
+        n: usize,
+        bias: &[f32],
+        activation: crate::mlp::Activation,
+        out: &mut [f32],
+    ) {
+        crate::mlp::scalar::dense_forward_scalar(x, rows, k, wt, n, bias, activation, out)
+    }
+    /// `d_prev[rows x k] = (dz[rows x n] @ w[n x k]) * (a_prev > 0)`
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_dense_backward_input(
+        &self,
+        dz: &[f32],
+        rows: usize,
+        n: usize,
+        w: &[f32],
+        k: usize,
+        a_prev: &[f32],
+        d_prev: &mut [f32],
+    ) {
+        crate::mlp::scalar::dense_backward_input_scalar(dz, rows, n, w, k, a_prev, d_prev)
+    }
+    /// `grad_wt[k x n] += a_prev[rows x k]^T @ dz[rows x n]`, `grad_b[n] += colsum(dz)`
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_dense_weight_grad(
+        &self,
+        a_prev: &[f32],
+        rows: usize,
+        k: usize,
+        dz: &[f32],
+        n: usize,
+        grad_wt: &mut [f32],
+        grad_b: &mut [f32],
+    ) {
+        crate::mlp::scalar::dense_weight_grad_scalar(a_prev, rows, k, dz, n, grad_wt, grad_b)
+    }
+    /// The single-logit output layer and the BCE-with-logits loss in one pass:
+    /// `logit = a[r] . w + b`, `d = (sigmoid(logit) - y[r]) * loss_scale`,
+    /// `dz_prev[r] = d * w * (a[r] > 0)`, `grad_w += d * a[r]`, `grad_b += d`
+    #[allow(clippy::too_many_arguments)]
+    fn mlp_output_layer_train(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        y: &[f32],
+        loss_scale: f32,
+        dz_prev: &mut [f32],
+        grad_w: &mut [f32],
+        grad_b: &mut f32,
+    ) {
+        crate::mlp::scalar::output_layer_train_scalar(
+            a, rows, k, w, b, y, loss_scale, dz_prev, grad_w, grad_b,
+        )
+    }
+    /// `logits[r] = a[r] . w + b`
+    fn mlp_output_layer_logits(
+        &self,
+        a: &[f32],
+        rows: usize,
+        k: usize,
+        w: &[f32],
+        b: f32,
+        logits: &mut [f32],
+    ) {
+        crate::mlp::scalar::output_layer_logits_scalar(a, rows, k, w, b, logits)
+    }
+
     // Backend metadata
     fn name(&self) -> &'static str;
     fn is_available(&self) -> bool;

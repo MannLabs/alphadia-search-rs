@@ -51,7 +51,7 @@ fn test_quantile_transform_matches_exact_scores() {
 
     // When transforming with the lookup and with sklearn's exact formula
     let q = quantile::fit(&x, n_rows, n_features, n_quantiles, None, 0).unwrap();
-    let fast = quantile::transform(&x, n_rows, n_features, &q, n_quantiles).unwrap();
+    let fast = quantile::transform(&x, n_rows, n_features, &q, n_quantiles, false).unwrap();
 
     // Then the scores agree closely, and the extremes hit sklearn's clip values
     for f in 0..n_features {
@@ -116,20 +116,22 @@ fn test_quantile_transform_is_identical_on_every_simd_backend() {
     x[..n_features].copy_from_slice(&[f32::NAN, 1e9, -1e9]);
     x[n_features..2 * n_features].copy_from_slice(&[q[0] as f32, q[150] as f32, q[252] as f32]);
 
-    // When transforming with every SIMD backend
-    let transform = |backend: &str| {
-        crate::simd::set_backend(backend).ok()?;
-        quantile::transform(&x, n_rows, n_features, &q, n_quantiles).ok()
-    };
-    let reference = transform("scalar").unwrap();
-    for backend in ["avx2", "avx512", "neon"] {
-        // Then the scores are bit for bit those of the scalar code
-        if let Some(scores) = transform(backend) {
-            let same = scores
-                .iter()
-                .zip(&reference)
-                .all(|(a, b)| a.to_bits() == b.to_bits());
-            assert!(same, "{backend}");
+    for mid_rank_bounds in [false, true] {
+        // When transforming with every SIMD backend
+        let transform = |backend: &str| {
+            crate::simd::set_backend(backend).ok()?;
+            quantile::transform(&x, n_rows, n_features, &q, n_quantiles, mid_rank_bounds).ok()
+        };
+        let reference = transform("scalar").unwrap();
+        for backend in ["avx2", "avx512", "neon"] {
+            // Then the scores are bit for bit those of the scalar code
+            if let Some(scores) = transform(backend) {
+                let same = scores
+                    .iter()
+                    .zip(&reference)
+                    .all(|(a, b)| a.to_bits() == b.to_bits());
+                assert!(same, "{backend}, mid_rank_bounds {mid_rank_bounds}");
+            }
         }
     }
     crate::simd::clear_backend();
@@ -142,8 +144,8 @@ fn test_quantile_transform_keeps_nan_and_rejects_shape_mismatch() {
     let q = quantile::fit(&x, 1000, 1, 11, None, 0).unwrap();
 
     // When transforming a NaN and a matrix of the wrong width
-    let out = quantile::transform(&[f32::NAN], 1, 1, &q, 11).unwrap();
-    let wrong = quantile::transform(&[0.0, 0.0], 1, 2, &q, 11);
+    let out = quantile::transform(&[f32::NAN], 1, 1, &q, 11, false).unwrap();
+    let wrong = quantile::transform(&[0.0, 0.0], 1, 2, &q, 11, false);
 
     // Then the NaN stays NaN and the mismatch is an error
     assert!(out[0].is_nan());
@@ -220,6 +222,9 @@ fn config() -> TrainConfig {
         learning_rate: 0.005,
         weight_decay: 1e-5,
         seed: 7,
+        cosine_schedule: false,
+        average_last_epoch: false,
+        input_batch_norm: false,
     }
 }
 
@@ -236,27 +241,30 @@ fn for_each_backend(mut check: impl FnMut(&str)) {
 #[test]
 #[serial_test::serial]
 fn test_training_gives_the_same_parameters_with_any_thread_count() {
-    // Given a batch of several row units
+    // Given a batch of several row units, with and without the input batch norm
     let mut rng = StdRng::seed_from_u64(5);
     let (n_rows, n_features) = (2048, 12);
     let (x, y) = separable(&mut rng, n_rows, n_features);
-    let config = TrainConfig {
-        batch_size: 1000,
-        ..config()
-    };
+    for input_batch_norm in [false, true] {
+        let config = TrainConfig {
+            batch_size: 1000,
+            input_batch_norm,
+            ..config()
+        };
 
-    // When training on one thread and on five threads
-    let train_on = |threads: usize| {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(threads)
-            .build()
-            .unwrap();
-        pool.install(|| network::train(&x, n_rows, n_features, &y, &config, None))
-            .unwrap()
-    };
+        // When training on one thread and on five threads
+        let train_on = |threads: usize| {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap();
+            pool.install(|| network::train(&x, n_rows, n_features, &y, &config, None))
+                .unwrap()
+        };
 
-    // Then the parameters are bit-identical
-    assert_eq!(train_on(1), train_on(5));
+        // Then the parameters are bit-identical
+        assert_eq!(train_on(1), train_on(5), "batch norm {input_batch_norm}");
+    }
 }
 
 #[test]
@@ -270,7 +278,7 @@ fn test_network_learns_a_separable_problem_on_every_backend() {
     for_each_backend(|backend| {
         // When training and predicting
         let params = network::train(&x, n_rows, n_features, &y, &config(), None).unwrap();
-        let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params).unwrap();
+        let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params, false).unwrap();
 
         // Then nearly every row is classified correctly
         let accuracy = accuracy(&logits, &y);
@@ -353,4 +361,223 @@ fn test_training_with_fewer_rows_than_a_batch() {
 
     // Then it trains on one batch of all rows
     assert!(params.is_ok(), "{params:?}");
+}
+
+#[test]
+fn test_cosine_schedule_and_averaging_change_the_fit_and_still_learn() {
+    // Given a separable problem and the default (constant, last parameters) fit
+    let mut rng = StdRng::seed_from_u64(8);
+    let (n_rows, n_features) = (4096, 12);
+    let (x, y) = separable(&mut rng, n_rows, n_features);
+    let plain = network::train(&x, n_rows, n_features, &y, &config(), None).unwrap();
+
+    for (cosine_schedule, average_last_epoch) in [(true, false), (false, true), (true, true)] {
+        // When training with the cosine schedule and/or the last-epoch average
+        let smoothed_config = TrainConfig {
+            cosine_schedule,
+            average_last_epoch,
+            ..config()
+        };
+        let params = network::train(&x, n_rows, n_features, &y, &smoothed_config, None).unwrap();
+        let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params, false).unwrap();
+
+        // Then the parameters differ from the plain fit and the classes still separate
+        assert_ne!(params, plain);
+        assert!(accuracy(&logits, &y) > 0.95, "{}", accuracy(&logits, &y));
+    }
+}
+
+#[test]
+// Serial: the test compares two trainings bit for bit, so no other test may change the SIMD
+// backend between them.
+#[serial_test::serial]
+fn test_average_over_the_last_epoch_of_one_minibatch_is_the_last_parameters() {
+    // Given two epochs of one minibatch each
+    let mut rng = StdRng::seed_from_u64(9);
+    let (x, y) = separable(&mut rng, 128, 12);
+    let one_step_per_epoch = TrainConfig {
+        epochs: 2,
+        batch_size: 128,
+        ..config()
+    };
+
+    // When averaging the last epoch
+    let plain = network::train(&x, 128, 12, &y, &one_step_per_epoch, None).unwrap();
+    let averaged = network::train(
+        &x,
+        128,
+        12,
+        &y,
+        &TrainConfig {
+            average_last_epoch: true,
+            ..one_step_per_epoch
+        },
+        None,
+    )
+    .unwrap();
+
+    // Then the mean over the last epoch is its single step, because the average does not include
+    // the first epoch
+    assert_eq!(plain, averaged);
+}
+
+fn batch_norm_config() -> TrainConfig {
+    TrainConfig {
+        input_batch_norm: true,
+        ..config()
+    }
+}
+
+#[test]
+fn test_input_batch_norm_running_statistics_follow_the_data() {
+    // Given features with mean -5 and variance 3 (uniform(-1, 1) has variance 1/3)
+    let mut rng = StdRng::seed_from_u64(11);
+    let (n_rows, n_features) = (4096, 3);
+    let x: Vec<f32> = (0..n_rows * n_features)
+        .map(|_| rng.random_range(-1.0f32..1.0) * 3.0 - 5.0)
+        .collect();
+    let y: Vec<f32> = (0..n_rows).map(|r| (r % 2) as f32).collect();
+
+    // When training
+    let params = network::train(&x, n_rows, n_features, &y, &batch_norm_config(), None).unwrap();
+
+    // Then the last 4 * n_features parameters are scale, shift, running mean and running variance,
+    // and the running statistics are close to the data's
+    let size_without = network::Layout::new(n_features, &[32, 16], false)
+        .unwrap()
+        .size;
+    assert_eq!(params.len(), size_without + 4 * n_features);
+    let running_mean = &params[size_without + 2 * n_features..size_without + 3 * n_features];
+    let running_var = &params[size_without + 3 * n_features..];
+    for p in 0..n_features {
+        assert!(
+            (running_mean[p] + 5.0).abs() < 0.3,
+            "mean {}",
+            running_mean[p]
+        );
+        assert!((running_var[p] - 3.0).abs() < 0.5, "var {}", running_var[p]);
+    }
+}
+
+#[test]
+fn test_predict_rejects_parameters_without_the_batch_norm_block() {
+    // Given parameters of a network without the input batch norm
+    let x = vec![0.0; 2 * 12];
+    let size = network::Layout::new(12, &[32, 16], false).unwrap().size;
+    let params = vec![0.0; size];
+
+    // When predicting with the batch norm
+    let result = network::predict(&x, 2, 12, &[32, 16], &params, true);
+
+    // Then the parameter count does not match
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_mid_rank_bounds_maps_ties_at_the_lowest_quantile_to_their_middle() {
+    // Given a feature that is 0 in 90 % of rows, then rising values
+    let n_rows = 1000;
+    let x: Vec<f32> = (0..n_rows)
+        .map(|r| if r < 900 { 0.0 } else { (r - 899) as f32 })
+        .collect();
+    let q = quantile::fit(&x, n_rows, 1, 101, None, 0).unwrap();
+
+    // When transforming with and without mid-ranked bounds
+    let clamped = quantile::transform(&x, n_rows, 1, &q, 101, false).unwrap();
+    let mid = quantile::transform(&x, n_rows, 1, &q, 101, true).unwrap();
+
+    // Then sklearn's rule clamps the zeros to the clip value, and the mid rank puts them at the
+    // middle of their group (quantile 0.45, normal score about -0.13)
+    assert!(clamped[0] < -5.0, "{}", clamped[0]);
+    assert!((mid[0] - norm_ppf(0.45) as f32).abs() < 0.02, "{}", mid[0]);
+    // and values above the tie group are unchanged
+    for r in 905..995 {
+        assert!(
+            (clamped[r] - mid[r]).abs() < 1e-6,
+            "row {r}: {} vs {}",
+            clamped[r],
+            mid[r]
+        );
+    }
+}
+
+#[test]
+fn test_mid_rank_bounds_clips_values_beyond_the_fitted_range() {
+    // Given quantiles of distinct values 1..=100
+    let x: Vec<f32> = (1..=100).map(|v| v as f32).collect();
+    let q = quantile::fit(&x, 100, 1, 101, None, 0).unwrap();
+
+    // When transforming values below and above the training range
+    let out = quantile::transform(&[-50.0, 500.0], 2, 1, &q, 101, true).unwrap();
+
+    // Then they map to the clip values
+    assert!(out[0] < -5.0 && out[1] > 5.0, "{out:?}");
+}
+
+#[test]
+fn test_mid_rank_bounds_maps_ties_at_the_highest_quantile_to_their_middle() {
+    // Given a feature at its maximum 6 in the top 20 % of rows
+    let n_rows = 1000;
+    let x: Vec<f32> = (0..n_rows)
+        .map(|r| if r >= 800 { 6.0 } else { r as f32 / 200.0 })
+        .collect();
+    let q = quantile::fit(&x, n_rows, 1, 101, None, 0).unwrap();
+
+    // When transforming with mid-ranked bounds
+    let mid = quantile::transform(&[6.0], 1, 1, &q, 101, true).unwrap();
+
+    // Then the maximum maps to the middle of its group as np.interp ranks it. The group starts
+    // between knots 80 and 81, and the mean of the ranks 0.81 and 1.0 is 0.905.
+    assert!((mid[0] - norm_ppf(0.905) as f32).abs() < 1e-4, "{}", mid[0]);
+}
+
+#[test]
+fn test_input_batch_norm_learns_badly_scaled_features_and_folds_into_the_first_layer() {
+    // Given separable features that are far from zero relative to their spread, as tied quantile
+    // scores can be
+    let mut rng = StdRng::seed_from_u64(13);
+    let (n_rows, n_features) = (2000, 12);
+    let (mut x, y) = separable(&mut rng, n_rows, n_features);
+    for (i, v) in x.iter_mut().enumerate() {
+        if i % n_features < 6 {
+            *v = *v * 0.1 + 100.0;
+        }
+    }
+
+    // When training with the input batch norm, predicting with its running statistics folded
+    // into the first layer, and predicting without it on input normalized by hand. Small batches
+    // give enough steps for the running statistics to reach those of the data.
+    let bn_config = TrainConfig {
+        batch_size: 64,
+        ..batch_norm_config()
+    };
+    let params = network::train(&x, n_rows, n_features, &y, &bn_config, None).unwrap();
+    let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params, true).unwrap();
+    let plain = network::Layout::new(n_features, &[32, 16], false)
+        .unwrap()
+        .size;
+    let bn = |i: usize| &params[plain + i * n_features..plain + (i + 1) * n_features];
+    let normalized: Vec<f32> = x
+        .iter()
+        .enumerate()
+        .map(|(i, &v)| {
+            let p = i % n_features;
+            bn(0)[p] * (v - bn(2)[p]) / (bn(3)[p] + 1e-5).sqrt() + bn(1)[p]
+        })
+        .collect();
+    let expected = network::predict(
+        &normalized,
+        n_rows,
+        n_features,
+        &[32, 16],
+        &params[..plain],
+        false,
+    )
+    .unwrap();
+
+    // Then the classes separate, and both predictions agree
+    assert!(accuracy(&logits, &y) > 0.95, "{}", accuracy(&logits, &y));
+    for (a, e) in logits.iter().zip(&expected) {
+        assert!((a - e).abs() < 1e-3 * (1.0 + e.abs()), "{a} vs {e}");
+    }
 }

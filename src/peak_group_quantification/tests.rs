@@ -1,6 +1,4 @@
-#[allow(unused_imports)]
 use super::{PeakGroupQuantification, QuantificationParameters};
-#[allow(unused_imports)]
 use pyo3::{
     types::{PyDict, PyDictMethods},
     Python,

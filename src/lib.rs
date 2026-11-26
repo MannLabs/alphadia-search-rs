@@ -35,7 +35,7 @@ use crate::calibration::CalibrationEstimator;
 use crate::candidate::CandidateCollection;
 use crate::dia_data::DIAData;
 use crate::fragment_competition::FragmentCompetition;
-use crate::intensity_drift::IntensityDriftCorrection;
+use crate::intensity_drift::{IntensityDriftCorrection, PrecursorDriftCorrection};
 pub use crate::kernel::GaussianKernel;
 use crate::optimization_context::OptimizationContext;
 use crate::peak_group_quantification::{PeakGroupQuantification, QuantificationParameters};
@@ -98,6 +98,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<CalibrationEstimator>()?;
     m.add_class::<FragmentCompetition>()?;
     m.add_class::<IntensityDriftCorrection>()?;
+    m.add_class::<PrecursorDriftCorrection>()?;
     m.add_class::<VarModelQuantification>()?;
     m.add_function(wrap_pyfunction!(get_optimal_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_simd_backend, m)?)?;

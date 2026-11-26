@@ -98,6 +98,7 @@ impl PeakGroupScoring {
                     candidate.precursor_idx,
                     true,
                     true,
+                    false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 )?;
                 let observation = PeakGroupObservation::new(
@@ -171,8 +172,9 @@ impl PeakGroupScoring {
                 // Find precursor by idx (not array position)
                 match lib.get_precursor_by_idx_filtered(
                     candidate.precursor_idx,
-                    true, // Always filter non-zero intensities for scoring
-                    true, // Filter Y1 ions by default
+                    true,  // Always filter non-zero intensities for scoring
+                    true,  // Filter Y1 ions by default
+                    false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => self.score_candidate_generic(

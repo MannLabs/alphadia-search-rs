@@ -229,6 +229,7 @@ fn library_detection_xic<T: DIADataTrait>(
         candidate.precursor_idx,
         true,
         true,
+        false, // Scoring uses the short ions
         params.top_k_fragments,
     )?;
     let (xic, apex_col) = detection_xic(dia_data, &precursor, candidate, params);

@@ -126,3 +126,59 @@ fn test_candidate_cycle_limits_apex_near_run_end() {
 fn test_candidate_cycle_limits_interior() {
     assert_eq!(candidate_cycle_limits(50, 5, 100), (45, 56));
 }
+
+#[test]
+fn test_rt_prior_defaults_to_off() {
+    let params = SelectionParameters::new();
+    assert_eq!(params.rt_prior, None);
+}
+
+#[test]
+fn test_rt_prior_parameters_update() {
+    Python::initialize();
+    Python::attach(|py| {
+        let mut params = SelectionParameters::new();
+        let with_prior = PyDict::new(py);
+        with_prior.set_item("rt_prior", (20.0, 5.0)).unwrap();
+        params.update(&with_prior).unwrap();
+        assert_eq!(params.rt_prior, Some((20.0, 5.0)));
+
+        let without_prior = PyDict::new(py);
+        without_prior.set_item("rt_prior", py.None()).unwrap();
+        params.update(&without_prior).unwrap();
+        assert_eq!(params.rt_prior, None);
+    });
+}
+
+#[test]
+fn test_rt_log_prior_is_zero_at_the_predicted_rt_and_falls_symmetrically() {
+    // Cycles every 10 s, predicted RT 50 s, Student-t prior with scale 10 s and 5 degrees of freedom.
+    let rt = arr1(&[0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0]);
+    let mut score = arr1(&[1.0, 1.0, 1.0, 1.0, 1.0]);
+    add_rt_log_prior(&mut score, &rt, 3, 50.0, 10.0, 5.0);
+
+    // Cycles 3..8 are 30, 40, 50, 60, 70 s.
+    let at_one_scale = -3.0 * (1.0f32 + 1.0 / 5.0).ln();
+    let at_two_scales = -3.0 * (1.0f32 + 4.0 / 5.0).ln();
+    let expected = [
+        1.0 + at_two_scales,
+        1.0 + at_one_scale,
+        1.0,
+        1.0 + at_one_scale,
+        1.0 + at_two_scales,
+    ];
+    for (value, expected) in score.iter().zip(expected) {
+        assert!((value - expected).abs() < 1e-5, "{value} != {expected}");
+    }
+}
+
+#[test]
+fn test_rt_log_prior_moves_the_best_peak_towards_the_predicted_rt() {
+    // Two equal peaks at cycles 1 and 5, the predicted RT at cycle 5.
+    let rt = arr1(&[0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+    let mut score = arr1(&[0.0, 5.0, 0.0, 0.0, 0.0, 5.0, 0.0]);
+    add_rt_log_prior(&mut score, &rt, 0, 50.0, 10.0, 5.0);
+
+    let (indices, _) = find_local_maxima(&score, 0);
+    assert_eq!(indices[0], 5);
+}

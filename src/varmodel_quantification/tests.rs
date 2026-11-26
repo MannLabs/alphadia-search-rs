@@ -1,7 +1,30 @@
 use approx::assert_abs_diff_eq;
 
-use super::algorithm::{build_groups, fit, initial_quantities, validate_shapes, FitConfig};
+use super::algorithm::{
+    build_groups, fit as fit_with_correlation, initial_quantities, validate_correlation,
+    validate_shapes, FitConfig, FitResult,
+};
 use super::noise::NoiseModel;
+
+/// The fit with every XIC correlation 1, which no quality exponent changes.
+fn fit(
+    intensity: &[f32],
+    intensity_library: &[f32],
+    precursor: &[usize],
+    n_runs: usize,
+    n_precursors: usize,
+    config: &FitConfig,
+) -> FitResult {
+    fit_with_correlation(
+        intensity,
+        intensity_library,
+        precursor,
+        &vec![1.0; intensity.len()],
+        n_runs,
+        n_precursors,
+        config,
+    )
+}
 
 fn noise(seed: usize) -> f64 {
     let hashed = (seed as u64)
@@ -326,6 +349,13 @@ fn test_validate_shapes_rejects_mismatches() {
     assert!(validate_shapes((2, 3), 2, &[0, 0, 1], 2).is_err());
     assert!(validate_shapes((2, 3), 3, &[0, 1], 2).is_err());
     assert!(validate_shapes((2, 3), 3, &[0, 0, 2], 2).is_err());
+}
+
+#[test]
+fn test_validate_correlation_rejects_values_outside_the_unit_interval() {
+    assert!(validate_correlation(&[0.0, 0.5, 1.0]).is_ok());
+    assert!(validate_correlation(&[0.5, -0.1]).is_err());
+    assert!(validate_correlation(&[0.5, f32::NAN]).is_err());
 }
 
 fn simulate_offsets_and_noise(

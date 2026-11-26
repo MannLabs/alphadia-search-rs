@@ -3,8 +3,8 @@
 //!
 //! Parameters live in one flat vector, layer by layer: hidden weights transposed (`[in x out]`)
 //! followed by their bias, then the output weights `[last hidden]` and the output bias.
-//! Each batch has one row chunk per rayon thread. The chunks run forward and backward
-//! independently, and their gradients are summed.
+//! Each batch is split into units of rows. The units run forward and backward in parallel, and
+//! their gradients are summed in a fixed order.
 //!
 //! With `input_batch_norm`, the input goes through a torch `BatchNorm1d` first (`BN_MOMENTUM`,
 //! `BN_EPS`). Training normalizes each minibatch with its own mean and biased variance, and learns
@@ -12,11 +12,12 @@
 //! into the first layer. The batch norm parameters follow the output bias: scale, shift, running
 //! mean, running variance (`n_features` each).
 
-use crate::mlp::{AlignedBuf, Network, TrainWorkspace};
+use crate::mlp::{AlignedBuf, Network, TrainWorkspace, TRAIN_ROW_BLOCK};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
+use std::sync::Mutex;
 
 const ADAM_BETA_1: f32 = 0.9;
 const ADAM_BETA_2: f32 = 0.999;
@@ -25,6 +26,11 @@ const ADAM_EPS: f32 = 1e-8;
 const GATHER_ROWS: usize = 8192;
 const BN_MOMENTUM: f32 = 0.1;
 const BN_EPS: f32 = 1e-5;
+/// Rows of a unit of parallel gradient work. Small units balance the load on cores of different
+/// speed. One unit is one row block of the network kernels.
+const UNIT_ROWS: usize = TRAIN_ROW_BLOCK;
+/// Parameters per task of the parallel gradient sum.
+const REDUCE_PARAMS: usize = 1024;
 
 pub struct TrainConfig {
     pub hidden_layers: Vec<usize>,
@@ -167,30 +173,26 @@ fn shuffle_rows(x: &[f32], y: &[f32], n_features: usize, rng: &mut StdRng) -> (V
     (x_shuffled, y_shuffled)
 }
 
-/// Buffers of one training thread, allocated once per fit.
-struct ChunkState {
-    ws: TrainWorkspace,
+/// The gradient buffers of one row unit, allocated once per fit.
+struct UnitGrad {
     /// The gradients of the network parameters, then of the batch norm scale and shift.
     grad: AlignedBuf,
     /// The gradient at the batch norm output (only with the input batch norm).
     input_grad: Vec<f32>,
 }
 
-/// The gradients of one row chunk into `state.grad`. `x_hat` is the standardized input of the
+/// The gradients of one row unit into `unit.grad`. `x_hat` is the standardized input of the
 /// batch norm, if any.
-fn chunk_gradient(
+fn unit_gradient(
     net: &Network,
-    state: &mut ChunkState,
+    ws: &mut TrainWorkspace,
+    unit: &mut UnitGrad,
     x: &[f32],
     x_hat: Option<&[f32]>,
     y: &[f32],
     loss_scale: f32,
 ) {
-    let ChunkState {
-        ws,
-        grad,
-        input_grad,
-    } = state;
+    let UnitGrad { grad, input_grad } = unit;
     grad.fill(0.0);
     let (net_grad, bn_grad) = grad.split_at_mut(Network::param_count(net.dims()));
     let input_grad = &mut input_grad[..x_hat.map_or(0, |_| x.len())];
@@ -218,25 +220,35 @@ fn chunk_gradient(
     }
 }
 
-/// A batch split into one row chunk per rayon thread. The chunks run forward and backward in
-/// parallel.
+/// A batch split into units of [`UNIT_ROWS`] rows. Rayon hands the units to the threads as they
+/// become free, so faster cores take more units (e.g. performance and efficiency cores). Every
+/// unit has its own gradient buffer, and the buffers are summed in a fixed order. Thus the
+/// gradient does not depend on the thread count or the scheduling.
 struct Chunks {
-    rows: usize,
-    states: Vec<ChunkState>,
+    units: Vec<UnitGrad>,
+    /// The scratch buffers of each rayon thread, by thread index. A thread only locks its own,
+    /// so the locks never wait. `Network::train_chunk` must not use rayon: a thread that steals a
+    /// unit while it holds its lock would wait on itself.
+    workspaces: Vec<Mutex<TrainWorkspace>>,
 }
 
 impl Chunks {
     fn new(net: &Network, n_params: usize, batch_size: usize, input_grad: bool) -> Self {
-        let rows = batch_size.div_ceil(rayon::current_num_threads().max(1));
-        let input_grad_len = if input_grad { rows * net.dims()[0] } else { 0 };
-        let states = (0..batch_size.div_ceil(rows))
-            .map(|_| ChunkState {
-                ws: TrainWorkspace::new(net),
+        let input_grad_len = if input_grad {
+            UNIT_ROWS * net.dims()[0]
+        } else {
+            0
+        };
+        let units = (0..batch_size.div_ceil(UNIT_ROWS))
+            .map(|_| UnitGrad {
                 grad: AlignedBuf::zeros(n_params),
                 input_grad: vec![0.0; input_grad_len],
             })
             .collect();
-        Chunks { rows, states }
+        let workspaces = (0..rayon::current_num_threads().max(1))
+            .map(|_| Mutex::new(TrainWorkspace::new(net)))
+            .collect();
+        Chunks { units, workspaces }
     }
 
     /// The gradient of the mean loss over the batch `x`, `y` into `grad`. With the input batch
@@ -251,22 +263,33 @@ impl Chunks {
         grad: &mut [f32],
     ) {
         let (inputs, loss_scale) = (net.dims()[0], 1.0 / y.len() as f32);
-        let chunk_len = self.rows * inputs;
-        self.states
+        let unit_len = UNIT_ROWS * inputs;
+        let workspaces = &self.workspaces;
+        let units = &mut self.units[..y.len().div_ceil(UNIT_ROWS)];
+        units
             .par_iter_mut()
-            .zip(x.par_chunks(chunk_len))
-            .zip(y.par_chunks(self.rows))
+            .with_max_len(1)
+            .zip(x.par_chunks(unit_len))
+            .zip(y.par_chunks(UNIT_ROWS))
             .enumerate()
-            .for_each(|(c, ((state, x), y))| {
-                let x_hat = x_hat.map(|x_hat| &x_hat[c * chunk_len..c * chunk_len + x.len()]);
-                chunk_gradient(net, state, x, x_hat, y, loss_scale);
+            .for_each(|(u, ((unit, x), y))| {
+                let x_hat = x_hat.map(|x_hat| &x_hat[u * unit_len..u * unit_len + x.len()]);
+                let thread = rayon::current_thread_index().unwrap_or(0) % workspaces.len();
+                let mut ws = workspaces[thread].lock().unwrap();
+                unit_gradient(net, &mut ws, unit, x, x_hat, y, loss_scale);
             });
-        grad.copy_from_slice(&self.states[0].grad);
-        for state in &self.states[1..] {
-            for (g, c) in grad.iter_mut().zip(state.grad.iter()) {
-                *g += c;
-            }
-        }
+        let units = &*units;
+        grad.par_chunks_mut(REDUCE_PARAMS)
+            .enumerate()
+            .for_each(|(c, grad)| {
+                let range = c * REDUCE_PARAMS..c * REDUCE_PARAMS + grad.len();
+                grad.copy_from_slice(&units[0].grad[range.clone()]);
+                for unit in &units[1..] {
+                    for (g, u) in grad.iter_mut().zip(&unit.grad[range.clone()]) {
+                        *g += u;
+                    }
+                }
+            });
     }
 }
 

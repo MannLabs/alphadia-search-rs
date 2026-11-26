@@ -23,7 +23,7 @@ pub(crate) mod avx2;
 pub(crate) mod avx512;
 
 pub(crate) use aligned::AlignedBuf;
-pub(crate) use network::{Network, TrainWorkspace};
+pub(crate) use network::{Network, TrainWorkspace, TRAIN_ROW_BLOCK};
 
 /// What a forward kernel applies to `x @ wt` before storing it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -1,7 +1,7 @@
 //! These tests cover the two competition criteria (shared ions and retention time), the
 //! tolerance and threshold limits, the winner of a conflict, and the rejected inputs.
 
-use super::algorithm::{compete_for_fragments, WindowBounds};
+use super::algorithm::{compete_for_fragments, window_groups_from_cycle};
 use numpy::ndarray::{Array4, ArrayView4};
 
 /// One window that contains all candidates. Only RT and overlap decide the result.
@@ -25,7 +25,7 @@ fn compete(
     fragment_mz: &[f32],
     cycle: ArrayView4<'_, f32>,
 ) -> Result<Vec<bool>, String> {
-    let bounds = WindowBounds::from_cycle(cycle)?;
+    let window_groups = window_groups_from_cycle(cycle)?;
     compete_for_fragments(
         precursor_mz,
         precursor_idx,
@@ -34,7 +34,7 @@ fn compete(
         frag_start_idx,
         frag_stop_idx,
         fragment_mz,
-        &bounds,
+        &window_groups,
         3.0,
         15.0,
     )

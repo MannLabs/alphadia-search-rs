@@ -1,3 +1,4 @@
+use super::network::{self, TrainConfig};
 use super::quantile::{self, norm_ppf, test_access};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
@@ -154,4 +155,171 @@ fn test_quantile_subsample_is_close_to_full_fit() {
         assert!((a - b).abs() < 0.02, "{a} vs {b}");
     }
     assert_eq!(all, full);
+}
+
+fn separable(rng: &mut StdRng, n_rows: usize, n_features: usize) -> (Vec<f32>, Vec<f32>) {
+    let y: Vec<f32> = (0..n_rows).map(|r| (r % 2) as f32).collect();
+    let x = (0..n_rows * n_features)
+        .map(|i| {
+            let shift = if y[i / n_features] > 0.5 && i % n_features < 4 {
+                1.5
+            } else {
+                0.0
+            };
+            rng.random_range(-1.0f32..1.0) + shift
+        })
+        .collect();
+    (x, y)
+}
+
+fn accuracy(logits: &[f32], y: &[f32]) -> f64 {
+    let correct = logits
+        .iter()
+        .zip(y)
+        .filter(|(l, y)| (**l > 0.0) == (**y > 0.5))
+        .count();
+    correct as f64 / y.len() as f64
+}
+
+fn config() -> TrainConfig {
+    TrainConfig {
+        hidden_layers: vec![32, 16],
+        epochs: 3,
+        batch_size: 256,
+        learning_rate: 0.005,
+        weight_decay: 1e-5,
+        seed: 7,
+    }
+}
+
+/// Runs `check` once with every SIMD backend this machine supports selected.
+fn for_each_backend(mut check: impl FnMut(&str)) {
+    for name in ["scalar", "neon", "avx2", "avx512"] {
+        if crate::simd::set_backend(name).is_ok() {
+            check(name);
+        }
+    }
+    crate::simd::clear_backend();
+}
+
+#[test]
+#[serial_test::serial]
+fn test_training_gives_the_same_parameters_with_any_thread_count() {
+    // Given a batch of several row units
+    let mut rng = StdRng::seed_from_u64(5);
+    let (n_rows, n_features) = (2048, 12);
+    let (x, y) = separable(&mut rng, n_rows, n_features);
+    let config = TrainConfig {
+        batch_size: 1000,
+        ..config()
+    };
+
+    // When training on one thread and on five threads
+    let train_on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .unwrap();
+        pool.install(|| network::train(&x, n_rows, n_features, &y, &config, None))
+            .unwrap()
+    };
+
+    // Then the parameters are bit-identical
+    assert_eq!(train_on(1), train_on(5));
+}
+
+#[test]
+#[serial_test::serial]
+fn test_network_learns_a_separable_problem_on_every_backend() {
+    // Given two classes shifted apart in four features
+    let mut rng = StdRng::seed_from_u64(3);
+    let (n_rows, n_features) = (4096, 12);
+    let (x, y) = separable(&mut rng, n_rows, n_features);
+
+    for_each_backend(|backend| {
+        // When training and predicting
+        let params = network::train(&x, n_rows, n_features, &y, &config(), None).unwrap();
+        let logits = network::predict(&x, n_rows, n_features, &[32, 16], &params).unwrap();
+
+        // Then nearly every row is classified correctly
+        let accuracy = accuracy(&logits, &y);
+        assert!(accuracy > 0.95, "{backend}: accuracy {accuracy}");
+    });
+}
+
+#[test]
+fn test_warm_start_continues_from_given_parameters() {
+    // Given parameters from a first fit
+    let mut rng = StdRng::seed_from_u64(5);
+    let (n_rows, n_features) = (1024, 12);
+    let (x, y) = separable(&mut rng, n_rows, n_features);
+    let first = network::train(&x, n_rows, n_features, &y, &config(), None).unwrap();
+
+    // When training again from them, with the same seed
+    let second =
+        network::train(&x, n_rows, n_features, &y, &config(), Some(first.clone())).unwrap();
+
+    // Then the second fit changes the parameters of the first fit. A fresh start with the same
+    // seed would repeat the first fit.
+    assert_eq!(second.len(), first.len());
+    assert_ne!(second, first);
+}
+
+#[test]
+fn test_train_rejects_invalid_input() {
+    // Given a valid problem
+    let mut rng = StdRng::seed_from_u64(6);
+    let (x, y) = separable(&mut rng, 64, 12);
+    let train = |y: &[f32], config: TrainConfig, init: Option<Vec<f32>>| {
+        network::train(&x, 64, 12, y, &config, init)
+    };
+
+    // When training with initial parameters of the wrong length, too few labels, no epochs, a
+    // batch size of 0 and no hidden layers
+    let cases = [
+        train(&y, config(), Some(vec![0.0; 3])),
+        train(&y[..63], config(), None),
+        train(
+            &y,
+            TrainConfig {
+                epochs: 0,
+                ..config()
+            },
+            None,
+        ),
+        train(
+            &y,
+            TrainConfig {
+                batch_size: 0,
+                ..config()
+            },
+            None,
+        ),
+        train(
+            &y,
+            TrainConfig {
+                hidden_layers: vec![],
+                ..config()
+            },
+            None,
+        ),
+    ];
+
+    // Then every fit fails
+    for (i, trained) in cases.iter().enumerate() {
+        assert!(trained.is_err(), "case {i}");
+    }
+}
+
+#[test]
+fn test_training_with_fewer_rows_than_a_batch() {
+    // Given fewer rows than the batch size
+    let mut rng = StdRng::seed_from_u64(6);
+    let (x, y) = separable(&mut rng, 50, 12);
+
+    // When training
+    let params = network::train(&x, 50, 12, &y, &config(), None);
+
+    // Then it trains on one batch of all rows
+    assert!(params.is_ok(), "{params:?}");
 }

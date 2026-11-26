@@ -10,6 +10,7 @@ pub mod convolution;
 mod dense_xic_observation;
 pub mod dia_data;
 pub mod dia_data_builder;
+mod fdr_classifier;
 pub mod fragment_competition;
 pub mod intensity_drift;
 mod kernel;
@@ -106,5 +107,7 @@ fn alphadia_search_rs(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(get_current_simd_backend, m)?)?;
     m.add_function(wrap_pyfunction!(set_num_threads, m)?)?;
     m.add_function(wrap_pyfunction!(get_num_threads, m)?)?;
+    m.add_function(wrap_pyfunction!(fdr_classifier::fdr_quantile_fit, m)?)?;
+    m.add_function(wrap_pyfunction!(fdr_classifier::fdr_quantile_transform, m)?)?;
     Ok(())
 }

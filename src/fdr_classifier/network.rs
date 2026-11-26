@@ -3,20 +3,26 @@
 //!
 //! Parameters live in one flat vector, layer by layer: hidden weights transposed (`[in x out]`)
 //! followed by their bias, then the output weights `[last hidden]` and the output bias.
-//! Each batch has one row chunk per rayon thread. The chunks run forward and backward
-//! independently, and their gradients are summed.
+//! Each batch is split into units of rows. The units run forward and backward in parallel, and
+//! their gradients are summed in a fixed order.
 
-use crate::mlp::{AlignedBuf, Network, TrainWorkspace};
+use crate::mlp::{AlignedBuf, Network, TrainWorkspace, TRAIN_ROW_BLOCK};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
+use std::sync::Mutex;
 
 const ADAM_BETA_1: f32 = 0.9;
 const ADAM_BETA_2: f32 = 0.999;
 const ADAM_EPS: f32 = 1e-8;
 /// Rows per task of the parallel row shuffle.
 const GATHER_ROWS: usize = 8192;
+/// Rows of a unit of parallel gradient work. Small units balance the load on cores of different
+/// speed. One unit is one row block of the network kernels.
+const UNIT_ROWS: usize = TRAIN_ROW_BLOCK;
+/// Parameters per task of the parallel gradient sum.
+const REDUCE_PARAMS: usize = 1024;
 
 pub struct TrainConfig {
     pub hidden_layers: Vec<usize>,
@@ -124,50 +130,66 @@ fn shuffle_rows(x: &[f32], y: &[f32], n_features: usize, rng: &mut StdRng) -> (V
     (x_shuffled, y_shuffled)
 }
 
-/// Buffers of one training thread, allocated once per fit.
-struct ChunkState {
-    ws: TrainWorkspace,
-    /// The gradients of the network parameters.
-    grad: AlignedBuf,
-}
-
-/// A batch split into one row chunk per rayon thread. The chunks run forward and backward in
-/// parallel.
+/// A batch split into units of [`UNIT_ROWS`] rows. Rayon hands the units to the threads as they
+/// become free, so faster cores take more units (e.g. performance and efficiency cores). Every
+/// unit has its own gradient buffer, and the buffers are summed in a fixed order. Thus the
+/// gradient does not depend on the thread count or the scheduling.
 struct Chunks {
-    rows: usize,
-    states: Vec<ChunkState>,
+    /// The gradient of the network parameters of each unit, allocated once per fit.
+    grads: Vec<AlignedBuf>,
+    /// The scratch buffers of each rayon thread, by thread index. A thread only locks its own,
+    /// so the locks never wait. `Network::train_chunk` must not use rayon: a thread that steals a
+    /// unit while it holds its lock would wait on itself.
+    workspaces: Vec<Mutex<TrainWorkspace>>,
 }
 
 impl Chunks {
     fn new(net: &Network, n_params: usize, batch_size: usize) -> Self {
-        let rows = batch_size.div_ceil(rayon::current_num_threads().max(1));
-        let states = (0..batch_size.div_ceil(rows))
-            .map(|_| ChunkState {
-                ws: TrainWorkspace::new(net),
-                grad: AlignedBuf::zeros(n_params),
-            })
+        let grads = (0..batch_size.div_ceil(UNIT_ROWS))
+            .map(|_| AlignedBuf::zeros(n_params))
             .collect();
-        Chunks { rows, states }
+        let workspaces = (0..rayon::current_num_threads().max(1))
+            .map(|_| Mutex::new(TrainWorkspace::new(net)))
+            .collect();
+        Chunks { grads, workspaces }
     }
 
     /// The gradient of the mean loss over the batch `x`, `y` into `grad`.
     fn gradient(&mut self, net: &Network, x: &[f32], y: &[f32], grad: &mut [f32]) {
         let (inputs, loss_scale) = (net.dims()[0], 1.0 / y.len() as f32);
-        self.states
+        let workspaces = &self.workspaces;
+        let grads = &mut self.grads[..y.len().div_ceil(UNIT_ROWS)];
+        grads
             .par_iter_mut()
-            .zip(x.par_chunks(self.rows * inputs))
-            .zip(y.par_chunks(self.rows))
-            .for_each(|((state, x), y)| {
-                let ChunkState { ws, grad } = state;
-                grad.fill(0.0);
-                net.train_chunk(crate::simd::get_backend(), x, y, loss_scale, ws, grad, None);
+            .with_max_len(1)
+            .zip(x.par_chunks(UNIT_ROWS * inputs))
+            .zip(y.par_chunks(UNIT_ROWS))
+            .for_each(|((unit_grad, x), y)| {
+                let thread = rayon::current_thread_index().unwrap_or(0) % workspaces.len();
+                let mut ws = workspaces[thread].lock().unwrap();
+                unit_grad.fill(0.0);
+                net.train_chunk(
+                    crate::simd::get_backend(),
+                    x,
+                    y,
+                    loss_scale,
+                    &mut ws,
+                    unit_grad,
+                    None,
+                );
             });
-        grad.copy_from_slice(&self.states[0].grad);
-        for state in &self.states[1..] {
-            for (g, c) in grad.iter_mut().zip(state.grad.iter()) {
-                *g += c;
-            }
-        }
+        let grads = &*grads;
+        grad.par_chunks_mut(REDUCE_PARAMS)
+            .enumerate()
+            .for_each(|(c, grad)| {
+                let range = c * REDUCE_PARAMS..c * REDUCE_PARAMS + grad.len();
+                grad.copy_from_slice(&grads[0][range.clone()]);
+                for unit_grad in &grads[1..] {
+                    for (g, u) in grad.iter_mut().zip(&unit_grad[range.clone()]) {
+                        *g += u;
+                    }
+                }
+            });
     }
 }
 

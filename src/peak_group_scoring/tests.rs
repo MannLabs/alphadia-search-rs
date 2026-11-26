@@ -1,13 +1,9 @@
-#[allow(unused_imports)]
 use super::utils::{
-    calculate_fwhm_rt, calculate_hyperscore, calculate_hyperscore_weighted,
-    calculate_longest_ion_series, correlation, correlation_axis_0, intensity_ion_series,
-    median_axis_0, normalize_profiles,
+    calculate_fwhm_rt, calculate_hyperscore, calculate_longest_ion_series, correlation,
+    correlation_axis_0, intensity_ion_series, median_axis_0, normalize_profiles,
 };
-#[allow(unused_imports)]
 use crate::constants::FragmentType;
-#[allow(unused_imports)]
-use numpy::ndarray::{arr1, arr2, Array1, Array2};
+use numpy::ndarray::{arr1, arr2, Array2};
 
 #[test]
 fn test_median_axis_0_basic() {

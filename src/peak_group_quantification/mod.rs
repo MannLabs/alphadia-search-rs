@@ -21,7 +21,8 @@ use crate::{SpecLibFlat, SpecLibFlatQuantified};
 use numpy::ndarray::Axis;
 
 pub mod parameters;
-pub mod tests;
+#[cfg(test)]
+mod tests;
 pub use parameters::QuantificationParameters;
 
 #[pyclass]

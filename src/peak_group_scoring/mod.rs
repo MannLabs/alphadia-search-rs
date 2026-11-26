@@ -24,7 +24,8 @@ pub mod ion_coverage;
 pub mod library_agreement;
 pub mod observation;
 pub mod parameters;
-pub mod tests;
+#[cfg(test)]
+mod tests;
 pub mod utils;
 pub use feature_set::FeatureSet;
 pub use parameters::ScoringParameters;

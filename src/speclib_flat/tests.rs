@@ -448,6 +448,7 @@ fn test_speclib_flat_creation_sorting() {
         let precursor_mz = PyArray1::from_slice(py, &[300.0f32, 100.0, 400.0, 200.0]);
         let precursor_rt = PyArray1::from_slice(py, &[30.0f32, 10.0, 40.0, 20.0]);
         let precursor_naa = PyArray1::from_slice(py, &[15u8, 10, 20, 12]);
+        let precursor_elution_group = PyArray1::from_slice(py, &[3u64, 1, 4, 2]);
         let flat_frag_start_idx = PyArray1::from_slice(py, &[6usize, 0, 9, 3]);
         let flat_frag_stop_idx = PyArray1::from_slice(py, &[9usize, 3, 12, 6]);
         let fragment_mz = PyArray1::from_slice(
@@ -483,6 +484,7 @@ fn test_speclib_flat_creation_sorting() {
             precursor_rt.readonly(), // library
             precursor_rt.readonly(), // observed - reusing library values for test
             precursor_naa.readonly(),
+            precursor_elution_group.readonly(),
             flat_frag_start_idx.readonly(),
             flat_frag_stop_idx.readonly(),
             fragment_mz.readonly(), // library
@@ -532,6 +534,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
     let precursor_rt = vec![100.0];
     let precursor_rt_library = vec![100.1];
     let precursor_naa = vec![10];
+    let precursor_elution_group = vec![0u64];
     let precursor_start_idx = vec![0];
     let precursor_stop_idx = vec![5];
 
@@ -558,6 +561,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
         let precursor_rt_arr = PyArray1::from_slice(py, &precursor_rt);
         let precursor_rt_library_arr = PyArray1::from_slice(py, &precursor_rt_library);
         let precursor_naa_arr = PyArray1::from_slice(py, &precursor_naa);
+        let precursor_elution_group_arr = PyArray1::from_slice(py, &precursor_elution_group);
         let precursor_start_idx_arr = PyArray1::from_slice(py, &precursor_start_idx);
         let precursor_stop_idx_arr = PyArray1::from_slice(py, &precursor_stop_idx);
         let fragment_mz_arr = PyArray1::from_slice(py, &fragment_mz);
@@ -577,6 +581,7 @@ fn test_speclib_flat_fragment_mz_sorting() {
             precursor_rt_arr.readonly(),
             precursor_rt_library_arr.readonly(),
             precursor_naa_arr.readonly(),
+            precursor_elution_group_arr.readonly(),
             precursor_start_idx_arr.readonly(),
             precursor_stop_idx_arr.readonly(),
             fragment_mz_library_arr.readonly(),
@@ -779,6 +784,7 @@ fn test_precursor_ions_are_found_by_precursor_idx_after_sorting() {
         vec![30.0, 20.0],
         vec![30.0, 20.0],
         vec![12, 10],
+        vec![7, 7],
         vec![2, 0],
         vec![4, 2],
         vec![300.0, 400.0, 350.0, 450.0],
@@ -809,4 +815,35 @@ fn test_precursor_ions_are_found_by_precursor_idx_after_sorting() {
     assert_eq!(ions.number, &[4, 5]);
     assert_eq!(ions.fragment_type, &[FragmentType::Y, FragmentType::B]);
     assert_eq!(lib.precursor_array_index(15), None);
+}
+
+#[test]
+fn test_elution_group_members_need_not_be_sorted() {
+    // Given: precursors 0 and 2 in elution group 9, and precursor 1 in elution group 4
+    let lib = SpecLibFlat::from_vecs(
+        vec![0, 1, 2],
+        vec![500.0; 3],
+        vec![500.0; 3],
+        vec![20.0; 3],
+        vec![20.0; 3],
+        vec![10; 3],
+        vec![9, 4, 9],
+        vec![0, 1, 2],
+        vec![1, 2, 3],
+        vec![300.0; 3],
+        vec![300.0; 3],
+        vec![1.0; 3],
+        vec![1; 3],
+        vec![1; 3],
+        vec![Loss::NONE; 3],
+        vec![2; 3],
+        vec![2; 3],
+        vec![FragmentType::Y; 3],
+    );
+
+    // When: the elution group members of each precursor are looked up
+    let members: Vec<&[u32]> = (0..3).map(|i| lib.elution_group_members(i)).collect();
+
+    // Then: precursors 0 and 2 share a group, and precursor 1 is alone in its group
+    assert_eq!(members, vec![&[0u32, 2][..], &[1], &[0, 2]]);
 }

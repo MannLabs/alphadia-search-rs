@@ -65,6 +65,17 @@ pub struct SpecLibFlat {
     fragment_type: Vec<u8>,
 }
 
+/// The library ions of one precursor.
+pub struct PrecursorIons<'a> {
+    pub precursor_idx: usize,
+    pub mz_library: &'a [f32],
+    pub intensity: &'a [f32],
+    pub charge: &'a [u8],
+    pub loss_type: &'a [u8],
+    pub number: &'a [u8],
+    pub fragment_type: &'a [u8],
+}
+
 #[pymethods]
 impl SpecLibFlat {
     #[new]
@@ -369,6 +380,25 @@ impl SpecLibFlat {
             fragment_number,
             fragment_position,
             fragment_type,
+        }
+    }
+
+    /// The array index of the precursor with `precursor_idx`.
+    pub fn precursor_array_index(&self, precursor_idx: usize) -> Option<usize> {
+        self.precursor_idx.binary_search(&precursor_idx).ok()
+    }
+
+    /// The library ions of the precursor at `index`, without filters.
+    pub fn precursor_ions(&self, index: usize) -> PrecursorIons<'_> {
+        let fragments = self.flat_frag_start_idx[index]..self.flat_frag_stop_idx[index];
+        PrecursorIons {
+            precursor_idx: self.precursor_idx[index],
+            mz_library: &self.fragment_mz_library[fragments.clone()],
+            intensity: &self.fragment_intensity[fragments.clone()],
+            charge: &self.fragment_charge[fragments.clone()],
+            loss_type: &self.fragment_loss_type[fragments.clone()],
+            number: &self.fragment_number[fragments.clone()],
+            fragment_type: &self.fragment_type[fragments],
         }
     }
 

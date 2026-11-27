@@ -3,7 +3,6 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::dense_xic_observation::DenseXICMZObservation;
 use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
@@ -14,13 +13,13 @@ use crate::peak_group_scoring::ion_coverage::{
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::peak_group_scoring::symbolic::{
-    calculate_symbolic_features, RunScales, SymbolicInputs, MAX_FRAGMENTS, SYMBOLIC_HALF_WINDOW,
-    WINDOW_LEN,
+    calculate_symbolic_features, RunScales, SymbolicInputs, CORE_SIGMAS, MAX_FRAGMENTS,
+    NUM_CONTEXT_TRACES, WINDOW_LEN,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 use crate::SpecLibFlat;
-use numpy::ndarray::{s, Array1, Array2, Array3};
+use numpy::ndarray::{Array1, Array2, Array3, Array4};
 use numpy::IntoPyArray;
 use pyo3::types::PyDict;
 
@@ -73,16 +72,12 @@ impl PeakGroupScoring {
         candidates: &CandidateCollection,
     ) -> PyResult<Py<PyAny>> {
         let scales = self.estimate_run_scales(dia_data, lib, candidates);
+        let tolerance = CORE_SIGMAS * scales.sigma_mz;
         let inputs: Vec<Option<SymbolicInputs>> = candidates
             .par_iter()
             .map(|candidate| {
                 self.scoring_precursor(lib, candidate).map(|precursor| {
-                    SymbolicInputs::extract(
-                        dia_data,
-                        &precursor,
-                        candidate,
-                        self.params.mass_tolerance,
-                    )
+                    SymbolicInputs::extract(dia_data, &precursor, candidate, tolerance)
                 })
             })
             .collect();
@@ -90,6 +85,7 @@ impl PeakGroupScoring {
         let n = inputs.len();
         let mut xic = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
         let mut ppm_error = Array3::<f32>::zeros((n, MAX_FRAGMENTS, WINDOW_LEN));
+        let mut context = Array4::<f32>::zeros((n, MAX_FRAGMENTS, NUM_CONTEXT_TRACES, WINDOW_LEN));
         let mut fragment_meta = Array3::<f32>::zeros((n, MAX_FRAGMENTS, 4));
         let mut candidate_meta = Array2::<f32>::zeros((n, 4));
         let mut num_fragments = Array1::<u64>::zeros(n);
@@ -100,6 +96,9 @@ impl PeakGroupScoring {
                 for t in 0..WINDOW_LEN {
                     xic[[i, f, t]] = inputs.xic[f][t];
                     ppm_error[[i, f, t]] = inputs.ppm_error[f][t];
+                    for c in 0..NUM_CONTEXT_TRACES {
+                        context[[i, f, c, t]] = inputs.context[f][c][t];
+                    }
                 }
                 fragment_meta[[i, f, 0]] = inputs.library_intensity[f];
                 fragment_meta[[i, f, 1]] = inputs.is_y[f];
@@ -115,6 +114,7 @@ impl PeakGroupScoring {
         let dict = PyDict::new(py);
         dict.set_item("xic", xic.into_pyarray(py))?;
         dict.set_item("ppm_error", ppm_error.into_pyarray(py))?;
+        dict.set_item("context", context.into_pyarray(py))?;
         dict.set_item("fragment_meta", fragment_meta.into_pyarray(py))?;
         dict.set_item("candidate_meta", candidate_meta.into_pyarray(py))?;
         dict.set_item("num_fragments", num_fragments.into_pyarray(py))?;
@@ -257,7 +257,7 @@ impl PeakGroupScoring {
 
     /// Scores one candidate with the blocks of the feature set. The ion evidence feeds the noise model of
     /// `ion_fisher_lib` and is empty if the feature set has no ion-coverage block. `run_scales` is given if the
-    /// feature set has the symbolic block, which reads a wider window than the candidate: both are extracted at once.
+    /// feature set has the symbolic block, which extracts its own window around the candidate.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
@@ -267,58 +267,18 @@ impl PeakGroupScoring {
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
         let feature_set = self.params.feature_set;
 
-        let (observation, symbolic) = if let Some(run_scales) = run_scales {
-            let n_cycles = dia_data.rt_index().rt.len();
-            let sym_lo = candidate
-                .cycle_center
-                .saturating_sub(SYMBOLIC_HALF_WINDOW)
-                .min(n_cycles);
-            let sym_hi = (candidate.cycle_center + SYMBOLIC_HALF_WINDOW + 1).min(n_cycles);
-            let cand_lo = candidate.cycle_start;
-            let cand_hi = candidate.cycle_stop.max(cand_lo);
-            let union_lo = cand_lo.min(sym_lo);
-            let union_hi = cand_hi.max(sym_hi);
-
-            let union_dense = DenseXICMZObservation::new(
+        let observation =
+            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        // The network reads its own window, in units of the run's mass accuracy.
+        let symbolic = run_scales.map(|scales| {
+            let inputs = SymbolicInputs::extract(
                 dia_data,
-                precursor.mz,
-                union_lo,
-                union_hi,
-                self.params.mass_tolerance,
-                &precursor.fragment_mz,
-            );
-            let rel_lo = cand_lo - union_lo;
-            let rel_hi = cand_hi - union_lo;
-            let obs = PeakGroupObservation::from_dense(
-                union_dense
-                    .dense_xic
-                    .slice(s![.., rel_lo..rel_hi])
-                    .to_owned(),
-                union_dense
-                    .dense_mz
-                    .slice(s![.., rel_lo..rel_hi])
-                    .to_owned(),
-            );
-            let inputs = SymbolicInputs::from_dense(
-                &union_dense.dense_xic,
-                &union_dense.dense_mz,
-                union_lo,
                 precursor,
                 candidate,
-                &dia_data.rt_index().rt,
+                CORE_SIGMAS * scales.sigma_mz,
             );
-            (obs, Some(calculate_symbolic_features(&inputs, run_scales)))
-        } else {
-            (
-                PeakGroupObservation::new(
-                    dia_data,
-                    precursor,
-                    candidate,
-                    self.params.mass_tolerance,
-                ),
-                None,
-            )
-        };
+            calculate_symbolic_features(&inputs, scales)
+        });
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);

@@ -3,17 +3,29 @@
 use numpy::ndarray::{Array2, Axis};
 
 use crate::candidate::Candidate;
-use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
+use crate::peak_group_scoring::fragment_isotope::ISOTOPE_SPACING;
 use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, median_axis_0, normalize_profiles,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
 
+/// The isotope XICs of a candidate's fragments: fragments x cycles each.
+pub struct IsotopeXics {
+    /// M+1 XICs of the isotope-eligible fragments, zero in the other rows
+    pub mplus1: Array2<f32>,
+    /// monoisotopic fragment XICs
+    pub monoisotopic: Array2<f32>,
+    /// monoisotopic intensity per fragment, summed over the candidate's cycles
+    pub monoisotopic_intensities: Vec<f32>,
+}
+
 pub struct PeakGroupObservation {
-    /// fragment XICs: fragments x cycles
+    /// fragment XICs: fragments x cycles. With isotope XICs, the M+1 XIC of each isotope-eligible fragment is added
+    /// to its monoisotopic XIC.
     pub dense_xic: Array2<f32>,
-    /// observed m/z of the fragment XICs: fragments x cycles
+    /// observed m/z of the monoisotopic fragment XICs: fragments x cycles
     pub dense_mz: Array2<f32>,
     /// median of the normalized XICs
     pub median_profile: Vec<f32>,
@@ -27,14 +39,22 @@ pub struct PeakGroupObservation {
     pub observation_intensities: Vec<f32>,
     /// observed intensity > 0 per fragment
     pub matched_mask: Vec<bool>,
+    /// None if the observation has no isotope XICs
+    pub isotope_xics: Option<IsotopeXics>,
 }
 
 impl PeakGroupObservation {
+    /// The observation of a candidate.
+    ///
+    /// With `isotope_eligible` (one value per fragment), the observation also holds the M+1 XICs of the fragments,
+    /// and the M+1 XIC of each eligible fragment adds to its fragment XIC. The M+1 peak carries a large
+    /// part of a fragment's signal, so weak fragments give more signal.
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
         mass_tolerance: f32,
+        isotope_eligible: Option<&[bool]>,
     ) -> Self {
         let dense_xic_mz_obs = DenseXICMZObservation::new(
             dia_data,
@@ -44,19 +64,45 @@ impl PeakGroupObservation {
             mass_tolerance,
             &precursor.fragment_mz,
         );
+        let monoisotopic = dense_xic_mz_obs.dense_xic;
 
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
+        let eligible_rows: Vec<usize> = isotope_eligible
+            .map(|eligible| (0..eligible.len()).filter(|&i| eligible[i]).collect())
+            .unwrap_or_default();
+
+        let (dense_xic, mplus1) = match isotope_eligible {
+            None => (monoisotopic.clone(), None),
+            Some(_) => {
+                let mplus1 = extract_isotope_rows(
+                    dia_data,
+                    precursor,
+                    candidate,
+                    mass_tolerance,
+                    &eligible_rows,
+                    1.0,
+                );
+                (&monoisotopic + &mplus1, Some(mplus1))
+            }
+        };
+
+        let normalized_xic = normalize_profiles(&dense_xic, 1);
         let filtered_xic = filter_non_zero(&normalized_xic);
 
         let median_profile = median_axis_0(&normalized_xic);
         let median_profile_filtered = median_axis_0(&filtered_xic);
         let correlations = correlation_axis_0(&median_profile_filtered, &normalized_xic);
 
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1)).to_vec();
+        let observation_intensities = dense_xic.sum_axis(Axis(1)).to_vec();
         let matched_mask = observation_intensities.iter().map(|&x| x > 0.0).collect();
 
+        let isotope_xics = mplus1.map(|mplus1| IsotopeXics {
+            mplus1,
+            monoisotopic_intensities: monoisotopic.sum_axis(Axis(1)).to_vec(),
+            monoisotopic,
+        });
+
         Self {
-            dense_xic: dense_xic_mz_obs.dense_xic,
+            dense_xic,
             dense_mz: dense_xic_mz_obs.dense_mz,
             median_profile,
             median_profile_filtered,
@@ -64,6 +110,62 @@ impl PeakGroupObservation {
             correlations,
             observation_intensities,
             matched_mask,
+            isotope_xics,
         }
     }
+
+    /// Monoisotopic intensity > 0 per fragment. Only these fragments have an observed m/z and a mass error.
+    pub fn monoisotopic_matched_mask(&self) -> Vec<bool> {
+        match &self.isotope_xics {
+            None => self.matched_mask.clone(),
+            Some(isotopes) => isotopes
+                .monoisotopic_intensities
+                .iter()
+                .map(|&x| x > 0.0)
+                .collect(),
+        }
+    }
+
+    /// The monoisotopic fragment XICs, which `dense_mz` belongs to.
+    pub fn monoisotopic_xic(&self) -> &Array2<f32> {
+        self.isotope_xics
+            .as_ref()
+            .map_or(&self.dense_xic, |isotopes| &isotopes.monoisotopic)
+    }
+}
+
+/// The XICs at `shift` isotope spacings from the fragments in `rows`: fragments x cycles, zero in the other rows.
+fn extract_isotope_rows<T: DIADataTrait>(
+    dia_data: &T,
+    precursor: &Precursor,
+    candidate: &Candidate,
+    mass_tolerance: f32,
+    rows: &[usize],
+    shift: f32,
+) -> Array2<f32> {
+    let num_cycles = candidate.cycle_stop - candidate.cycle_start;
+    let mut xic = Array2::zeros((precursor.fragment_mz.len(), num_cycles));
+    if rows.is_empty() {
+        return xic;
+    }
+    let mz: Vec<f32> = rows
+        .iter()
+        .map(|&i| {
+            precursor.fragment_mz[i]
+                + shift * ISOTOPE_SPACING / precursor.fragment_charge[i].max(1) as f32
+        })
+        .collect();
+    let extracted = DenseXICObservation::new(
+        dia_data,
+        precursor.mz,
+        candidate.cycle_start,
+        candidate.cycle_stop,
+        mass_tolerance,
+        &mz,
+    )
+    .dense_xic;
+    for (k, &i) in rows.iter().enumerate() {
+        xic.row_mut(i).assign(&extracted.row(k));
+    }
+    xic
 }

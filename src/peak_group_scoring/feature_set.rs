@@ -36,6 +36,12 @@ impl FeatureSet {
         }
     }
 
+    /// Whether the M+1 XIC of each isotope-eligible fragment adds to its fragment XIC. The calibration rounds use
+    /// the monoisotopic XICs only.
+    pub fn sums_fragment_isotopes(self) -> bool {
+        self == FeatureSet::Full
+    }
+
     pub fn has_block(self, block: FeatureBlockId) -> bool {
         self.blocks().contains(&block)
     }

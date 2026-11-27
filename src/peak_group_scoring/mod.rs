@@ -7,6 +7,9 @@ use crate::dia_data::DIAData;
 use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
 use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
+use crate::peak_group_scoring::fragment_isotope::{
+    isotope_eligible_fragments, isotope_shifted_ions,
+};
 use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
 };
@@ -63,6 +66,8 @@ impl PeakGroupScoring {
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
 
+        let sums_isotopes = self.params.feature_set.sums_fragment_isotopes();
+
         // Parallel iteration over candidates to score each one
         let (mut scored_candidates, ion_evidence): (Vec<_>, Vec<Vec<IonEvidence>>) = candidates
             .par_iter()
@@ -76,7 +81,21 @@ impl PeakGroupScoring {
                     self.params.top_k_fragments,
                 ) {
                     Some(precursor) => {
-                        self.score_candidate_generic(dia_data, &precursor, candidate)
+                        let isotope_shifted = if sums_isotopes {
+                            lib.precursor_array_index(candidate.precursor_idx)
+                                .map(|index| {
+                                    isotope_shifted_ions(lib, index, self.params.mass_tolerance)
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        self.score_candidate_generic(
+                            dia_data,
+                            &precursor,
+                            candidate,
+                            &isotope_shifted,
+                        )
                     }
                     None => {
                         eprintln!(
@@ -147,14 +166,22 @@ impl PeakGroupScoring {
         dia_data: &T,
         precursor: &Precursor,
         candidate: &Candidate,
+        isotope_shifted: &[u64],
     ) -> Option<(CandidateFeature, Vec<IonEvidence>)> {
-        let observation =
-            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        let feature_set = self.params.feature_set;
+        let isotope_eligible = feature_set.sums_fragment_isotopes().then(|| {
+            isotope_eligible_fragments(precursor, self.params.mass_tolerance, isotope_shifted)
+        });
+        let observation = PeakGroupObservation::new(
+            dia_data,
+            precursor,
+            candidate,
+            self.params.mass_tolerance,
+            isotope_eligible.as_deref(),
+        );
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
-
-        let feature_set = self.params.feature_set;
 
         let (ion_coverage, ion_evidence) = if feature_set.has_block(FeatureBlockId::IonCoverage) {
             let (ion_coverage, ion_evidence) = calculate_ion_coverage_features(

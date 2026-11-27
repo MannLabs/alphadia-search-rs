@@ -1270,6 +1270,7 @@ pub(crate) mod feature_sets {
     use crate::dia_data::{AlphaRawView, DIAData};
     use crate::dia_data_builder::DIADataBuilder;
     use crate::peak_group_scoring::features::CandidateFeatureCollection;
+    use crate::peak_group_scoring::fragment_isotope::ISOTOPE_SPACING;
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
     use numpy::ndarray::{Array1, Array4};
@@ -1292,6 +1293,19 @@ pub(crate) mod feature_sets {
     /// around APEX_CYCLE.
     pub(crate) fn dia_data() -> DIAData {
         dia_data_from_spectrum(&FRAGMENTS)
+    }
+
+    /// The same run, in which every fragment also has its M+1 peak at the averagine ratio. The first fragment also has
+    /// a peak at its M-1 m/z.
+    pub(crate) fn dia_data_with_isotopes() -> DIAData {
+        let mut spectrum = Vec::new();
+        let (first_mz, first_intensity) = FRAGMENTS[0];
+        spectrum.push((first_mz - ISOTOPE_SPACING, first_intensity));
+        for (mz, intensity) in FRAGMENTS {
+            spectrum.push((mz, intensity));
+            spectrum.push((mz + ISOTOPE_SPACING, intensity * 0.000_54 * mz));
+        }
+        dia_data_from_spectrum(&spectrum)
     }
 
     /// One isolation window and one spectrum per cycle, in which the peaks of `spectrum` (m/z, intensity, in m/z
@@ -1373,9 +1387,13 @@ pub(crate) mod feature_sets {
     }
 
     fn score(feature_set: FeatureSet) -> CandidateFeatureCollection {
+        score_run(&dia_data(), feature_set)
+    }
+
+    fn score_run(dia_data: &DIAData, feature_set: FeatureSet) -> CandidateFeatureCollection {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
-        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+        PeakGroupScoring::new(params).score(dia_data, &library(), &candidates())
     }
 
     #[test]
@@ -1483,5 +1501,132 @@ pub(crate) mod feature_sets {
         assert!(ion_coverage.lib_share_over_50 > 0.99);
         assert!(ion_coverage.ion_fisher_lib > 0.0);
         assert!(library_agreement.ent_sim > 0.99);
+    }
+
+    /// Ion number, m/z and intensity of the long y ion that contains residues 2 and n-1 in the leakage test
+    const LONG_ION: (u8, f32, f32) = (9, 1500.0, 2.0);
+    /// Mass shift of a DIA-NN decoy fragment that contains one mutated residue (V->L)
+    const SINGLE_MUTATION_SHIFT: f32 = 14.0157;
+
+    /// Mass shift of a DIA-NN decoy fragment that contains both mutated residues for K->L at residue 2 and V->L at
+    /// residue n-1: -15.011 + 14.016 Da, so that the decoy M+1 is 8 mDa from the target M0
+    const SUMMED_INTO_TARGET_SHIFT: f32 = -0.9952;
+
+    /// A target with the fragments of `library` and a long y ion, and its DIA-NN-like decoy in the same elution group,
+    /// with the decoy long y ion shifted by `long_ion_shift`.
+    fn target_decoy_library_with_long_ion_shift(long_ion_shift: f32) -> SpecLibFlat {
+        let (long_number, long_mz, long_intensity) = LONG_ION;
+        let mut target_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
+        target_mz.push(long_mz);
+        let mut decoy_mz: Vec<f32> = FRAGMENTS
+            .iter()
+            .map(|&(mz, _)| mz + SINGLE_MUTATION_SHIFT)
+            .collect();
+        decoy_mz.push(long_mz + long_ion_shift);
+        let mut intensity: Vec<f32> = FRAGMENTS.iter().map(|&(_, i)| i).collect();
+        intensity.push(long_intensity);
+        let mut number: Vec<u8> = (2..2 + FRAGMENTS.len() as u8).collect();
+        number.push(long_number);
+        let n = target_mz.len();
+        let fragment_mz = [target_mz, decoy_mz].concat();
+        SpecLibFlat::from_vecs(
+            vec![0, 1],
+            vec![PRECURSOR_MZ, PRECURSOR_MZ + 1.0],
+            vec![PRECURSOR_MZ, PRECURSOR_MZ + 1.0],
+            vec![20.0, 20.0],
+            vec![20.0, 20.0],
+            vec![10, 10],
+            vec![0, 0],
+            vec![0, n],
+            vec![n, 2 * n],
+            fragment_mz.clone(),
+            fragment_mz,
+            [intensity.clone(), intensity].concat(),
+            vec![1; 2 * n],
+            vec![1; 2 * n],
+            vec![Loss::NONE; 2 * n],
+            [number.clone(), number.clone()].concat(),
+            [number.clone(), number].concat(),
+            vec![FragmentType::Y; 2 * n],
+        )
+    }
+
+    /// A run in which the target of `target_decoy_library_with_long_ion_shift` elutes with the M+1 and M+2 peaks of its fragments.
+    fn target_run_with_isotopes() -> DIAData {
+        let (_, long_mz, long_intensity) = LONG_ION;
+        let mut spectrum = Vec::new();
+        for (mz, intensity) in FRAGMENTS.into_iter().chain([(long_mz, long_intensity)]) {
+            let mplus1_ratio = 0.000_54 * mz;
+            spectrum.push((mz, intensity));
+            spectrum.push((mz + ISOTOPE_SPACING, intensity * mplus1_ratio));
+            spectrum.push((
+                mz + 2.0 * ISOTOPE_SPACING,
+                intensity * mplus1_ratio * mplus1_ratio / 2.0,
+            ));
+        }
+        spectrum.sort_by(|a, b| a.0.total_cmp(&b.0));
+        dia_data_from_spectrum(&spectrum)
+    }
+
+    /// Scores the decoy of `target_decoy_library_with_long_ion_shift` at the apex of its target.
+    fn score_decoy_at_target_apex(
+        lib: &SpecLibFlat,
+        feature_set: FeatureSet,
+    ) -> crate::peak_group_scoring::features::CandidateFeature {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        params.mass_tolerance = 10.0;
+        let decoy_at_target_apex = CandidateCollection::from_vec(vec![Candidate::new(
+            1,
+            0,
+            1.0,
+            APEX_CYCLE - 3,
+            APEX_CYCLE,
+            APEX_CYCLE + 3,
+        )]);
+        let scored = PeakGroupScoring::new(params).score(
+            &target_run_with_isotopes(),
+            lib,
+            &decoy_at_target_apex,
+        );
+        scored.iter().next().unwrap().clone()
+    }
+
+    #[test]
+    fn test_a_decoy_trace_gets_no_signal_from_the_peaks_of_its_target() {
+        // Given: a decoy whose long y ion M+1 is at the M0 m/z of its target's long y ion
+        let lib = target_decoy_library_with_long_ion_shift(SUMMED_INTO_TARGET_SHIFT);
+
+        // When: the decoy is scored at the apex of its target, with and without the summed isotope traces
+        let full = score_decoy_at_target_apex(&lib, FeatureSet::Full);
+        let calibration = score_decoy_at_target_apex(&lib, FeatureSet::Calibration);
+
+        // Then: the summed traces add nothing to the decoy
+        assert_eq!(full.core, calibration.core);
+    }
+
+    #[test]
+    fn test_full_sums_the_mplus1_trace_into_the_fragment_trace_but_keeps_the_mass_errors() {
+        // Given: a run in which every fragment has its M+1 peak
+        let run = dia_data_with_isotopes();
+
+        // When: the candidates are scored with and without the summed isotope traces
+        let full = score_run(&run, FeatureSet::Full);
+        let calibration = score_run(&run, FeatureSet::Calibration);
+
+        // Then: the summed traces raise the observed intensities, and the mass errors stay those of the
+        // monoisotopic peaks
+        let apex =
+            |scored: &CandidateFeatureCollection| scored.iter().find(|f| f.rank == 0).unwrap().core;
+        let (full_apex, calibration_apex) = (apex(&full), apex(&calibration));
+        assert!(full_apex.log10_y_ion_intensity > calibration_apex.log10_y_ion_intensity);
+        assert_eq!(
+            full_apex.weighted_mass_error,
+            calibration_apex.weighted_mass_error
+        );
+        assert_eq!(
+            full_apex.hyperscore_inverse_mass_error > 0.0,
+            calibration_apex.hyperscore_inverse_mass_error > 0.0
+        );
     }
 }

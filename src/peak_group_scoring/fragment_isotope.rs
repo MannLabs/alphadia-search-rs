@@ -1,22 +1,65 @@
-//! The fragments of a candidate whose isotope XICs can give isotope evidence.
+//! Whether the isotope peaks next to a candidate's fragments confirm that the fragment peaks are real ions.
 //!
-//! The M+1 XIC of a fragment is at +1.00336 Da / z from the fragment m/z, and its M-1 XIC is at -1.00336 Da / z.
+//! A real fragment ion has its M+1 isotope peak at +1.00336 Da / z. This peak co-elutes with the fragment, at the
+//! intensity ratio that the fragment mass predicts. A chance peak at the fragment m/z has no such partner.
+//!
+//! A real monoisotopic fragment has no peak at M-1. A co-eluting peak at M-1 shows that the matched peak can be the
+//! M+1 isotope of a different ion. In HeLa Astral runs, the M-1 peak co-eluted with 2.2 % of the co-eluting
+//! fragments of confident targets and with 6.4-6.9 % of those of decoys.
+//!
+//! The features use only the co-eluting fragments of the candidate. The isotope XICs have the tolerance and the
+//! cycles of the fragment XICs.
 //!
 //! Decoys must not get isotope evidence that false targets cannot get. A decoy elutes in the window of its target, so
 //! a decoy isotope XIC that overlaps a peak of its target picks up real signal. `isotope_shifted_ions` and
 //! `isotope_eligible_fragments` exclude the fragments at which this can occur. The rules use only the library and the
 //! elution groups and are the same for targets and decoys.
 
+use numpy::ndarray::{ArrayView2, Axis};
+
+use crate::peak_group_scoring::feature_block::feature_block;
+use crate::peak_group_scoring::utils::{calculate_correlation_safe, COELUTION_MIN_CORRELATION};
 use crate::precursor::Precursor;
 use crate::SpecLibFlat;
 
 /// Mass difference between the monoisotopic peak and the first 13C isotope peak (Da)
 pub const ISOTOPE_SPACING: f32 = 1.003_354_8;
+/// Proton mass (Da)
+const PROTON_MASS: f32 = 1.007_276;
+/// Expected M+1 / M intensity ratio per Da of fragment mass (averagine, Poisson approximation)
+const MPLUS1_RATIO_PER_DA: f32 = 0.000_54;
+/// The expected M+1 / M ratio is at least this value, so that the log ratio of very light fragments stays finite
+const MIN_EXPECTED_MPLUS1_RATIO: f32 = 1e-3;
+/// Maximum log ratio error of one fragment, so that a missing M+1 peak counts as a bounded error
+pub const MAX_LOG_RATIO_ERROR: f32 = 3.0;
 /// Isotope peaks of a fragment, from M0, that can overlap the M+1 or M-1 XIC of a different fragment
 const COLLIDING_ISOTOPE_PEAKS: u8 = 3;
 /// Largest isotope shift between the same ion of two precursors at which the M-1..M+1 XICs of one ion overlap the
 /// M0..M+2 peaks of the other
 const MAX_PAIR_ISOTOPE_SHIFT: u8 = 3;
+
+feature_block! {
+    /// The fragment-isotope features of one candidate.
+    pub struct FragmentIsotopeFeatures {
+        /// observed-intensity weighted mean correlation of the co-eluting fragments' XICs with their M+1 XICs
+        pub mplus1_correlation: f32,
+        /// library-intensity share of the co-eluting fragments whose M+1 co-elutes
+        pub mplus1_lib_share: f32,
+        /// number of co-eluting fragments whose M+1 co-elutes
+        pub mplus1_count: f32,
+        /// observed-intensity weighted mean |ln(observed M+1 / M ratio / expected ratio)| over the co-eluting
+        /// fragments, at most MAX_LOG_RATIO_ERROR per fragment
+        pub mplus1_ratio_error: f32,
+        /// observed-intensity weighted mean correlation of the co-eluting fragments' XICs with their M-1 XICs
+        pub mminus1_correlation: f32,
+        /// library-intensity share of the co-eluting fragments whose M-1 co-elutes
+        pub mminus1_lib_share: f32,
+        /// number of co-eluting fragments whose M-1 co-elutes
+        pub mminus1_count: f32,
+        /// M-1 intensity as a share of the M-1 and M intensity, summed over the co-eluting fragments
+        pub mminus1_intensity_share: f32,
+    }
+}
 
 /// Key of one library ion of one precursor: precursor index and ion annotation.
 pub fn ion_key(
@@ -147,9 +190,250 @@ pub fn isotope_eligible_fragments(
         .collect()
 }
 
+/// The expected M+1 / M intensity ratio of a fragment.
+fn expected_mplus1_ratio(fragment_mz: f32, fragment_charge: u8) -> f32 {
+    let charge = fragment_charge.max(1) as f32;
+    let fragment_mass = (fragment_mz - PROTON_MASS) * charge;
+    (MPLUS1_RATIO_PER_DA * fragment_mass).max(MIN_EXPECTED_MPLUS1_RATIO)
+}
+
+/// The fragment-isotope features of one candidate.
+///
+/// `dense_xic`, `mplus1_xic` and `mminus1_xic` hold the fragment XICs and their isotope XICs (fragments x cycles).
+/// The slices hold one value per scored fragment: library m/z, charge and intensity, observed intensity (summed over
+/// the candidate's cycles), correlation with the median profile and eligibility (see `isotope_eligible_fragments`).
+/// Fragments that are not eligible do not count, also not in the library-intensity total.
+#[allow(clippy::too_many_arguments)]
+pub fn calculate_fragment_isotope_features(
+    dense_xic: ArrayView2<f32>,
+    mplus1_xic: ArrayView2<f32>,
+    mminus1_xic: ArrayView2<f32>,
+    fragment_mz: &[f32],
+    fragment_charge: &[u8],
+    library_intensities: &[f32],
+    observation_intensities: &[f32],
+    correlations: &[f32],
+    eligible: &[bool],
+) -> FragmentIsotopeFeatures {
+    let n = fragment_mz.len();
+    let mut features = FragmentIsotopeFeatures {
+        mplus1_ratio_error: MAX_LOG_RATIO_ERROR,
+        ..Default::default()
+    };
+    if n == 0
+        || fragment_charge.len() != n
+        || library_intensities.len() != n
+        || observation_intensities.len() != n
+        || correlations.len() != n
+        || eligible.len() != n
+        || dense_xic.nrows() != n
+        || mplus1_xic.dim() != dense_xic.dim()
+        || mminus1_xic.dim() != dense_xic.dim()
+    {
+        return features;
+    }
+
+    let mplus1_intensities = mplus1_xic.sum_axis(Axis(1));
+    let mminus1_intensities = mminus1_xic.sum_axis(Axis(1));
+    let library_total: f32 = (0..n)
+        .filter(|&i| eligible[i])
+        .map(|i| library_intensities[i])
+        .sum();
+
+    let mut observed_total = 0.0f32;
+    let mut mplus1_correlation_sum = 0.0f32;
+    let mut mplus1_ratio_error_sum = 0.0f32;
+    let mut mplus1_library = 0.0f32;
+    let mut mminus1_correlation_sum = 0.0f32;
+    let mut mminus1_library = 0.0f32;
+    let mut mminus1_observed_total = 0.0f32;
+
+    for i in 0..n {
+        let observed = observation_intensities[i];
+        if !eligible[i] || correlations[i] <= COELUTION_MIN_CORRELATION || observed <= 0.0 {
+            continue;
+        }
+        let trace = dense_xic.row(i).to_vec();
+        let mplus1_correlation = calculate_correlation_safe(&trace, &mplus1_xic.row(i).to_vec());
+        let mminus1_correlation = calculate_correlation_safe(&trace, &mminus1_xic.row(i).to_vec());
+
+        let mplus1_observed = mplus1_intensities[i];
+        let mplus1_ratio_error = if mplus1_observed > 0.0 {
+            ((mplus1_observed / observed)
+                / expected_mplus1_ratio(fragment_mz[i], fragment_charge[i]))
+            .ln()
+            .abs()
+            .min(MAX_LOG_RATIO_ERROR)
+        } else {
+            MAX_LOG_RATIO_ERROR
+        };
+
+        observed_total += observed;
+        mplus1_correlation_sum += observed * mplus1_correlation;
+        mplus1_ratio_error_sum += observed * mplus1_ratio_error;
+        mminus1_correlation_sum += observed * mminus1_correlation;
+        mminus1_observed_total += mminus1_intensities[i];
+        if mplus1_correlation > COELUTION_MIN_CORRELATION {
+            features.mplus1_count += 1.0;
+            mplus1_library += library_intensities[i];
+        }
+        if mminus1_correlation > COELUTION_MIN_CORRELATION {
+            features.mminus1_count += 1.0;
+            mminus1_library += library_intensities[i];
+        }
+    }
+
+    if observed_total > 0.0 {
+        features.mplus1_correlation = mplus1_correlation_sum / observed_total;
+        features.mplus1_ratio_error = mplus1_ratio_error_sum / observed_total;
+        features.mminus1_correlation = mminus1_correlation_sum / observed_total;
+        features.mminus1_intensity_share =
+            mminus1_observed_total / (mminus1_observed_total + observed_total);
+    }
+    if library_total > 0.0 {
+        features.mplus1_lib_share = mplus1_library / library_total;
+        features.mminus1_lib_share = mminus1_library / library_total;
+    }
+    features
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use numpy::ndarray::{array, Array2};
+
+    const FRAGMENT_MZ: [f32; 2] = [1001.0, 1001.0];
+    const FRAGMENT_CHARGE: [u8; 2] = [1, 1];
+    const LIBRARY: [f32; 2] = [1.0, 1.0];
+    const OBSERVED: [f32; 2] = [12.0, 24.0];
+
+    fn fragment_xic() -> Array2<f32> {
+        array![[1.0, 10.0, 1.0], [2.0, 20.0, 2.0]]
+    }
+
+    fn calculate(
+        mplus1_xic: &Array2<f32>,
+        mminus1_xic: &Array2<f32>,
+        correlations: &[f32],
+    ) -> FragmentIsotopeFeatures {
+        calculate_fragment_isotope_features(
+            fragment_xic().view(),
+            mplus1_xic.view(),
+            mminus1_xic.view(),
+            &FRAGMENT_MZ,
+            &FRAGMENT_CHARGE,
+            &LIBRARY,
+            &OBSERVED,
+            correlations,
+            &[true, true],
+        )
+    }
+
+    #[test]
+    fn test_mplus1_at_the_expected_ratio_confirms_every_fragment() {
+        // Given: co-eluting M+1 traces at the averagine ratio of a 1000 Da fragment (about 0.54) and no M-1 traces
+        let mplus1_xic = array![[0.54, 5.4, 0.54], [1.08, 10.8, 1.08]];
+        let mminus1_xic = Array2::zeros((2, 3));
+
+        // When: the features are calculated
+        let features = calculate(&mplus1_xic, &mminus1_xic, &[0.9, 0.9]);
+
+        // Then: the M+1 features confirm both fragments and the M-1 features are 0
+        assert!(features.mplus1_correlation > 0.99);
+        assert_eq!(features.mplus1_count, 2.0);
+        assert!((features.mplus1_lib_share - 1.0).abs() < 1e-6);
+        assert!(features.mplus1_ratio_error < 0.05);
+        assert_eq!(features.mminus1_correlation, 0.0);
+        assert_eq!(features.mminus1_count, 0.0);
+        assert_eq!(features.mminus1_lib_share, 0.0);
+        assert_eq!(features.mminus1_intensity_share, 0.0);
+    }
+
+    #[test]
+    fn test_missing_mplus1_gives_the_maximum_ratio_error() {
+        // Given: no isotope traces
+        let empty_xic = Array2::zeros((2, 3));
+
+        // When: the features are calculated
+        let features = calculate(&empty_xic, &empty_xic, &[0.9, 0.9]);
+
+        // Then: no fragment is confirmed and the ratio error is at its maximum
+        assert_eq!(features.mplus1_count, 0.0);
+        assert_eq!(features.mplus1_lib_share, 0.0);
+        assert_eq!(features.mplus1_ratio_error, MAX_LOG_RATIO_ERROR);
+    }
+
+    #[test]
+    fn test_coeluting_mminus1_flags_the_fragment() {
+        // Given: a co-eluting M-1 trace at the first fragment only
+        let mplus1_xic = Array2::zeros((2, 3));
+        let mminus1_xic = array![[3.0, 30.0, 3.0], [0.0, 0.0, 0.0]];
+
+        // When: the features are calculated
+        let features = calculate(&mplus1_xic, &mminus1_xic, &[0.9, 0.9]);
+
+        // Then: the M-1 features count the first fragment and its share of the intensity
+        assert_eq!(features.mminus1_count, 1.0);
+        assert!((features.mminus1_lib_share - 0.5).abs() < 1e-6);
+        let first_fragment_weight = OBSERVED[0] / (OBSERVED[0] + OBSERVED[1]);
+        assert!((features.mminus1_correlation - first_fragment_weight).abs() < 1e-3);
+        let mminus1_observed = 36.0;
+        let expected_share = mminus1_observed / (mminus1_observed + OBSERVED[0] + OBSERVED[1]);
+        assert!((features.mminus1_intensity_share - expected_share).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_fragments_that_do_not_coelute_are_left_out() {
+        // Given: isotope traces at both fragments, but no fragment co-elutes with the median profile
+        let isotope_xic = fragment_xic();
+
+        // When: the features are calculated
+        let features = calculate(&isotope_xic, &isotope_xic, &[0.1, 0.1]);
+
+        // Then: the features are those of a candidate without isotope evidence
+        assert_eq!(features.mplus1_count, 0.0);
+        assert_eq!(features.mminus1_count, 0.0);
+        assert_eq!(features.mplus1_correlation, 0.0);
+        assert_eq!(features.mplus1_ratio_error, MAX_LOG_RATIO_ERROR);
+    }
+
+    #[test]
+    fn test_mismatched_inputs_give_the_default_features() {
+        // Given: isotope traces with fewer cycles than the fragment XICs
+        let short_xic = Array2::zeros((2, 2));
+
+        // When: the features are calculated
+        let features = calculate(&short_xic, &short_xic, &[0.9, 0.9]);
+
+        // Then: the features are those of a candidate without isotope evidence
+        assert_eq!(features.mplus1_count, 0.0);
+        assert_eq!(features.mplus1_ratio_error, MAX_LOG_RATIO_ERROR);
+    }
+
+    #[test]
+    fn test_fragment_isotopes_of_an_ineligible_fragment_do_not_count() {
+        // Given: co-eluting M+1 and M-1 traces at both fragments, but only the first fragment is eligible
+        let isotope_xic = fragment_xic();
+
+        // When: the features are calculated
+        let features = calculate_fragment_isotope_features(
+            fragment_xic().view(),
+            isotope_xic.view(),
+            isotope_xic.view(),
+            &FRAGMENT_MZ,
+            &FRAGMENT_CHARGE,
+            &LIBRARY,
+            &OBSERVED,
+            &[0.9, 0.9],
+            &[true, false],
+        );
+
+        // Then: only the first fragment counts, also in the library-intensity total
+        assert_eq!(features.mplus1_count, 1.0);
+        assert_eq!(features.mminus1_count, 1.0);
+        assert!((features.mplus1_lib_share - 1.0).abs() < 1e-6);
+        assert!((features.mminus1_intensity_share - 0.5).abs() < 1e-6);
+    }
 
     use crate::constants::{FragmentType, Loss};
 

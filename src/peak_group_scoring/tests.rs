@@ -1270,7 +1270,7 @@ pub(crate) mod feature_sets {
     use crate::dia_data::{AlphaRawView, DIAData};
     use crate::dia_data_builder::DIADataBuilder;
     use crate::peak_group_scoring::features::CandidateFeatureCollection;
-    use crate::peak_group_scoring::fragment_isotope::ISOTOPE_SPACING;
+    use crate::peak_group_scoring::fragment_isotope::{ISOTOPE_SPACING, MAX_LOG_RATIO_ERROR};
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
     use numpy::ndarray::{Array1, Array4};
@@ -1485,6 +1485,7 @@ pub(crate) mod feature_sets {
         let apex = calibration.iter().find(|f| f.rank == 0).unwrap();
         assert_eq!(apex.ion_coverage, None);
         assert_eq!(apex.library_agreement, None);
+        assert_eq!(apex.fragment_isotope, None);
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
@@ -1503,8 +1504,53 @@ pub(crate) mod feature_sets {
         assert!(library_agreement.ent_sim > 0.99);
     }
 
+    #[test]
+    fn test_full_scores_the_fragment_isotopes_of_the_apex_candidate() {
+        // Given: a run in which every fragment has its M+1 peak and the first fragment has an M-1 peak
+        let run = dia_data_with_isotopes();
+
+        // When: the candidates are scored with the full feature set
+        let full = score_run(&run, FeatureSet::Full);
+
+        // Then: the M+1 features confirm every fragment and the M-1 features flag the first fragment only
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let fragment_isotope = apex.fragment_isotope.unwrap();
+        assert_eq!(fragment_isotope.mplus1_count, FRAGMENTS.len() as f32);
+        assert!(fragment_isotope.mplus1_lib_share > 0.99);
+        assert!(fragment_isotope.mplus1_correlation > 0.99);
+        assert!(fragment_isotope.mplus1_ratio_error < 0.05);
+        assert_eq!(fragment_isotope.mminus1_count, 1.0);
+        let first_fragment_library_share = FRAGMENTS[0].1
+            / FRAGMENTS
+                .iter()
+                .map(|&(_, intensity)| intensity)
+                .sum::<f32>();
+        assert!((fragment_isotope.mminus1_lib_share - first_fragment_library_share).abs() < 1e-5);
+        assert!(fragment_isotope.mminus1_intensity_share > 0.0);
+    }
+
+    #[test]
+    fn test_full_scores_no_isotope_evidence_in_a_run_without_isotope_peaks() {
+        // Given: a run without isotope peaks
+        let run = dia_data();
+
+        // When: the candidates are scored with the full feature set
+        let full = score_run(&run, FeatureSet::Full);
+
+        // Then: no fragment has M+1 or M-1 evidence
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let fragment_isotope = apex.fragment_isotope.unwrap();
+        assert_eq!(fragment_isotope.mplus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_intensity_share, 0.0);
+        assert_eq!(fragment_isotope.mplus1_ratio_error, MAX_LOG_RATIO_ERROR);
+    }
+
     /// Ion number, m/z and intensity of the long y ion that contains residues 2 and n-1 in the leakage test
     const LONG_ION: (u8, f32, f32) = (9, 1500.0, 2.0);
+    /// Mass shift of a DIA-NN decoy fragment that contains both mutated residues for P->L at residue 2 and L->V at
+    /// residue n-1: 16.031 - 14.016 Da, which is 9 mDa from two isotope spacings
+    const DOUBLE_MUTATION_SHIFT: f32 = 2.0156;
     /// Mass shift of a DIA-NN decoy fragment that contains one mutated residue (V->L)
     const SINGLE_MUTATION_SHIFT: f32 = 14.0157;
 
@@ -1512,8 +1558,12 @@ pub(crate) mod feature_sets {
     /// residue n-1: -15.011 + 14.016 Da, so that the decoy M+1 is 8 mDa from the target M0
     const SUMMED_INTO_TARGET_SHIFT: f32 = -0.9952;
 
-    /// A target with the fragments of `library` and a long y ion, and its DIA-NN-like decoy in the same elution group,
-    /// with the decoy long y ion shifted by `long_ion_shift`.
+    /// A target with the fragments of `library` and a long y ion, and its DIA-NN-like decoy in the same elution group.
+    fn target_decoy_library() -> SpecLibFlat {
+        target_decoy_library_with_long_ion_shift(DOUBLE_MUTATION_SHIFT)
+    }
+
+    /// The same target and decoy, with the decoy long y ion shifted by `long_ion_shift`.
     fn target_decoy_library_with_long_ion_shift(long_ion_shift: f32) -> SpecLibFlat {
         let (long_number, long_mz, long_intensity) = LONG_ION;
         let mut target_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
@@ -1551,7 +1601,7 @@ pub(crate) mod feature_sets {
         )
     }
 
-    /// A run in which the target of `target_decoy_library_with_long_ion_shift` elutes with the M+1 and M+2 peaks of its fragments.
+    /// A run in which the target of `target_decoy_library` elutes with the M+1 and M+2 peaks of its fragments.
     fn target_run_with_isotopes() -> DIAData {
         let (_, long_mz, long_intensity) = LONG_ION;
         let mut spectrum = Vec::new();
@@ -1566,6 +1616,39 @@ pub(crate) mod feature_sets {
         }
         spectrum.sort_by(|a, b| a.0.total_cmp(&b.0));
         dia_data_from_spectrum(&spectrum)
+    }
+
+    #[test]
+    fn test_a_decoy_gets_no_isotope_evidence_from_the_peaks_of_its_target() {
+        // Given: a run with the target and its isotope peaks, and a decoy whose long y ion is the target's long y ion
+        // plus about two isotope spacings
+        let run = target_run_with_isotopes();
+        let mut params = ScoringParameters::new();
+        params.feature_set = FeatureSet::Full;
+        params.mass_tolerance = 10.0;
+        let decoy_at_target_apex = CandidateCollection::from_vec(vec![Candidate::new(
+            1,
+            0,
+            1.0,
+            APEX_CYCLE - 3,
+            APEX_CYCLE,
+            APEX_CYCLE + 3,
+        )]);
+
+        // When: the decoy is scored at the apex of its target
+        let scored = PeakGroupScoring::new(params).score(
+            &run,
+            &target_decoy_library(),
+            &decoy_at_target_apex,
+        );
+
+        // Then: the decoy has no M+1 or M-1 evidence
+        let decoy = scored.iter().next().unwrap();
+        let fragment_isotope = decoy.fragment_isotope.unwrap();
+        assert_eq!(fragment_isotope.mplus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_correlation, 0.0);
+        assert_eq!(fragment_isotope.mminus1_intensity_share, 0.0);
     }
 
     /// Scores the decoy of `target_decoy_library_with_long_ion_shift` at the apex of its target.

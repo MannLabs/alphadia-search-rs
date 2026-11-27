@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 37;
+const NUM_FULL_FEATURES: usize = 45;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -38,6 +38,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         core: numbered_core(),
         ion_coverage: None,
         library_agreement: None,
+        fragment_isotope: None,
     }
 }
 
@@ -67,6 +68,16 @@ fn numbered_full_feature() -> CandidateFeature {
             lib_cosine_over_50: 35.0,
             ent_sim: 36.0,
             ent_sim_corrweighted: 37.0,
+        }),
+        fragment_isotope: Some(FragmentIsotopeFeatures {
+            mplus1_correlation: 38.0,
+            mplus1_lib_share: 39.0,
+            mplus1_count: 40.0,
+            mplus1_ratio_error: 41.0,
+            mminus1_correlation: 42.0,
+            mminus1_lib_share: 43.0,
+            mminus1_count: 44.0,
+            mminus1_intensity_share: 45.0,
         }),
     }
 }
@@ -120,7 +131,7 @@ fn test_calibration_feature_names_are_the_core_block() {
 }
 
 #[test]
-fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
+fn test_full_feature_names_are_core_ion_coverage_library_agreement_and_fragment_isotope() {
     // given / when
     let names = FeatureSet::Full.feature_names();
 
@@ -130,7 +141,8 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
         [
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
-            LibraryAgreementFeatures::NAMES
+            LibraryAgreementFeatures::NAMES,
+            FragmentIsotopeFeatures::NAMES
         ]
         .concat()
     );
@@ -139,12 +151,18 @@ fn test_full_feature_names_are_core_ion_coverage_and_library_agreement() {
 }
 
 #[test]
-fn test_calibration_leaves_out_the_ion_coverage_and_library_agreement_features() {
+fn test_calibration_leaves_out_the_ion_coverage_library_agreement_and_fragment_isotope_features() {
     // given / when
     let names = FeatureSet::Calibration.feature_names();
 
     // then
-    for name in [IonCoverageFeatures::NAMES, LibraryAgreementFeatures::NAMES].concat() {
+    for name in [
+        IonCoverageFeatures::NAMES,
+        LibraryAgreementFeatures::NAMES,
+        FragmentIsotopeFeatures::NAMES,
+    ]
+    .concat()
+    {
         assert!(!names.contains(&name), "{name}");
     }
 }
@@ -168,6 +186,10 @@ fn test_block_column_names_are_the_field_names() {
     assert_eq!(
         value_of("ent_sim_corrweighted"),
         feature.library_agreement.unwrap().ent_sim_corrweighted
+    );
+    assert_eq!(
+        value_of("mminus1_intensity_share"),
+        feature.fragment_isotope.unwrap().mminus1_intensity_share
     );
 }
 

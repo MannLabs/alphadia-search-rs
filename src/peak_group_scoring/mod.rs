@@ -20,6 +20,7 @@ pub mod core;
 pub mod feature_block;
 pub mod feature_set;
 pub mod features;
+pub mod fragment_isotope;
 pub mod ion_coverage;
 pub mod library_agreement;
 pub mod observation;

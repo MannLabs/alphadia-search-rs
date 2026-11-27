@@ -13,6 +13,11 @@
 //! The traces themselves are extracted within `CORE_SIGMAS` spreads of the mass error, not within the mass
 //! tolerance of the search.
 //! The network never reads a fragment or precursor m/z: exact masses would let it recognise mutated decoys.
+//!
+//! The exported network is trained without decoys and without entrapment peptides: peptides at their known
+//! position in runs of a dilution series against the best candidates of peptides that no run of the series
+//! identifies. It cannot learn what distinguishes a decoy from a false target. Of the candidate scalars it reads
+//! only the fragment count; the retention time deviation would have been a label in that training.
 
 use numpy::ndarray::{Array1, Array2};
 use rayon::prelude::*;

@@ -8,7 +8,7 @@ use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
 use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
 use crate::peak_group_scoring::fragment_isotope::{
-    isotope_eligible_fragments, isotope_shifted_ions,
+    calculate_fragment_isotope_features, isotope_eligible_fragments, isotope_shifted_ions,
 };
 use crate::peak_group_scoring::ion_coverage::{
     calculate_ion_coverage_features, num_ion_classes, IonEvidence, IonNoiseModel,
@@ -212,12 +212,32 @@ impl PeakGroupScoring {
                 )
             });
 
+        let fragment_isotope = isotope_eligible
+            .as_deref()
+            .filter(|_| feature_set.has_block(FeatureBlockId::FragmentIsotope))
+            .and_then(|eligible| {
+                observation.isotope_xics.as_ref().map(|isotopes| {
+                    calculate_fragment_isotope_features(
+                        isotopes.monoisotopic.view(),
+                        isotopes.mplus1.view(),
+                        isotopes.mminus1.view(),
+                        &precursor.fragment_mz,
+                        &precursor.fragment_charge,
+                        &precursor.fragment_intensity,
+                        &isotopes.monoisotopic_intensities,
+                        &observation.correlations,
+                        eligible,
+                    )
+                })
+            });
+
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
             core,
             ion_coverage,
             library_agreement,
+            fragment_isotope,
         };
         Some((feature, ion_evidence))
     }

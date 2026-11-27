@@ -7,6 +7,7 @@ use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::peak_group_scoring::fragment_isotope::ISOTOPE_SPACING;
 use crate::peak_group_scoring::utils::{
     correlation_axis_0, filter_non_zero, median_axis_0, normalize_profiles,
+    COELUTION_MIN_CORRELATION,
 };
 use crate::precursor::Precursor;
 use crate::traits::DIADataTrait;
@@ -15,6 +16,9 @@ use crate::traits::DIADataTrait;
 pub struct IsotopeXics {
     /// M+1 XICs of the isotope-eligible fragments, zero in the other rows
     pub mplus1: Array2<f32>,
+    /// M-1 XICs of the isotope-eligible fragments that co-elute and have a monoisotopic signal, zero in the other
+    /// rows. The isotope features read the M-1 XICs of these fragments only.
+    pub mminus1: Array2<f32>,
     /// monoisotopic fragment XICs
     pub monoisotopic: Array2<f32>,
     /// monoisotopic intensity per fragment, summed over the candidate's cycles
@@ -46,8 +50,8 @@ pub struct PeakGroupObservation {
 impl PeakGroupObservation {
     /// The observation of a candidate.
     ///
-    /// With `isotope_eligible` (one value per fragment), the observation also holds the M+1 XICs of the fragments,
-    /// and the M+1 XIC of each eligible fragment adds to its fragment XIC. The M+1 peak carries a large
+    /// With `isotope_eligible` (one value per fragment), the observation also holds the M+1 and M-1 XICs of the
+    /// fragments, and the M+1 XIC of each eligible fragment adds to its fragment XIC. The M+1 peak carries a large
     /// part of a fragment's signal, so weak fragments give more signal.
     pub fn new<T: DIADataTrait>(
         dia_data: &T,
@@ -66,6 +70,9 @@ impl PeakGroupObservation {
         );
         let monoisotopic = dense_xic_mz_obs.dense_xic;
 
+        let extract_rows = |rows: &[usize], shift: f32| {
+            extract_isotope_rows(dia_data, precursor, candidate, mass_tolerance, rows, shift)
+        };
         let eligible_rows: Vec<usize> = isotope_eligible
             .map(|eligible| (0..eligible.len()).filter(|&i| eligible[i]).collect())
             .unwrap_or_default();
@@ -73,14 +80,7 @@ impl PeakGroupObservation {
         let (dense_xic, mplus1) = match isotope_eligible {
             None => (monoisotopic.clone(), None),
             Some(_) => {
-                let mplus1 = extract_isotope_rows(
-                    dia_data,
-                    precursor,
-                    candidate,
-                    mass_tolerance,
-                    &eligible_rows,
-                    1.0,
-                );
+                let mplus1 = extract_rows(&eligible_rows, 1.0);
                 (&monoisotopic + &mplus1, Some(mplus1))
             }
         };
@@ -95,10 +95,21 @@ impl PeakGroupObservation {
         let observation_intensities = dense_xic.sum_axis(Axis(1)).to_vec();
         let matched_mask = observation_intensities.iter().map(|&x| x > 0.0).collect();
 
-        let isotope_xics = mplus1.map(|mplus1| IsotopeXics {
-            mplus1,
-            monoisotopic_intensities: monoisotopic.sum_axis(Axis(1)).to_vec(),
-            monoisotopic,
+        let isotope_xics = mplus1.map(|mplus1| {
+            let monoisotopic_intensities = monoisotopic.sum_axis(Axis(1)).to_vec();
+            let coeluting_rows: Vec<usize> = eligible_rows
+                .iter()
+                .copied()
+                .filter(|&i| {
+                    correlations[i] > COELUTION_MIN_CORRELATION && monoisotopic_intensities[i] > 0.0
+                })
+                .collect();
+            IsotopeXics {
+                mplus1,
+                mminus1: extract_rows(&coeluting_rows, -1.0),
+                monoisotopic,
+                monoisotopic_intensities,
+            }
         });
 
         Self {

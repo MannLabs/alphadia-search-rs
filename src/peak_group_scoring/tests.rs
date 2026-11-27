@@ -1264,7 +1264,7 @@ fn test_calculate_library_agreement_features_entropy_similarity() {
 }
 
 #[cfg(test)]
-mod feature_sets {
+pub(crate) mod feature_sets {
     use crate::candidate::{Candidate, CandidateCollection};
     use crate::constants::{FragmentType, Loss};
     use crate::dia_data::{AlphaRawView, DIAData};
@@ -1277,9 +1277,9 @@ mod feature_sets {
     use pyo3::types::PyDict;
 
     const NUM_CYCLES: usize = 20;
-    const APEX_CYCLE: usize = 10;
+    pub(crate) const APEX_CYCLE: usize = 10;
     const PRECURSOR_MZ: f32 = 500.0;
-    const FRAGMENTS: [(f32, f32); 6] = [
+    pub(crate) const FRAGMENTS: [(f32, f32); 6] = [
         (300.0, 6.0),
         (400.0, 5.0),
         (500.0, 4.0),
@@ -1290,7 +1290,13 @@ mod feature_sets {
 
     /// One isolation window and one spectrum per cycle, in which the fragments of the library elute as a triangle
     /// around APEX_CYCLE.
-    fn dia_data() -> DIAData {
+    pub(crate) fn dia_data() -> DIAData {
+        dia_data_from_spectrum(&FRAGMENTS)
+    }
+
+    /// One isolation window and one spectrum per cycle, in which the peaks of `spectrum` (m/z, intensity, in m/z
+    /// order) elute as a triangle around APEX_CYCLE.
+    fn dia_data_from_spectrum(spectrum: &[(f32, f32)]) -> DIAData {
         let mut peak_mz = Vec::new();
         let mut peak_intensity = Vec::new();
         let mut peak_start = Vec::new();
@@ -1299,7 +1305,7 @@ mod feature_sets {
             peak_start.push(peak_mz.len() as i64);
             let elution = 5.0 - (cycle as f32 - APEX_CYCLE as f32).abs();
             if elution > 0.0 {
-                for (mz, intensity) in FRAGMENTS {
+                for &(mz, intensity) in spectrum {
                     peak_mz.push(mz);
                     peak_intensity.push(intensity * elution * 100.0);
                 }
@@ -1333,7 +1339,7 @@ mod feature_sets {
         DIADataBuilder::from_alpha_raw(&view)
     }
 
-    fn library() -> SpecLibFlat {
+    pub(crate) fn library() -> SpecLibFlat {
         let n = FRAGMENTS.len();
         let fragment_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
         SpecLibFlat::from_vecs(

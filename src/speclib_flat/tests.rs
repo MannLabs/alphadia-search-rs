@@ -768,3 +768,45 @@ fn test_filter_sort_fragments_keeps_short_ions_without_the_filter() {
     // Then: all fragments are kept
     assert_eq!(mz, vec![100.0, 200.0, 300.0]);
 }
+
+#[test]
+fn test_precursor_ions_are_found_by_precursor_idx_after_sorting() {
+    // Given: a library whose precursors are not in precursor_idx order, with two ions each
+    let lib = SpecLibFlat::from_vecs(
+        vec![20, 10],
+        vec![600.0, 500.0],
+        vec![600.0, 500.0],
+        vec![30.0, 20.0],
+        vec![30.0, 20.0],
+        vec![12, 10],
+        vec![2, 0],
+        vec![4, 2],
+        vec![300.0, 400.0, 350.0, 450.0],
+        vec![300.0, 400.0, 350.0, 450.0],
+        vec![1.0, 2.0, 3.0, 4.0],
+        vec![1; 4],
+        vec![1, 2, 1, 2],
+        vec![Loss::NONE; 4],
+        vec![2, 3, 4, 5],
+        vec![2, 3, 4, 5],
+        vec![
+            FragmentType::Y,
+            FragmentType::B,
+            FragmentType::Y,
+            FragmentType::B,
+        ],
+    );
+
+    // When: the precursor with precursor_idx 20 is looked up
+    let index = lib.precursor_array_index(20).unwrap();
+    let ions = lib.precursor_ions(index);
+
+    // Then: its ions are the last two library ions, and an unknown precursor_idx has no array index
+    assert_eq!(ions.precursor_idx, 20);
+    assert_eq!(ions.mz_library, &[350.0, 450.0]);
+    assert_eq!(ions.intensity, &[3.0, 4.0]);
+    assert_eq!(ions.charge, &[1, 2]);
+    assert_eq!(ions.number, &[4, 5]);
+    assert_eq!(ions.fragment_type, &[FragmentType::Y, FragmentType::B]);
+    assert_eq!(lib.precursor_array_index(15), None);
+}

@@ -9,8 +9,11 @@ use rayon::prelude::*;
 use std::time::Instant;
 
 use crate::candidate::{Candidate, CandidateCollection};
-use crate::dense_xic_observation::DenseXICMZObservation;
+use crate::dense_xic_observation::{DenseXICMZObservation, DenseXICObservation};
 use crate::dia_data::DIAData;
+use crate::peak_group_scoring::fragment_isotope::{
+    isotope_eligible_fragments, isotope_shifted_ions, ISOTOPE_SPACING,
+};
 use crate::peak_group_scoring::utils::{
     calculate_correlation_safe, filter_non_zero, median_axis_0, normalize_profiles,
 };
@@ -18,7 +21,7 @@ use crate::precursor_quantified::PrecursorQuantified;
 use crate::traits::DIADataTrait;
 use crate::utils::calculate_fragment_mz_and_errors;
 use crate::{SpecLibFlat, SpecLibFlatQuantified};
-use numpy::ndarray::Axis;
+use numpy::ndarray::{Array2, Axis};
 
 pub mod parameters;
 pub mod tests;
@@ -65,7 +68,18 @@ impl PeakGroupQuantification {
                     false, // Quantification uses the short ions
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => self.quantify_precursor(dia_data, &precursor, candidate),
+                    Some(precursor) => {
+                        let isotope_shifted = if self.params.fragment_isotopes {
+                            lib.precursor_array_index(candidate.precursor_idx)
+                                .map(|index| {
+                                    isotope_shifted_ions(lib, index, self.params.tolerance_ppm)
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        self.quantify_precursor(dia_data, &precursor, candidate, &isotope_shifted)
+                    }
                     None => None,
                 }
             })
@@ -86,6 +100,7 @@ impl PeakGroupQuantification {
         dia_data: &T,
         precursor: &crate::precursor::Precursor,
         candidate: &Candidate,
+        isotope_shifted: &[u64],
     ) -> Option<PrecursorQuantified> {
         let cycle_start = candidate.cycle_start;
         let cycle_stop = candidate.cycle_stop;
@@ -118,7 +133,19 @@ impl PeakGroupQuantification {
             &precursor.fragment_mz,
         );
 
-        let normalized_xic = normalize_profiles(&dense_xic_mz_obs.dense_xic, 1);
+        let dense_xic = if self.params.fragment_isotopes {
+            self.add_mplus1_xics(
+                dia_data,
+                precursor,
+                candidate,
+                isotope_shifted,
+                &dense_xic_mz_obs.dense_xic,
+            )
+        } else {
+            dense_xic_mz_obs.dense_xic
+        };
+
+        let normalized_xic = normalize_profiles(&dense_xic, 1);
 
         // Filter to only non-zero profiles for median calculation (same as in scoring)
         let filtered_xic = filter_non_zero(&normalized_xic);
@@ -134,7 +161,7 @@ impl PeakGroupQuantification {
         }
 
         // Calculate observed intensities from the dense XIC observation (sum across cycles)
-        let observation_intensities = dense_xic_mz_obs.dense_xic.sum_axis(Axis(1));
+        let observation_intensities = dense_xic.sum_axis(Axis(1));
 
         let rt_observed = dia_data.rt_index().rt[cycle_center];
 
@@ -165,5 +192,41 @@ impl PeakGroupQuantification {
         };
 
         precursor_quantified.filter_fragments_by_intensity(0.0)
+    }
+
+    /// The fragment XICs with the M+1 XIC of each isotope-eligible fragment added. The observed m/z values and mass
+    /// errors stay those of the monoisotopic peaks.
+    fn add_mplus1_xics<T: DIADataTrait>(
+        &self,
+        dia_data: &T,
+        precursor: &crate::precursor::Precursor,
+        candidate: &Candidate,
+        isotope_shifted: &[u64],
+        monoisotopic_xic: &Array2<f32>,
+    ) -> Array2<f32> {
+        let mplus1_mz: Vec<f32> = precursor
+            .fragment_mz
+            .iter()
+            .zip(&precursor.fragment_charge)
+            .map(|(&mz, &charge)| mz + ISOTOPE_SPACING / charge.max(1) as f32)
+            .collect();
+        let mplus1 = DenseXICObservation::new(
+            dia_data,
+            precursor.mz,
+            candidate.cycle_start,
+            candidate.cycle_stop,
+            self.params.tolerance_ppm,
+            &mplus1_mz,
+        )
+        .dense_xic;
+        let eligible =
+            isotope_eligible_fragments(precursor, self.params.tolerance_ppm, isotope_shifted);
+        let mut summed = monoisotopic_xic.clone();
+        for (i, mut row) in summed.axis_iter_mut(Axis(0)).enumerate() {
+            if eligible[i] {
+                row += &mplus1.row(i);
+            }
+        }
+        summed
     }
 }

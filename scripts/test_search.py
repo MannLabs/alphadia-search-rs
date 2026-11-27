@@ -73,6 +73,7 @@ if __name__ == "__main__":
         precursor_df["rt_pred"].values.astype(np.float32),  # library
         precursor_df["rt_pred"].values.astype(np.float32),  # calibrated
         precursor_df["nAA"].values.astype(np.uint8),
+        precursor_df["elution_group_idx"].values.astype(np.uint64),
         precursor_df["flat_frag_start_idx"].values.astype(np.uint64),
         precursor_df["flat_frag_stop_idx"].values.astype(np.uint64),
         fragment_df["mz"].values.astype(np.float32),  # library

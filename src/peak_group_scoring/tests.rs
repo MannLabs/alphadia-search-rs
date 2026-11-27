@@ -1350,6 +1350,7 @@ pub(crate) mod feature_sets {
             vec![20.0],
             vec![10],
             vec![0],
+            vec![0],
             vec![n],
             fragment_mz.clone(),
             fragment_mz,

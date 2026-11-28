@@ -7,10 +7,12 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyDictMethods};
 
 use crate::peak_group_scoring::core::CoreFeatures;
+use crate::peak_group_scoring::detection::DetectionFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::feature_set::{FeatureBlockId, FeatureSet};
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
+use crate::peak_group_scoring::ms1::Ms1Features;
 use crate::peak_group_scoring::window_share::WindowShareFeatures;
 
 #[cfg(test)]
@@ -25,6 +27,8 @@ pub struct CandidateFeature {
     pub ion_coverage: Option<IonCoverageFeatures>,
     pub library_agreement: Option<LibraryAgreementFeatures>,
     pub window_share: Option<WindowShareFeatures>,
+    pub ms1: Option<Ms1Features>,
+    pub detection: Option<DetectionFeatures>,
 }
 
 impl CandidateFeature {
@@ -46,6 +50,8 @@ impl CandidateFeature {
                 self.library_agreement.map(|features| features.values())
             }
             FeatureBlockId::WindowShare => self.window_share.map(|features| features.values()),
+            FeatureBlockId::Ms1 => self.ms1.map(|features| features.values()),
+            FeatureBlockId::Detection => self.detection.map(|features| features.values()),
         }
     }
 }
@@ -72,34 +78,18 @@ impl CandidateFeatureCollection {
     }
 
     pub fn to_dict_arrays(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let names = self.feature_set.feature_names();
-        let n = self.features.len();
-
-        let mut precursor_idxs = Array1::<u64>::zeros(n);
-        let mut ranks = Array1::<u64>::zeros(n);
-        let mut columns: Vec<Array1<f32>> = vec![Array1::<f32>::zeros(n); names.len()];
-
+        let mut columns =
+            FeatureColumns::new(self.feature_set.feature_names(), self.features.len());
         for (i, feature) in self.features.iter().enumerate() {
-            precursor_idxs[i] = feature.precursor_idx as u64;
-            ranks[i] = feature.rank as u64;
             let values = feature.values(self.feature_set).ok_or_else(|| {
                 PyValueError::new_err(format!(
                     "Candidate with precursor_idx {} and rank {} misses a block of the {:?} feature set",
                     feature.precursor_idx, feature.rank, self.feature_set
                 ))
             })?;
-            for (column, value) in columns.iter_mut().zip(values) {
-                column[i] = value;
-            }
+            columns.set_row(i, feature.precursor_idx, feature.rank, values);
         }
-
-        let dict = PyDict::new(py);
-        dict.set_item("precursor_idx", precursor_idxs.into_pyarray(py))?;
-        dict.set_item("rank", ranks.into_pyarray(py))?;
-        for (name, column) in names.iter().zip(columns) {
-            dict.set_item(*name, column.into_pyarray(py))?;
-        }
-        Ok(dict.into())
+        columns.into_dict(py)
     }
 
     #[staticmethod]
@@ -122,5 +112,51 @@ impl CandidateFeatureCollection {
 
     pub fn iter(&self) -> std::slice::Iter<'_, CandidateFeature> {
         self.features.iter()
+    }
+}
+
+/// The feature columns the scoring methods return to Python: `precursor_idx` and `rank` (u64), then one f32 column
+/// per feature name, filled row by row with the values in the order of the names.
+pub(crate) struct FeatureColumns {
+    names: Vec<&'static str>,
+    precursor_idx: Array1<u64>,
+    rank: Array1<u64>,
+    columns: Vec<Array1<f32>>,
+}
+
+impl FeatureColumns {
+    pub(crate) fn new(names: Vec<&'static str>, num_rows: usize) -> Self {
+        let columns = vec![Array1::<f32>::zeros(num_rows); names.len()];
+        Self {
+            names,
+            precursor_idx: Array1::<u64>::zeros(num_rows),
+            rank: Array1::<u64>::zeros(num_rows),
+            columns,
+        }
+    }
+
+    pub(crate) fn set_row(
+        &mut self,
+        row: usize,
+        precursor_idx: usize,
+        rank: usize,
+        values: Vec<f32>,
+    ) {
+        self.precursor_idx[row] = precursor_idx as u64;
+        self.rank[row] = rank as u64;
+        for (column, value) in self.columns.iter_mut().zip(values) {
+            column[row] = value;
+        }
+    }
+
+    /// The dict of numpy arrays, keyed by column name.
+    pub(crate) fn into_dict(self, py: Python) -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        dict.set_item("precursor_idx", self.precursor_idx.into_pyarray(py))?;
+        dict.set_item("rank", self.rank.into_pyarray(py))?;
+        for (name, column) in self.names.into_iter().zip(self.columns) {
+            dict.set_item(name, column.into_pyarray(py))?;
+        }
+        Ok(dict.into())
     }
 }

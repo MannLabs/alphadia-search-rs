@@ -8,10 +8,19 @@ use crate::peak_group_scoring::core::calculate_core_features;
 use crate::peak_group_scoring::cross_candidate::{
     apply_cross_candidate_features, CandidateContext,
 };
+use crate::peak_group_scoring::detection::{
+    calculate_detection_features, scores_detection, DetectionFeatures, DetectionModel,
+};
+use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::feature_set::FeatureBlockId;
-use crate::peak_group_scoring::features::{CandidateFeature, CandidateFeatureCollection};
+use crate::peak_group_scoring::features::{
+    CandidateFeature, CandidateFeatureCollection, FeatureColumns,
+};
 use crate::peak_group_scoring::ion_coverage::calculate_ion_coverage_features;
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
+use crate::peak_group_scoring::ms1::{
+    calculate_ms1_apex_calibration, calculate_ms1_features, Ms1ApexFeatures,
+};
 use crate::peak_group_scoring::observation::PeakGroupObservation;
 use crate::peak_group_scoring::window_share::{cycle_intensity_sums, window_share_entry};
 use crate::precursor::Precursor;
@@ -21,11 +30,13 @@ use crate::SpecLibFlat;
 
 pub mod core;
 pub mod cross_candidate;
+pub mod detection;
 pub mod feature_block;
 pub mod feature_set;
 pub mod features;
 pub mod ion_coverage;
 pub mod library_agreement;
+pub mod ms1;
 pub mod observation;
 pub mod parameters;
 pub mod tests;
@@ -77,6 +88,57 @@ impl PeakGroupScoring {
             &window_groups,
         )
     }
+
+    /// The apex isotope statistics of each candidate for an MS1 mass calibration: the columns of
+    /// `ms1::Ms1ApexFeatures` (`ms1_iso_cosine`, `ms1_n_isotopes`, `ms1_log_m0_apex`, `ms1_ppm_signed`), with
+    /// `precursor_idx` and `rank`, extracted at `ms1_mass_tolerance` around the MS1 m/z that `SpecLibFlat::set_isotopes`
+    /// set. All 0 for a candidate without isotopes or a run without MS1 scans.
+    pub fn score_ms1_calibration(
+        &self,
+        py: Python,
+        dia_data: &DIAData,
+        lib: &SpecLibFlat,
+        candidates: &CandidateCollection,
+    ) -> PyResult<Py<PyAny>> {
+        let ms1_observations = if lib.has_isotopes() {
+            dia_data.ms1_observations()
+        } else {
+            Vec::new()
+        };
+        let scored: Vec<(usize, usize, Ms1ApexFeatures)> = candidates
+            .par_iter()
+            .filter_map(|candidate| {
+                let precursor = lib.get_precursor_by_idx_filtered(
+                    candidate.precursor_idx,
+                    true,
+                    true,
+                    false, // Scoring uses the short ions
+                    self.params.top_k_fragments,
+                )?;
+                let observation = PeakGroupObservation::new(
+                    dia_data,
+                    &precursor,
+                    candidate,
+                    self.params.mass_tolerance,
+                );
+                let apex = calculate_ms1_apex_calibration(
+                    dia_data,
+                    lib,
+                    candidate,
+                    &observation,
+                    &ms1_observations,
+                    self.params.ms1_mass_tolerance,
+                );
+                Some((candidate.precursor_idx, candidate.rank, apex))
+            })
+            .collect();
+
+        let mut columns = FeatureColumns::new(Ms1ApexFeatures::NAMES.to_vec(), scored.len());
+        for (i, (precursor_idx, rank, apex)) in scored.iter().enumerate() {
+            columns.set_row(i, *precursor_idx, *rank, apex.values());
+        }
+        columns.into_dict(py)
+    }
 }
 
 impl PeakGroupScoring {
@@ -90,6 +152,19 @@ impl PeakGroupScoring {
         window_groups: &WindowGroups,
     ) -> CandidateFeatureCollection {
         let start_time = Instant::now();
+
+        // The MS1 survey scans of the MS1 block; none if the library has no isotopes, so that the block costs nothing
+        // then and every candidate gets the missing values
+        let ms1_observations: Vec<usize> =
+            if self.params.feature_set.has_block(FeatureBlockId::Ms1) && lib.has_isotopes() {
+                dia_data.ms1_observations()
+            } else {
+                Vec::new()
+            };
+
+        // The run-wide inputs of the detection block, from all candidates alike (no labels)
+        let detection_model = scores_detection(&self.params)
+            .then(|| DetectionModel::fit(dia_data, lib, candidates, &self.params));
 
         // Parallel iteration over candidates to score each one
         let (mut scored_candidates, contexts): (Vec<_>, Vec<_>) = candidates
@@ -105,10 +180,13 @@ impl PeakGroupScoring {
                 ) {
                     Some(precursor) => self.score_candidate_generic(
                         dia_data,
+                        lib,
                         &precursor,
                         candidate,
                         cycle_intensities,
                         window_groups,
+                        &ms1_observations,
+                        detection_model.as_ref(),
                     ),
                     None => {
                         eprintln!(
@@ -148,13 +226,19 @@ impl PeakGroupScoring {
     /// Scores one candidate with the blocks of the feature set. The cross-candidate fields stay 0; the returned
     /// context holds what `apply_cross_candidate_features` needs to fill them. `cycle_intensities` (summed MS2 intensity
     /// per quadrupole observation and cycle) and `window_groups` are empty without the window-share block.
+    /// `ms1_observations` are the MS1 survey scans the MS1 block reads; without them, or without library isotopes for
+    /// the precursor, the MS1 block takes its missing values. `detection_model` holds the run-wide inputs of the
+    /// detection block; without it (`detection_features` off) the detection block takes its missing values.
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
+        lib: &SpecLibFlat,
         precursor: &Precursor,
         candidate: &Candidate,
         cycle_intensities: &[Vec<f32>],
         window_groups: &WindowGroups,
+        ms1_observations: &[usize],
+        detection_model: Option<&DetectionModel>,
     ) -> Option<(CandidateFeature, CandidateContext)> {
         let observation =
             PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
@@ -208,6 +292,33 @@ impl PeakGroupScoring {
             ));
         }
 
+        let ms1 = feature_set.has_block(FeatureBlockId::Ms1).then(|| {
+            calculate_ms1_features(
+                dia_data,
+                lib,
+                candidate,
+                &observation,
+                core.fwhm_rt,
+                ms1_observations,
+                self.params.ms1_mass_tolerance,
+            )
+        });
+
+        let detection =
+            feature_set
+                .has_block(FeatureBlockId::Detection)
+                .then(|| match detection_model {
+                    Some(model) => calculate_detection_features(
+                        dia_data,
+                        precursor,
+                        candidate,
+                        &observation,
+                        model,
+                        &self.params,
+                    ),
+                    None => DetectionFeatures::missing(),
+                });
+
         let feature = CandidateFeature {
             precursor_idx: candidate.precursor_idx,
             rank: candidate.rank,
@@ -216,6 +327,8 @@ impl PeakGroupScoring {
             library_agreement,
             // set with the whole block by apply_cross_candidate_features
             window_share: None,
+            ms1,
+            detection,
         };
         Some((feature, context))
     }

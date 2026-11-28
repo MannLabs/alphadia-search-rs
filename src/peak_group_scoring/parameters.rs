@@ -12,6 +12,10 @@ pub struct ScoringParameters {
     pub top_k_fragments: usize,
     #[pyo3(get)]
     pub feature_set: FeatureSet,
+    #[pyo3(get)]
+    pub ms1_mass_tolerance: f32,
+    #[pyo3(get)]
+    pub detection_features: bool,
 }
 
 #[pymethods]
@@ -24,6 +28,11 @@ impl ScoringParameters {
             // maximum number of fragments to use for scoring per precursor. depends on the number of fragments in the precursor.
             top_k_fragments: 100,
             feature_set: FeatureSet::Full,
+            // maximum mass error for matching precursor isotopes in the MS1 scans, in ppm (MS1 block and `score_ms1_calibration` only)
+            ms1_mass_tolerance: 10.0,
+            // score the detection block when the feature set has it (on by default, so the feature set alone decides);
+            // an opt-out that skips the run-wide detection model to save compute, the block's features are then 0
+            detection_features: true,
         }
     }
 
@@ -36,6 +45,12 @@ impl ScoringParameters {
         }
         if let Some(value) = config.get_item("feature_set")? {
             self.feature_set = value.extract::<FeatureSet>()?;
+        }
+        if let Some(value) = config.get_item("ms1_mass_tolerance")? {
+            self.ms1_mass_tolerance = value.extract::<f32>()?;
+        }
+        if let Some(value) = config.get_item("detection_features")? {
+            self.detection_features = value.extract::<bool>()?;
         }
         Ok(())
     }

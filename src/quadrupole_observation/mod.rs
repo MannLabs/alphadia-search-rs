@@ -130,6 +130,10 @@ impl QuadrupoleObservation {
 
 // Implement the QuadrupoleObservationTrait for QuadrupoleObservation
 impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
+    fn isolation_window(&self) -> [f32; 2] {
+        self.isolation_window
+    }
+
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,

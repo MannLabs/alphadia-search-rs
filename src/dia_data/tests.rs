@@ -298,3 +298,45 @@ fn test_cycle() {
         assert_eq!(cycle_array.shape(), [0, 0, 0, 0]);
     });
 }
+
+#[test]
+fn test_ms1_observations_and_isotope_xic() {
+    use crate::dense_xic_observation::DenseXICMZObservation;
+    use crate::dia_data_builder::DIADataBuilder;
+    use crate::traits::DIADataTrait;
+
+    // one MS1 survey scan (isolation [-1, -1]) and one MS2 window per cycle, two cycles
+    let spectrum_delta_scan_idx = [0i64, 1, 0, 1];
+    let isolation_lower_mz = [-1.0f32, 400.0, -1.0, 400.0];
+    let isolation_upper_mz = [-1.0f32, 600.0, -1.0, 600.0];
+    let spectrum_peak_start_idx = [0i64, 2, 3, 5];
+    let spectrum_peak_stop_idx = [2i64, 3, 5, 6];
+    let spectrum_cycle_idx = [0i64, 0, 1, 1];
+    let spectrum_rt = [1.0f32, 1.1, 2.0, 2.1];
+    let peak_mz = [500.0f32, 500.5017, 300.0, 500.0, 500.5017, 300.0];
+    let peak_intensity = [100.0f32, 60.0, 5.0, 200.0, 120.0, 7.0];
+    let cycle_data = [2.0f32];
+    let alpha_raw_view = create_mock_alpha_raw_view(
+        &spectrum_delta_scan_idx,
+        &isolation_lower_mz,
+        &isolation_upper_mz,
+        &spectrum_peak_start_idx,
+        &spectrum_peak_stop_idx,
+        &spectrum_cycle_idx,
+        &spectrum_rt,
+        &peak_mz,
+        &peak_intensity,
+        &cycle_data,
+    );
+    let dia_data = DIADataBuilder::from_alpha_raw(&alpha_raw_view);
+
+    let ms1 = dia_data.ms1_observations();
+    assert_eq!(ms1, vec![0]);
+    // the MS1 scan never serves as an MS2 window
+    assert_eq!(dia_data.get_valid_observations(500.0), vec![1]);
+
+    let xic =
+        DenseXICMZObservation::from_observations(&dia_data, ms1, 0, 2, 5.0, &[500.0, 500.5017]);
+    assert_eq!(xic.dense_xic.row(0).to_vec(), vec![100.0, 200.0]);
+    assert_eq!(xic.dense_xic.row(1).to_vec(), vec![60.0, 120.0]);
+}

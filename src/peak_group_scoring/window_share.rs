@@ -15,6 +15,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 
 use crate::peak_group_scoring::feature_block::feature_block;
+use crate::peak_group_scoring::utils::finite_or_zero;
 use crate::quadrupole_observation::QuadrupoleObservation;
 
 /// Candidates of the same isolation window whose apex lies within this many cycles are compared for the rank and
@@ -86,14 +87,6 @@ pub fn cycle_intensity_sums(quadrupole_observation: &QuadrupoleObservation) -> V
         }
     }
     sums
-}
-
-fn finite_or_zero(value: f32) -> f32 {
-    if value.is_finite() {
-        value
-    } else {
-        0.0
-    }
 }
 
 /// Apex of the candidate (index into the XIC columns): the maximum of the median profile, or `fallback` if the

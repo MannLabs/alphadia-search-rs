@@ -516,3 +516,27 @@ pub fn shares(values: &[f64]) -> Vec<f64> {
         vec![0.0; values.len()]
     }
 }
+
+/// `value` if it is finite, else 0: the features are never NaN or infinite, because NaN rows are dropped before the
+/// classifier.
+pub(crate) fn finite_or_zero(value: f32) -> f32 {
+    if value.is_finite() {
+        value
+    } else {
+        0.0
+    }
+}
+
+/// The half-open cycle range [start, stop) of `half_width` cycles on each side of the maximum of `profile` (its last
+/// maximum on a tie, cycle 0 if it is empty), clamped to the profile.
+pub(crate) fn apex_window(profile: &[f32], half_width: usize) -> (usize, usize) {
+    let apex = profile
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let start = apex.saturating_sub(half_width);
+    let stop = (apex + half_width + 1).min(profile.len());
+    (start, stop)
+}

@@ -88,7 +88,7 @@ impl TestAlphaRawData {
         }
     }
 
-    fn create_alpha_raw_view(&self) -> crate::dia_data::AlphaRawView {
+    fn create_alpha_raw_view(&self) -> crate::dia_data::AlphaRawView<'_> {
         use crate::dia_data::AlphaRawView;
 
         AlphaRawView::new(

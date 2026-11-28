@@ -82,7 +82,7 @@ pub fn calculate_core_features(
 
     let (_fragment_mz_observed, fragment_mass_errors) = calculate_fragment_mz_and_errors(
         &observation.dense_mz,
-        &observation.dense_xic,
+        observation.monoisotopic_xic(),
         &precursor.fragment_mz,
     );
 
@@ -118,7 +118,7 @@ pub fn calculate_core_features(
         hyperscore_inverse_mass_error: calculate_hyperscore_inverse_mass_error(
             &precursor.fragment_type,
             observation_intensities,
-            matched_mask,
+            &observation.monoisotopic_matched_mask(),
             &fragment_mass_errors,
         ),
         rt_observed,

@@ -16,6 +16,9 @@ use crate::peak_group_scoring::feature_set::FeatureBlockId;
 use crate::peak_group_scoring::features::{
     CandidateFeature, CandidateFeatureCollection, FeatureColumns,
 };
+use crate::peak_group_scoring::fragment_isotope::{
+    calculate_fragment_isotope_features, isotope_eligible_fragments, isotope_shifted_ions,
+};
 use crate::peak_group_scoring::ion_coverage::calculate_ion_coverage_features;
 use crate::peak_group_scoring::library_agreement::calculate_library_agreement_features;
 use crate::peak_group_scoring::ms1::{
@@ -34,6 +37,7 @@ pub mod detection;
 pub mod feature_block;
 pub mod feature_set;
 pub mod features;
+pub mod fragment_isotope;
 pub mod ion_coverage;
 pub mod library_agreement;
 pub mod ms1;
@@ -115,11 +119,13 @@ impl PeakGroupScoring {
                     false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 )?;
+                // the MS1 mass calibration reads the monoisotopic fragment XICs only, as the calibration rounds do
                 let observation = PeakGroupObservation::new(
                     dia_data,
                     &precursor,
                     candidate,
                     self.params.mass_tolerance,
+                    None,
                 );
                 let apex = calculate_ms1_apex_calibration(
                     dia_data,
@@ -166,6 +172,8 @@ impl PeakGroupScoring {
         let detection_model = scores_detection(&self.params)
             .then(|| DetectionModel::fit(dia_data, lib, candidates, &self.params));
 
+        let sums_isotopes = self.params.feature_set.sums_fragment_isotopes();
+
         // Parallel iteration over candidates to score each one
         let (mut scored_candidates, contexts): (Vec<_>, Vec<_>) = candidates
             .par_iter()
@@ -178,16 +186,28 @@ impl PeakGroupScoring {
                     false, // Scoring uses the short ions
                     self.params.top_k_fragments,
                 ) {
-                    Some(precursor) => self.score_candidate_generic(
-                        dia_data,
-                        lib,
-                        &precursor,
-                        candidate,
-                        cycle_intensities,
-                        window_groups,
-                        &ms1_observations,
-                        detection_model.as_ref(),
-                    ),
+                    Some(precursor) => {
+                        let isotope_shifted = if sums_isotopes {
+                            lib.precursor_array_index(candidate.precursor_idx)
+                                .map(|index| {
+                                    isotope_shifted_ions(lib, index, self.params.mass_tolerance)
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        };
+                        self.score_candidate_generic(
+                            dia_data,
+                            lib,
+                            &precursor,
+                            candidate,
+                            cycle_intensities,
+                            window_groups,
+                            &ms1_observations,
+                            detection_model.as_ref(),
+                            &isotope_shifted,
+                        )
+                    }
                     None => {
                         eprintln!(
                             "Warning: Candidate precursor_idx {} not found in library. Skipping.",
@@ -229,6 +249,7 @@ impl PeakGroupScoring {
     /// `ms1_observations` are the MS1 survey scans the MS1 block reads; without them, or without library isotopes for
     /// the precursor, the MS1 block takes its missing values. `detection_model` holds the run-wide inputs of the
     /// detection block; without it (`detection_features` off) the detection block takes its missing values.
+    #[allow(clippy::too_many_arguments)]
     fn score_candidate_generic<T: DIADataTrait + Sync>(
         &self,
         dia_data: &T,
@@ -239,14 +260,22 @@ impl PeakGroupScoring {
         window_groups: &WindowGroups,
         ms1_observations: &[usize],
         detection_model: Option<&DetectionModel>,
+        isotope_shifted: &[u64],
     ) -> Option<(CandidateFeature, CandidateContext)> {
-        let observation =
-            PeakGroupObservation::new(dia_data, precursor, candidate, self.params.mass_tolerance);
+        let feature_set = self.params.feature_set;
+        let isotope_eligible = feature_set.sums_fragment_isotopes().then(|| {
+            isotope_eligible_fragments(precursor, self.params.mass_tolerance, isotope_shifted)
+        });
+        let observation = PeakGroupObservation::new(
+            dia_data,
+            precursor,
+            candidate,
+            self.params.mass_tolerance,
+            isotope_eligible.as_deref(),
+        );
 
         let core =
             calculate_core_features(&observation, precursor, candidate, &dia_data.rt_index().rt);
-
-        let feature_set = self.params.feature_set;
 
         let mut context = CandidateContext::default();
 
@@ -278,6 +307,25 @@ impl PeakGroupScoring {
                     &observation.correlations,
                     &precursor.fragment_type,
                 )
+            });
+
+        let fragment_isotope = isotope_eligible
+            .as_deref()
+            .filter(|_| feature_set.has_block(FeatureBlockId::FragmentIsotope))
+            .and_then(|eligible| {
+                observation.isotope_xics.as_ref().map(|isotopes| {
+                    calculate_fragment_isotope_features(
+                        isotopes.monoisotopic.view(),
+                        isotopes.mplus1.view(),
+                        isotopes.mminus1.view(),
+                        &precursor.fragment_mz,
+                        &precursor.fragment_charge,
+                        &precursor.fragment_intensity,
+                        &isotopes.monoisotopic_intensities,
+                        &observation.correlations,
+                        eligible,
+                    )
+                })
             });
 
         if feature_set.has_block(FeatureBlockId::WindowShare) {
@@ -329,6 +377,7 @@ impl PeakGroupScoring {
             window_share: None,
             ms1,
             detection,
+            fragment_isotope,
         };
         Some((feature, context))
     }

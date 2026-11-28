@@ -2,7 +2,7 @@ use super::*;
 use pyo3::types::PyDict;
 
 const NUM_CALIBRATION_FEATURES: usize = 20;
-const NUM_FULL_FEATURES: usize = 57;
+const NUM_FULL_FEATURES: usize = 65;
 
 /// Core fields hold their 1-based column position, so that a column at the wrong position shows its own value.
 fn numbered_core() -> CoreFeatures {
@@ -38,6 +38,7 @@ fn numbered_calibration_feature() -> CandidateFeature {
         core: numbered_core(),
         ion_coverage: None,
         library_agreement: None,
+        fragment_isotope: None,
         window_share: None,
         ms1: None,
         detection: None,
@@ -76,26 +77,36 @@ fn numbered_full_feature() -> CandidateFeature {
             fit_y_intensity_abs_diff_std: 41.0,
         }),
         window_share: Some(WindowShareFeatures {
-            apex_window_signal_frac: 42.0,
-            apex_window_signal_frac_rank: 43.0,
-            apex_window_signal_frac_zscore: 44.0,
+            apex_window_signal_frac: 50.0,
+            apex_window_signal_frac_rank: 51.0,
+            apex_window_signal_frac_zscore: 52.0,
         }),
         ms1: Some(Ms1Features {
-            ms1_signal_at_apex: 45.0,
-            ms1_isotope_correlation: 46.0,
-            ms1_isotope_cosine: 47.0,
-            ms1_m_minus_1_frac: 48.0,
-            ms1_log_intensity: 49.0,
-            ms1_iso_m1_err: 50.0,
-            ms1_m0_accurate_share: 51.0,
-            ms1_m1_accurate_share: 52.0,
-            ms1_fine_shape: 53.0,
-            ms1_fine_iso_corr: 54.0,
+            ms1_signal_at_apex: 53.0,
+            ms1_isotope_correlation: 54.0,
+            ms1_isotope_cosine: 55.0,
+            ms1_m_minus_1_frac: 56.0,
+            ms1_log_intensity: 57.0,
+            ms1_iso_m1_err: 58.0,
+            ms1_m0_accurate_share: 59.0,
+            ms1_m1_accurate_share: 60.0,
+            ms1_fine_shape: 61.0,
+            ms1_fine_iso_corr: 62.0,
         }),
         detection: Some(DetectionFeatures {
-            shadow_lib_share: 55.0,
-            det_faint_hits: 56.0,
-            det_faint_miss: 57.0,
+            shadow_lib_share: 63.0,
+            det_faint_hits: 64.0,
+            det_faint_miss: 65.0,
+        }),
+        fragment_isotope: Some(FragmentIsotopeFeatures {
+            mplus1_correlation: 42.0,
+            mplus1_lib_share: 43.0,
+            mplus1_count: 44.0,
+            mplus1_ratio_error: 45.0,
+            mminus1_correlation: 46.0,
+            mminus1_lib_share: 47.0,
+            mminus1_count: 48.0,
+            mminus1_intensity_share: 49.0,
         }),
     }
 }
@@ -149,8 +160,8 @@ fn test_calibration_feature_names_are_the_core_block() {
 }
 
 #[test]
-fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_ms1_and_detection()
-{
+fn test_full_feature_names_are_core_ion_coverage_library_agreement_fragment_isotope_window_share_ms1_and_detection(
+) {
     // given / when
     let names = FeatureSet::Full.feature_names();
 
@@ -161,6 +172,7 @@ fn test_full_feature_names_are_core_ion_coverage_library_agreement_window_share_
             CoreFeatures::NAMES,
             IonCoverageFeatures::NAMES,
             LibraryAgreementFeatures::NAMES,
+            FragmentIsotopeFeatures::NAMES,
             WindowShareFeatures::NAMES,
             Ms1Features::NAMES,
             DetectionFeatures::NAMES
@@ -180,6 +192,7 @@ fn test_calibration_leaves_out_all_blocks_but_core() {
     for name in [
         IonCoverageFeatures::NAMES,
         LibraryAgreementFeatures::NAMES,
+        FragmentIsotopeFeatures::NAMES,
         WindowShareFeatures::NAMES,
         Ms1Features::NAMES,
         DetectionFeatures::NAMES,
@@ -209,6 +222,10 @@ fn test_block_column_names_are_the_field_names() {
     assert_eq!(
         value_of("ent_sim_corrweighted"),
         feature.library_agreement.unwrap().ent_sim_corrweighted
+    );
+    assert_eq!(
+        value_of("mminus1_intensity_share"),
+        feature.fragment_isotope.unwrap().mminus1_intensity_share
     );
     assert_eq!(
         value_of("fit_y_intensity_abs_diff_std"),

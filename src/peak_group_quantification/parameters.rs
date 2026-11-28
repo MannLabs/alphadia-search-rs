@@ -11,6 +11,10 @@ pub struct QuantificationParameters {
     /// Maximum number of fragments to use for quantification per precursor
     #[pyo3(get, set)]
     pub top_k_fragments: usize,
+
+    /// Whether the M+1 XIC of each isotope-eligible fragment adds to its fragment XIC
+    #[pyo3(get, set)]
+    pub fragment_isotopes: bool,
 }
 
 #[pymethods]
@@ -23,6 +27,7 @@ impl QuantificationParameters {
             // maximum number of fragments to use for quantification per precursor. depends on the number of fragments in the precursor.
             // very large number to capture them all by default
             top_k_fragments: 10000,
+            fragment_isotopes: false,
         }
     }
 
@@ -32,6 +37,9 @@ impl QuantificationParameters {
         }
         if let Some(value) = config.get_item("top_k_fragments")? {
             self.top_k_fragments = value.extract::<usize>()?;
+        }
+        if let Some(value) = config.get_item("fragment_isotopes")? {
+            self.fragment_isotopes = value.extract::<bool>()?;
         }
         Ok(())
     }

@@ -89,3 +89,78 @@ fn test_update_method_empty_dict() {
         assert_eq!(params.top_k_fragments, original_fragments);
     });
 }
+
+#[cfg(test)]
+mod fragment_isotopes {
+    use super::{PeakGroupQuantification, QuantificationParameters};
+    use crate::candidate::Candidate;
+    use crate::peak_group_scoring::tests::feature_sets::{
+        dia_data, dia_data_with_isotopes, library, APEX_CYCLE, FRAGMENTS,
+    };
+    use crate::precursor_quantified::PrecursorQuantified;
+
+    /// Quantifies the library precursor at its apex in `run`, with or without the M+1 XICs.
+    fn quantify(run: &crate::dia_data::DIAData, fragment_isotopes: bool) -> PrecursorQuantified {
+        let mut params = QuantificationParameters::new();
+        params.fragment_isotopes = fragment_isotopes;
+        let precursor = library()
+            .get_precursor_by_idx_filtered(0, true, true, false, params.top_k_fragments)
+            .unwrap();
+        let apex = Candidate::new(0, 0, 1.0, APEX_CYCLE - 3, APEX_CYCLE, APEX_CYCLE + 3);
+        PeakGroupQuantification::new(params)
+            .quantify_precursor(run, &precursor, &apex, &[])
+            .unwrap()
+    }
+
+    #[test]
+    fn test_fragment_isotopes_default_to_off() {
+        // Given / When: default quantification parameters
+        let params = QuantificationParameters::new();
+
+        // Then: the M+1 XICs are not added
+        assert!(!params.fragment_isotopes);
+    }
+
+    #[test]
+    fn test_fragment_isotopes_add_the_mplus1_intensity_and_keep_the_mass_errors() {
+        // Given: a run in which every fragment has its M+1 peak at the averagine ratio
+        let run = dia_data_with_isotopes();
+
+        // When: the precursor is quantified with and without the M+1 XICs
+        let monoisotopic = quantify(&run, false);
+        let summed = quantify(&run, true);
+
+        // Then: each fragment intensity grows by its M+1 share, and the observed m/z values stay the same
+        assert_eq!(summed.fragment_mz, monoisotopic.fragment_mz);
+        for i in 0..monoisotopic.fragment_mz.len() {
+            let expected_ratio = 1.0 + 0.000_54 * monoisotopic.fragment_mz[i];
+            let ratio = summed.fragment_intensity[i] / monoisotopic.fragment_intensity[i];
+            assert!(
+                (ratio - expected_ratio).abs() < 1e-3,
+                "{ratio} vs {expected_ratio}"
+            );
+        }
+        assert_eq!(
+            summed.fragment_mz_observed,
+            monoisotopic.fragment_mz_observed
+        );
+        assert_eq!(
+            summed.fragment_mass_error_observed,
+            monoisotopic.fragment_mass_error_observed
+        );
+    }
+
+    #[test]
+    fn test_fragment_isotopes_change_nothing_in_a_run_without_isotope_peaks() {
+        // Given: a run without isotope peaks
+        let run = dia_data();
+
+        // When: the precursor is quantified with and without the M+1 XICs
+        let monoisotopic = quantify(&run, false);
+        let summed = quantify(&run, true);
+
+        // Then: the intensities are the same
+        assert_eq!(summed.fragment_intensity, monoisotopic.fragment_intensity);
+        assert_eq!(summed.fragment_mz.len(), FRAGMENTS.len());
+    }
+}

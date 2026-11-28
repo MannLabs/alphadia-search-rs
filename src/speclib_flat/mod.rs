@@ -1,6 +1,7 @@
 use crate::precursor::Precursor;
 use numpy::{PyReadonlyArray1, PyReadonlyArray2};
 use pyo3::prelude::*;
+use std::sync::OnceLock;
 
 #[pyclass]
 pub struct SpecLibFlat {
@@ -75,6 +76,64 @@ pub struct SpecLibFlat {
 
     /// Number of isotopes per precursor in `precursor_isotope_intensity`; 0 until `set_isotopes` is called
     num_isotopes: usize,
+    /// Elution group of each precursor, sorted according to precursor_idx order.
+    /// The precursors of one elution group elute together, for example the charge states of a peptide.
+    precursor_elution_group: Vec<u64>,
+
+    /// The precursors of each elution group, built on first use
+    elution_group_index: OnceLock<ElutionGroupIndex>,
+}
+
+/// The precursors of each elution group, as array indices.
+struct ElutionGroupIndex {
+    /// array indices, grouped by elution group
+    order: Vec<u32>,
+    /// start of each group in `order`, and the end of the last group
+    group_start: Vec<u32>,
+    /// group of each array index, as a position in `group_start`
+    group_of: Vec<u32>,
+}
+
+impl ElutionGroupIndex {
+    fn new(elution_group: &[u64]) -> Self {
+        let mut order: Vec<u32> = (0..elution_group.len() as u32).collect();
+        // alphaDIA sorts its libraries by elution group, which makes the sort unnecessary
+        if !elution_group.is_sorted() {
+            order.sort_unstable_by_key(|&i| (elution_group[i as usize], i));
+        }
+        let mut group_start = Vec::new();
+        let mut group_of = vec![0u32; elution_group.len()];
+        for (position, &i) in order.iter().enumerate() {
+            let is_new_group = position == 0
+                || elution_group[i as usize] != elution_group[order[position - 1] as usize];
+            if is_new_group {
+                group_start.push(position as u32);
+            }
+            group_of[i as usize] = (group_start.len() - 1) as u32;
+        }
+        group_start.push(order.len() as u32);
+        Self {
+            order,
+            group_start,
+            group_of,
+        }
+    }
+
+    fn members(&self, index: usize) -> &[u32] {
+        let group = self.group_of[index] as usize;
+        &self.order[self.group_start[group] as usize..self.group_start[group + 1] as usize]
+    }
+}
+
+/// The library ions of one precursor.
+pub struct PrecursorIons<'a> {
+    pub precursor_idx: usize,
+    pub mz_library: &'a [f32],
+    pub intensity: &'a [f32],
+    pub charge: &'a [u8],
+    pub loss_type: &'a [u8],
+    pub number: &'a [u8],
+    pub fragment_type: &'a [u8],
 }
 
 #[pymethods]
@@ -103,6 +162,8 @@ impl SpecLibFlat {
             precursor_ms1_mz: Vec::new(),
             precursor_isotope_intensity: Vec::new(),
             num_isotopes: 0,
+            precursor_elution_group: Vec::new(),
+            elution_group_index: OnceLock::new(),
         }
     }
 
@@ -115,6 +176,7 @@ impl SpecLibFlat {
         precursor_rt_library: PyReadonlyArray1<'_, f32>,
         precursor_rt: PyReadonlyArray1<'_, f32>,
         precursor_naa: PyReadonlyArray1<'_, u8>,
+        precursor_elution_group: PyReadonlyArray1<'_, u64>,
         flat_frag_start_idx: PyReadonlyArray1<'_, usize>,
         flat_frag_stop_idx: PyReadonlyArray1<'_, usize>,
         fragment_mz_library: PyReadonlyArray1<'_, f32>,
@@ -134,6 +196,7 @@ impl SpecLibFlat {
             precursor_rt_library.as_array().to_vec(),
             precursor_rt.as_array().to_vec(),
             precursor_naa.as_array().to_vec(),
+            precursor_elution_group.as_array().to_vec(),
             flat_frag_start_idx.as_array().to_vec(),
             flat_frag_stop_idx.as_array().to_vec(),
             fragment_mz_library.as_array().to_vec(),
@@ -366,6 +429,7 @@ impl SpecLibFlat {
         precursor_rt_library: Vec<f32>,
         precursor_rt: Vec<f32>,
         precursor_naa: Vec<u8>,
+        precursor_elution_group: Vec<u64>,
         flat_frag_start_idx: Vec<usize>,
         flat_frag_stop_idx: Vec<usize>,
         fragment_mz_library: Vec<f32>,
@@ -389,6 +453,10 @@ impl SpecLibFlat {
             indices.iter().map(|&i| precursor_rt_library[i]).collect();
         let sorted_precursor_rt: Vec<f32> = indices.iter().map(|&i| precursor_rt[i]).collect();
         let sorted_precursor_naa: Vec<u8> = indices.iter().map(|&i| precursor_naa[i]).collect();
+        let sorted_precursor_elution_group: Vec<u64> = indices
+            .iter()
+            .map(|&i| precursor_elution_group[i])
+            .collect();
         let sorted_flat_frag_start_idx: Vec<usize> =
             indices.iter().map(|&i| flat_frag_start_idx[i]).collect();
         let sorted_flat_frag_stop_idx: Vec<usize> =
@@ -416,6 +484,34 @@ impl SpecLibFlat {
             precursor_ms1_mz: Vec::new(),
             precursor_isotope_intensity: Vec::new(),
             num_isotopes: 0,
+            precursor_elution_group: sorted_precursor_elution_group,
+            elution_group_index: OnceLock::new(),
+        }
+    }
+
+    /// The array indices of the precursors in the elution group of the precursor at `index`, including itself.
+    pub fn elution_group_members(&self, index: usize) -> &[u32] {
+        self.elution_group_index
+            .get_or_init(|| ElutionGroupIndex::new(&self.precursor_elution_group))
+            .members(index)
+    }
+
+    /// The array index of the precursor with `precursor_idx`.
+    pub fn precursor_array_index(&self, precursor_idx: usize) -> Option<usize> {
+        self.precursor_idx.binary_search(&precursor_idx).ok()
+    }
+
+    /// The library ions of the precursor at `index`, without filters.
+    pub fn precursor_ions(&self, index: usize) -> PrecursorIons<'_> {
+        let fragments = self.flat_frag_start_idx[index]..self.flat_frag_stop_idx[index];
+        PrecursorIons {
+            precursor_idx: self.precursor_idx[index],
+            mz_library: &self.fragment_mz_library[fragments.clone()],
+            intensity: &self.fragment_intensity[fragments.clone()],
+            charge: &self.fragment_charge[fragments.clone()],
+            loss_type: &self.fragment_loss_type[fragments.clone()],
+            number: &self.fragment_number[fragments.clone()],
+            fragment_type: &self.fragment_type[fragments],
         }
     }
 

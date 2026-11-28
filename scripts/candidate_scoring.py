@@ -131,6 +131,7 @@ def create_spec_lib_flat(alphabase_speclib_flat):
         alphabase_speclib_flat.precursor_df["rt_library"].values.astype(np.float32),
         alphabase_speclib_flat.precursor_df["rt_calibrated"].values.astype(np.float32),
         alphabase_speclib_flat.precursor_df["nAA"].values.astype(np.uint8),
+        alphabase_speclib_flat.precursor_df["elution_group_idx"].values.astype(np.uint64),
         alphabase_speclib_flat.precursor_df["flat_frag_start_idx"].values.astype(
             np.uint64
         ),

@@ -7,6 +7,7 @@ use pyo3::prelude::*;
 use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::detection::DetectionFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
+use crate::peak_group_scoring::fragment_isotope::FragmentIsotopeFeatures;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
@@ -25,6 +26,7 @@ pub enum FeatureBlockId {
     Core,
     IonCoverage,
     LibraryAgreement,
+    FragmentIsotope,
     WindowShare,
     Ms1,
     Detection,
@@ -39,11 +41,18 @@ impl FeatureSet {
                 FeatureBlockId::Core,
                 FeatureBlockId::IonCoverage,
                 FeatureBlockId::LibraryAgreement,
+                FeatureBlockId::FragmentIsotope,
                 FeatureBlockId::WindowShare,
                 FeatureBlockId::Ms1,
                 FeatureBlockId::Detection,
             ],
         }
+    }
+
+    /// Whether the M+1 XIC of each isotope-eligible fragment adds to its fragment XIC. The calibration rounds use
+    /// the monoisotopic XICs only.
+    pub fn sums_fragment_isotopes(self) -> bool {
+        self == FeatureSet::Full
     }
 
     pub fn has_block(self, block: FeatureBlockId) -> bool {
@@ -64,6 +73,7 @@ impl FeatureBlockId {
             FeatureBlockId::Core => CoreFeatures::NAMES,
             FeatureBlockId::IonCoverage => IonCoverageFeatures::NAMES,
             FeatureBlockId::LibraryAgreement => LibraryAgreementFeatures::NAMES,
+            FeatureBlockId::FragmentIsotope => FragmentIsotopeFeatures::NAMES,
             FeatureBlockId::WindowShare => WindowShareFeatures::NAMES,
             FeatureBlockId::Ms1 => Ms1Features::NAMES,
             FeatureBlockId::Detection => DetectionFeatures::NAMES,

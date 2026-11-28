@@ -1592,6 +1592,7 @@ fn test_apply_cross_candidate_features_sets_the_whole_window_share_block() {
         window_share: None,
         ms1: None,
         detection: None,
+        fragment_isotope: None,
     };
     let mut features = vec![candidate(), candidate()];
     let contexts = vec![
@@ -1632,13 +1633,14 @@ fn test_finite_or_zero_replaces_nan_and_infinity() {
 }
 
 #[cfg(test)]
-mod feature_sets {
+pub(crate) mod feature_sets {
     use crate::candidate::{Candidate, CandidateCollection};
     use crate::constants::{FragmentType, Loss};
     use crate::dia_data::{AlphaRawView, DIAData};
     use crate::dia_data_builder::DIADataBuilder;
     use crate::peak_group_scoring::detection::DetectionFeatures;
     use crate::peak_group_scoring::features::CandidateFeatureCollection;
+    use crate::peak_group_scoring::fragment_isotope::{ISOTOPE_SPACING, MAX_LOG_RATIO_ERROR};
     use crate::peak_group_scoring::ms1::Ms1Features;
     use crate::peak_group_scoring::{FeatureSet, PeakGroupScoring, ScoringParameters};
     use crate::speclib_flat::SpecLibFlat;
@@ -1647,9 +1649,9 @@ mod feature_sets {
     use pyo3::types::PyDict;
 
     const NUM_CYCLES: usize = 20;
-    const APEX_CYCLE: usize = 10;
+    pub(crate) const APEX_CYCLE: usize = 10;
     const PRECURSOR_MZ: f32 = 500.0;
-    const FRAGMENTS: [(f32, f32); 6] = [
+    pub(crate) const FRAGMENTS: [(f32, f32); 6] = [
         (300.0, 6.0),
         (400.0, 5.0),
         (500.0, 4.0),
@@ -1660,7 +1662,26 @@ mod feature_sets {
 
     /// One isolation window and one spectrum per cycle, in which the fragments of the library elute as a triangle
     /// around APEX_CYCLE.
-    fn dia_data() -> DIAData {
+    pub(crate) fn dia_data() -> DIAData {
+        dia_data_from_spectrum(&FRAGMENTS)
+    }
+
+    /// The same run, in which every fragment also has its M+1 peak at the averagine ratio. The first fragment also has
+    /// a peak at its M-1 m/z.
+    pub(crate) fn dia_data_with_isotopes() -> DIAData {
+        let mut spectrum = Vec::new();
+        let (first_mz, first_intensity) = FRAGMENTS[0];
+        spectrum.push((first_mz - ISOTOPE_SPACING, first_intensity));
+        for (mz, intensity) in FRAGMENTS {
+            spectrum.push((mz, intensity));
+            spectrum.push((mz + ISOTOPE_SPACING, intensity * 0.000_54 * mz));
+        }
+        dia_data_from_spectrum(&spectrum)
+    }
+
+    /// One isolation window and one spectrum per cycle, in which the peaks of `spectrum` (m/z, intensity, in m/z
+    /// order) elute as a triangle around APEX_CYCLE.
+    fn dia_data_from_spectrum(spectrum: &[(f32, f32)]) -> DIAData {
         let mut peak_mz = Vec::new();
         let mut peak_intensity = Vec::new();
         let mut peak_start = Vec::new();
@@ -1669,7 +1690,7 @@ mod feature_sets {
             peak_start.push(peak_mz.len() as i64);
             let elution = 5.0 - (cycle as f32 - APEX_CYCLE as f32).abs();
             if elution > 0.0 {
-                for (mz, intensity) in FRAGMENTS {
+                for &(mz, intensity) in spectrum {
                     peak_mz.push(mz);
                     peak_intensity.push(intensity * elution * 100.0);
                 }
@@ -1703,7 +1724,7 @@ mod feature_sets {
         DIADataBuilder::from_alpha_raw(&view)
     }
 
-    fn library() -> SpecLibFlat {
+    pub(crate) fn library() -> SpecLibFlat {
         let n = FRAGMENTS.len();
         let fragment_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
         SpecLibFlat::from_vecs(
@@ -1713,6 +1734,7 @@ mod feature_sets {
             vec![20.0],
             vec![20.0],
             vec![10],
+            vec![0],
             vec![0],
             vec![n],
             fragment_mz.clone(),
@@ -1736,9 +1758,13 @@ mod feature_sets {
     }
 
     fn score(feature_set: FeatureSet) -> CandidateFeatureCollection {
+        score_run(&dia_data(), feature_set)
+    }
+
+    fn score_run(dia_data: &DIAData, feature_set: FeatureSet) -> CandidateFeatureCollection {
         let mut params = ScoringParameters::new();
         params.feature_set = feature_set;
-        PeakGroupScoring::new(params).score(&dia_data(), &library(), &candidates())
+        PeakGroupScoring::new(params).score(dia_data, &library(), &candidates())
     }
 
     #[test]
@@ -1831,6 +1857,7 @@ mod feature_sets {
         assert_eq!(apex.ion_coverage, None);
         assert_eq!(apex.library_agreement, None);
         assert_eq!(apex.window_share, None);
+        assert_eq!(apex.fragment_isotope, None);
         assert_eq!(apex.core.num_over_80, FRAGMENTS.len() as f32);
     }
 
@@ -2259,6 +2286,215 @@ mod feature_sets {
             }
         });
     }
+
+    #[test]
+    fn test_full_scores_the_fragment_isotopes_of_the_apex_candidate() {
+        // Given: a run in which every fragment has its M+1 peak and the first fragment has an M-1 peak
+        let run = dia_data_with_isotopes();
+
+        // When: the candidates are scored with the full feature set
+        let full = score_run(&run, FeatureSet::Full);
+
+        // Then: the M+1 features confirm every fragment and the M-1 features flag the first fragment only
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let fragment_isotope = apex.fragment_isotope.unwrap();
+        assert_eq!(fragment_isotope.mplus1_count, FRAGMENTS.len() as f32);
+        assert!(fragment_isotope.mplus1_lib_share > 0.99);
+        assert!(fragment_isotope.mplus1_correlation > 0.99);
+        assert!(fragment_isotope.mplus1_ratio_error < 0.05);
+        assert_eq!(fragment_isotope.mminus1_count, 1.0);
+        let first_fragment_library_share = FRAGMENTS[0].1
+            / FRAGMENTS
+                .iter()
+                .map(|&(_, intensity)| intensity)
+                .sum::<f32>();
+        assert!((fragment_isotope.mminus1_lib_share - first_fragment_library_share).abs() < 1e-5);
+        assert!(fragment_isotope.mminus1_intensity_share > 0.0);
+    }
+
+    #[test]
+    fn test_full_scores_no_isotope_evidence_in_a_run_without_isotope_peaks() {
+        // Given: a run without isotope peaks
+        let run = dia_data();
+
+        // When: the candidates are scored with the full feature set
+        let full = score_run(&run, FeatureSet::Full);
+
+        // Then: no fragment has M+1 or M-1 evidence
+        let apex = full.iter().find(|f| f.rank == 0).unwrap();
+        let fragment_isotope = apex.fragment_isotope.unwrap();
+        assert_eq!(fragment_isotope.mplus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_intensity_share, 0.0);
+        assert_eq!(fragment_isotope.mplus1_ratio_error, MAX_LOG_RATIO_ERROR);
+    }
+
+    /// Ion number, m/z and intensity of the long y ion that contains residues 2 and n-1 in the leakage test
+    const LONG_ION: (u8, f32, f32) = (9, 1500.0, 2.0);
+    /// Mass shift of a DIA-NN decoy fragment that contains both mutated residues for P->L at residue 2 and L->V at
+    /// residue n-1: 16.031 - 14.016 Da, which is 9 mDa from two isotope spacings
+    const DOUBLE_MUTATION_SHIFT: f32 = 2.0156;
+    /// Mass shift of a DIA-NN decoy fragment that contains one mutated residue (V->L)
+    const SINGLE_MUTATION_SHIFT: f32 = 14.0157;
+
+    /// Mass shift of a DIA-NN decoy fragment that contains both mutated residues for K->L at residue 2 and V->L at
+    /// residue n-1: -15.011 + 14.016 Da, so that the decoy M+1 is 8 mDa from the target M0
+    const SUMMED_INTO_TARGET_SHIFT: f32 = -0.9952;
+
+    /// A target with the fragments of `library` and a long y ion, and its DIA-NN-like decoy in the same elution group.
+    fn target_decoy_library() -> SpecLibFlat {
+        target_decoy_library_with_long_ion_shift(DOUBLE_MUTATION_SHIFT)
+    }
+
+    /// The same target and decoy, with the decoy long y ion shifted by `long_ion_shift`.
+    fn target_decoy_library_with_long_ion_shift(long_ion_shift: f32) -> SpecLibFlat {
+        let (long_number, long_mz, long_intensity) = LONG_ION;
+        let mut target_mz: Vec<f32> = FRAGMENTS.iter().map(|&(mz, _)| mz).collect();
+        target_mz.push(long_mz);
+        let mut decoy_mz: Vec<f32> = FRAGMENTS
+            .iter()
+            .map(|&(mz, _)| mz + SINGLE_MUTATION_SHIFT)
+            .collect();
+        decoy_mz.push(long_mz + long_ion_shift);
+        let mut intensity: Vec<f32> = FRAGMENTS.iter().map(|&(_, i)| i).collect();
+        intensity.push(long_intensity);
+        let mut number: Vec<u8> = (2..2 + FRAGMENTS.len() as u8).collect();
+        number.push(long_number);
+        let n = target_mz.len();
+        let fragment_mz = [target_mz, decoy_mz].concat();
+        SpecLibFlat::from_vecs(
+            vec![0, 1],
+            vec![PRECURSOR_MZ, PRECURSOR_MZ + 1.0],
+            vec![PRECURSOR_MZ, PRECURSOR_MZ + 1.0],
+            vec![20.0, 20.0],
+            vec![20.0, 20.0],
+            vec![10, 10],
+            vec![0, 0],
+            vec![0, n],
+            vec![n, 2 * n],
+            fragment_mz.clone(),
+            fragment_mz,
+            [intensity.clone(), intensity].concat(),
+            vec![1; 2 * n],
+            vec![1; 2 * n],
+            vec![Loss::NONE; 2 * n],
+            [number.clone(), number.clone()].concat(),
+            [number.clone(), number].concat(),
+            vec![FragmentType::Y; 2 * n],
+        )
+    }
+
+    /// A run in which the target of `target_decoy_library` elutes with the M+1 and M+2 peaks of its fragments.
+    fn target_run_with_isotopes() -> DIAData {
+        let (_, long_mz, long_intensity) = LONG_ION;
+        let mut spectrum = Vec::new();
+        for (mz, intensity) in FRAGMENTS.into_iter().chain([(long_mz, long_intensity)]) {
+            let mplus1_ratio = 0.000_54 * mz;
+            spectrum.push((mz, intensity));
+            spectrum.push((mz + ISOTOPE_SPACING, intensity * mplus1_ratio));
+            spectrum.push((
+                mz + 2.0 * ISOTOPE_SPACING,
+                intensity * mplus1_ratio * mplus1_ratio / 2.0,
+            ));
+        }
+        spectrum.sort_by(|a, b| a.0.total_cmp(&b.0));
+        dia_data_from_spectrum(&spectrum)
+    }
+
+    #[test]
+    fn test_a_decoy_gets_no_isotope_evidence_from_the_peaks_of_its_target() {
+        // Given: a run with the target and its isotope peaks, and a decoy whose long y ion is the target's long y ion
+        // plus about two isotope spacings
+        let run = target_run_with_isotopes();
+        let mut params = ScoringParameters::new();
+        params.feature_set = FeatureSet::Full;
+        params.mass_tolerance = 10.0;
+        let decoy_at_target_apex = CandidateCollection::from_vec(vec![Candidate::new(
+            1,
+            0,
+            1.0,
+            APEX_CYCLE - 3,
+            APEX_CYCLE,
+            APEX_CYCLE + 3,
+        )]);
+
+        // When: the decoy is scored at the apex of its target
+        let scored = PeakGroupScoring::new(params).score(
+            &run,
+            &target_decoy_library(),
+            &decoy_at_target_apex,
+        );
+
+        // Then: the decoy has no M+1 or M-1 evidence
+        let decoy = scored.iter().next().unwrap();
+        let fragment_isotope = decoy.fragment_isotope.unwrap();
+        assert_eq!(fragment_isotope.mplus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_count, 0.0);
+        assert_eq!(fragment_isotope.mminus1_correlation, 0.0);
+        assert_eq!(fragment_isotope.mminus1_intensity_share, 0.0);
+    }
+
+    /// Scores the decoy of `target_decoy_library_with_long_ion_shift` at the apex of its target.
+    fn score_decoy_at_target_apex(
+        lib: &SpecLibFlat,
+        feature_set: FeatureSet,
+    ) -> crate::peak_group_scoring::features::CandidateFeature {
+        let mut params = ScoringParameters::new();
+        params.feature_set = feature_set;
+        params.mass_tolerance = 10.0;
+        let decoy_at_target_apex = CandidateCollection::from_vec(vec![Candidate::new(
+            1,
+            0,
+            1.0,
+            APEX_CYCLE - 3,
+            APEX_CYCLE,
+            APEX_CYCLE + 3,
+        )]);
+        let scored = PeakGroupScoring::new(params).score(
+            &target_run_with_isotopes(),
+            lib,
+            &decoy_at_target_apex,
+        );
+        scored.iter().next().unwrap().clone()
+    }
+
+    #[test]
+    fn test_a_decoy_trace_gets_no_signal_from_the_peaks_of_its_target() {
+        // Given: a decoy whose long y ion M+1 is at the M0 m/z of its target's long y ion
+        let lib = target_decoy_library_with_long_ion_shift(SUMMED_INTO_TARGET_SHIFT);
+
+        // When: the decoy is scored at the apex of its target, with and without the summed isotope traces
+        let full = score_decoy_at_target_apex(&lib, FeatureSet::Full);
+        let calibration = score_decoy_at_target_apex(&lib, FeatureSet::Calibration);
+
+        // Then: the summed traces add nothing to the decoy
+        assert_eq!(full.core, calibration.core);
+    }
+
+    #[test]
+    fn test_full_sums_the_mplus1_trace_into_the_fragment_trace_but_keeps_the_mass_errors() {
+        // Given: a run in which every fragment has its M+1 peak
+        let run = dia_data_with_isotopes();
+
+        // When: the candidates are scored with and without the summed isotope traces
+        let full = score_run(&run, FeatureSet::Full);
+        let calibration = score_run(&run, FeatureSet::Calibration);
+
+        // Then: the summed traces raise the observed intensities, and the mass errors stay those of the
+        // monoisotopic peaks
+        let apex =
+            |scored: &CandidateFeatureCollection| scored.iter().find(|f| f.rank == 0).unwrap().core;
+        let (full_apex, calibration_apex) = (apex(&full), apex(&calibration));
+        assert!(full_apex.log10_y_ion_intensity > calibration_apex.log10_y_ion_intensity);
+        assert_eq!(
+            full_apex.weighted_mass_error,
+            calibration_apex.weighted_mass_error
+        );
+        assert_eq!(
+            full_apex.hyperscore_inverse_mass_error > 0.0,
+            calibration_apex.hyperscore_inverse_mass_error > 0.0
+        );
+    }
 }
 
 #[test]
@@ -2284,6 +2520,7 @@ fn test_apply_cross_candidate_features_fits_noise_model_on_non_best_candidates()
         window_share: None,
         ms1: None,
         detection: None,
+        fragment_isotope: None,
     };
     let evidence = vec![
         vec![fragment(90, true, true), fragment(0, false, false)],

@@ -10,6 +10,7 @@ use crate::peak_group_scoring::core::CoreFeatures;
 use crate::peak_group_scoring::detection::DetectionFeatures;
 use crate::peak_group_scoring::feature_block::FeatureBlock;
 use crate::peak_group_scoring::feature_set::{FeatureBlockId, FeatureSet};
+use crate::peak_group_scoring::fragment_isotope::FragmentIsotopeFeatures;
 use crate::peak_group_scoring::ion_coverage::IonCoverageFeatures;
 use crate::peak_group_scoring::library_agreement::LibraryAgreementFeatures;
 use crate::peak_group_scoring::ms1::Ms1Features;
@@ -26,6 +27,7 @@ pub struct CandidateFeature {
     pub core: CoreFeatures,
     pub ion_coverage: Option<IonCoverageFeatures>,
     pub library_agreement: Option<LibraryAgreementFeatures>,
+    pub fragment_isotope: Option<FragmentIsotopeFeatures>,
     pub window_share: Option<WindowShareFeatures>,
     pub ms1: Option<Ms1Features>,
     pub detection: Option<DetectionFeatures>,
@@ -48,6 +50,9 @@ impl CandidateFeature {
             FeatureBlockId::IonCoverage => self.ion_coverage.map(|features| features.values()),
             FeatureBlockId::LibraryAgreement => {
                 self.library_agreement.map(|features| features.values())
+            }
+            FeatureBlockId::FragmentIsotope => {
+                self.fragment_isotope.map(|features| features.values())
             }
             FeatureBlockId::WindowShare => self.window_share.map(|features| features.values()),
             FeatureBlockId::Ms1 => self.ms1.map(|features| features.values()),

@@ -59,9 +59,10 @@ result. If you give the same candidates in a different order, the same candidate
 
 # Algorithm
 
-**1. Assign each candidate to an isolation window.** `cycle` gives the m/z range of each
-window. A candidate belongs to the window that contains its `precursor_mz`. Candidates in
-different windows never compete, because they cannot share fragment signal.
+**1. Assign each candidate to a window group.** `cycle` gives the m/z range of each
+window. The window group of a candidate is the set of windows that contain its
+`precursor_mz` (`crate::window_groups`). Without overlap, this is one window; the overlap of
+two windows is a group of its own. Candidates in different groups never compete.
 
 ```text
   m/z →   [400, 425)      [425, 450)      [450, 475)
@@ -105,7 +106,8 @@ the comparisons are sequential, because of the order rule above.
 - The retention time tolerance and the ppm tolerance are exclusive (`<`). The threshold for
   shared ions is inclusive (`>= 3`).
 - Window limits are half-open, `[lower, upper)`.
-- If no window contains a precursor m/z, the precursor gets window 0. It then competes with
-  the candidates of window 0. This occurs only if the m/z is outside the acquisition range.
+- If no window contains a precursor m/z, the precursor competes only with the other
+  candidates outside all windows. This occurs only if the m/z is outside the acquisition
+  range.
 - Each fragment range must be inside `fragment_mz`. A range outside `fragment_mz` is an
   error.

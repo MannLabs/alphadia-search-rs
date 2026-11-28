@@ -80,7 +80,7 @@ impl DIAData {
     pub fn get_valid_observations(&self, precursor_mz: f32) -> Vec<usize> {
         let mut valid_observations = Vec::new();
         for (i, obs) in self.quadrupole_observations.iter().enumerate() {
-            if obs.isolation_window[0] <= precursor_mz && obs.isolation_window[1] >= precursor_mz {
+            if obs.isolation_window[0] <= precursor_mz && obs.isolation_window[1] > precursor_mz {
                 valid_observations.push(i);
             }
         }

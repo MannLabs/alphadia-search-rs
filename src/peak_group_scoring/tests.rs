@@ -1432,12 +1432,12 @@ fn test_fitted_spread_is_zero_if_the_xic_rows_do_not_match_the_fragments() {
 
 #[cfg(test)]
 fn window_share_entry(
-    window: usize,
-    apex_cycle: usize,
+    quadrupole_observation_idx: u32,
+    apex_cycle: u32,
     frac: f32,
 ) -> super::window_share::WindowShareEntry {
     super::window_share::WindowShareEntry {
-        window,
+        quadrupole_observation_idx,
         apex_cycle,
         frac,
     }
@@ -1481,72 +1481,91 @@ fn test_apex_window_signal_frac_uses_the_apex_column() {
 }
 
 #[test]
-fn test_calculate_window_share_features_reads_the_window_at_the_apex_cycle() {
-    use super::window_share::calculate_window_share_features;
-    // XIC columns are cycles 10..13, apex at cycle 11; windows 0 and 1 contribute
+fn test_cycle_intensity_sums_adds_all_slices_per_cycle() {
+    use super::window_share::cycle_intensity_sums;
+    use crate::quadrupole_observation::QuadrupoleObservation;
+
+    let mut quadrupole_observation =
+        QuadrupoleObservation::new_with_capacity([100.0, 150.0], 3, 2, 4);
+    quadrupole_observation.add_peak_data(0, 1.0);
+    quadrupole_observation.add_peak_data(2, 2.0);
+    quadrupole_observation.finalize_slice();
+    quadrupole_observation.add_peak_data(0, 3.0);
+    quadrupole_observation.add_peak_data(1, 4.0);
+    quadrupole_observation.finalize_slice();
+
+    assert_eq!(
+        cycle_intensity_sums(&quadrupole_observation),
+        vec![4.0, 4.0, 2.0]
+    );
+}
+
+#[test]
+fn test_window_share_entry_reads_the_quadrupole_observations_at_the_apex_cycle() {
+    use super::window_share::window_share_entry;
+    // XIC columns are cycles 10..13, apex at cycle 11; quadrupole observations 0 and 1 contribute
     let profile = [0.2, 1.0, 0.3];
     let xic = arr2(&[[1.0, 4.0, 1.0], [0.0, 6.0, 0.0]]);
-    let mut window_intensities = vec![vec![0.0; 20]; 3];
-    window_intensities[0][11] = 30.0;
-    window_intensities[1][11] = 10.0;
-    window_intensities[2][11] = 1000.0;
+    let mut cycle_intensities = vec![vec![0.0; 20]; 3];
+    cycle_intensities[0][11] = 30.0;
+    cycle_intensities[1][11] = 10.0;
+    cycle_intensities[2][11] = 1000.0;
 
-    let (features, entry) =
-        calculate_window_share_features(&xic, &profile, 10, 12, &[0, 1], &window_intensities);
+    let entry = window_share_entry(&xic, &profile, 10, 12, &[0, 1], &cycle_intensities);
 
-    assert_close(features.apex_window_signal_frac, 0.25);
-    assert_eq!(features.apex_window_signal_frac_rank, 0.0);
-    assert_eq!(entry.window, 0);
+    assert_eq!(entry.quadrupole_observation_idx, 0);
     assert_eq!(entry.apex_cycle, 11);
     assert_close(entry.frac, 0.25);
 }
 
 #[test]
-fn test_calculate_window_share_features_without_signal_uses_the_cycle_center() {
-    use super::feature_block::FeatureBlock;
-    use super::window_share::calculate_window_share_features;
+fn test_window_share_entry_without_signal_uses_the_cycle_center() {
+    use super::window_share::window_share_entry;
     let xic = arr2(&[[0.0, 0.0, 0.0]]);
 
-    let (features, entry) =
-        calculate_window_share_features(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[]);
+    let entry = window_share_entry(&xic, &[0.0, 0.0, 0.0], 10, 12, &[], &[]);
 
     assert_eq!(entry.apex_cycle, 12);
-    assert_eq!(entry.window, usize::MAX);
-    for value in features.values() {
-        assert!(value.is_finite());
-    }
+    assert_eq!(entry.quadrupole_observation_idx, u32::MAX);
+    assert_eq!(entry.frac, 0.0);
 }
 
 #[test]
-fn test_window_share_context_compares_within_window_and_cycle_radius() {
-    use super::window_share::window_share_context;
+fn test_window_share_features_compare_within_quadrupole_observation_and_cycle_radius() {
+    use super::window_share::window_share_features;
     let entries = [
         window_share_entry(0, 10, 0.1),
         window_share_entry(0, 11, 0.3),
         window_share_entry(0, 12, 0.2),
         // too far in cycles from the first
         window_share_entry(0, 20, 0.9),
-        // other window
+        // other quadrupole observation
         window_share_entry(1, 10, 0.5),
     ];
 
-    let context = window_share_context(&entries, 1);
+    let features = window_share_features(&entries, 1);
 
+    for (feature, entry) in features.iter().zip(&entries) {
+        assert_eq!(feature.apex_window_signal_frac, entry.frac);
+    }
     // first: one neighbour (0.3 at cycle 11), which is higher
-    assert_close(context[0].0, 0.0);
+    assert_close(features[0].apex_window_signal_frac_rank, 0.0);
     // second: neighbours 0.1 and 0.2, both lower
-    assert_close(context[1].0, 1.0);
-    assert_close(context[1].1, (0.3 - 0.2) / (2.0f32 / 300.0).sqrt());
-    // alone in its window or cycle range
-    assert_close(context[3].0, 0.5);
-    assert_close(context[3].1, 0.0);
-    assert_close(context[4].0, 0.5);
+    assert_close(features[1].apex_window_signal_frac_rank, 1.0);
+    assert_close(
+        features[1].apex_window_signal_frac_zscore,
+        (0.3 - 0.2) / (2.0f32 / 300.0).sqrt(),
+    );
+    // alone in its quadrupole observation or cycle range
+    assert_close(features[3].apex_window_signal_frac_rank, 0.5);
+    assert_close(features[3].apex_window_signal_frac_zscore, 0.0);
+    assert_close(features[4].apex_window_signal_frac_rank, 0.5);
 }
 
 #[test]
-fn test_window_share_context_counts_ties_half() {
-    use super::window_share::window_share_context;
-    let context = window_share_context(
+fn test_window_share_features_count_ties_half() {
+    use super::window_share::window_share_features;
+    let features = window_share_features(
         &[
             window_share_entry(0, 5, 0.2),
             window_share_entry(0, 5, 0.2),
@@ -1555,8 +1574,45 @@ fn test_window_share_context_counts_ties_half() {
         0,
     );
 
-    assert_close(context[0].0, 0.75);
-    assert_close(context[2].0, 0.0);
+    assert_close(features[0].apex_window_signal_frac_rank, 0.75);
+    assert_close(features[2].apex_window_signal_frac_rank, 0.0);
+}
+
+#[test]
+fn test_apply_cross_candidate_features_sets_the_whole_window_share_block() {
+    use super::cross_candidate::{apply_cross_candidate_features, CandidateContext};
+    use super::feature_set::FeatureSet;
+    use super::features::CandidateFeature;
+    use super::ion_coverage::IonCoverageFeatures;
+    let candidate = || CandidateFeature {
+        precursor_idx: 0,
+        rank: 0,
+        core: Default::default(),
+        ion_coverage: Some(IonCoverageFeatures::default()),
+        library_agreement: None,
+        window_share: None,
+        ms1: None,
+        detection: None,
+    };
+    let mut features = vec![candidate(), candidate()];
+    let contexts = vec![
+        CandidateContext {
+            window_share: Some(window_share_entry(0, 5, 0.1)),
+            ..Default::default()
+        },
+        CandidateContext {
+            window_share: Some(window_share_entry(0, 5, 0.3)),
+            ..Default::default()
+        },
+    ];
+
+    apply_cross_candidate_features(FeatureSet::Full, 12, &mut features, contexts);
+
+    let low = features[0].window_share.unwrap();
+    let high = features[1].window_share.unwrap();
+    assert_close(low.apex_window_signal_frac, 0.1);
+    assert_close(low.apex_window_signal_frac_rank, 0.0);
+    assert_close(high.apex_window_signal_frac_rank, 1.0);
 }
 
 #[test]
@@ -2204,4 +2260,56 @@ mod feature_sets {
             }
         });
     }
+}
+
+#[test]
+fn test_apply_cross_candidate_features_fits_noise_model_on_non_best_candidates() {
+    use super::cross_candidate::{apply_cross_candidate_features, CandidateContext};
+    use super::feature_set::FeatureSet;
+    use super::features::CandidateFeature;
+    use super::ion_coverage::{num_ion_classes, IonCoverageFeatures, IonEvidence, IonNoiseModel};
+    use rayon::prelude::*;
+    let fragment = |bin: u8, hit: bool, positive: bool| IonEvidence {
+        class: 0,
+        bin,
+        hit,
+        positive,
+        library_share: 0.5,
+    };
+    let candidate = |rank: usize| CandidateFeature {
+        precursor_idx: 0,
+        rank,
+        core: Default::default(),
+        ion_coverage: Some(IonCoverageFeatures::default()),
+        library_agreement: None,
+        window_share: None,
+        ms1: None,
+        detection: None,
+    };
+    let evidence = vec![
+        vec![fragment(90, true, true), fragment(0, false, false)],
+        vec![fragment(10, true, true), fragment(0, false, false)],
+        vec![fragment(90, true, true), fragment(0, false, false)],
+    ];
+    let mut features = vec![candidate(0), candidate(1), candidate(1)];
+    let contexts = evidence
+        .iter()
+        .map(|ion_evidence| CandidateContext {
+            ion_evidence: ion_evidence.clone(),
+            window_share: Some(window_share_entry(0, 0, 0.0)),
+        })
+        .collect();
+
+    apply_cross_candidate_features(FeatureSet::Full, 12, &mut features, contexts);
+
+    // the best candidate (rank 0) is scored by the model but not part of its fit
+    let model = IonNoiseModel::fit(
+        evidence[1..].par_iter().map(|e| e.as_slice()),
+        num_ion_classes(12),
+    );
+    for (feature, ion_evidence) in features.iter().zip(&evidence) {
+        let ion_fisher_lib = feature.ion_coverage.unwrap().ion_fisher_lib;
+        assert_eq!(ion_fisher_lib, model.fisher(ion_evidence));
+    }
+    assert!(features[0].ion_coverage.unwrap().ion_fisher_lib > 0.0);
 }

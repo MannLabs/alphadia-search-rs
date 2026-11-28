@@ -134,16 +134,6 @@ impl crate::traits::QuadrupoleObservationTrait for QuadrupoleObservation {
         self.isolation_window
     }
 
-    fn cycle_intensity_sums(&self) -> Vec<f32> {
-        let mut sums = vec![0.0; self.num_cycles];
-        for (&cycle, &intensity) in self.cycle_indices.iter().zip(&self.intensities) {
-            if let Some(sum) = sums.get_mut(cycle as usize) {
-                *sum += intensity;
-            }
-        }
-        sums
-    }
-
     fn fill_xic_slice(
         &self,
         mz_index: &crate::mz_index::MZIndex,

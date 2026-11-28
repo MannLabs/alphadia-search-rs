@@ -333,7 +333,7 @@ pub fn calculate_ms1_features<T: DIADataTrait>(
         .iter()
         .map(|&obs| dia_data.cycle_position(obs))
         .collect();
-    let windows = &observation.contributing_obs_indices;
+    let windows = &observation.quadrupole_observation_indices;
     let fragment_position = if windows.is_empty() {
         0.0
     } else {
